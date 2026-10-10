@@ -39,7 +39,7 @@ def npc_table():
         for n in ET.parse(f).getroot().iter("npc"):
             ai = n.find("ai")
             npcs[int(n.get("id"))] = dict(level=int(n.get("level", "0")), type=n.get("type"), name=n.get("name"),
-                                         aggro=ai is not None and ai.get("isAggressive") == "true")
+                                         aggro=ai is not None and int(ai.get("aggroRange", "0")) > 0 and ai.get("isAggressive") != "false")
     return npcs
 
 def inside(poly, x, y):

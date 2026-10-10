@@ -309,6 +309,7 @@ public final class Director {
         if (g.indoor()) {
             t *= c.indoorFactor();
         }
+        t *= 1 - (0.5 * Math.max(0, Math.min(1, g.aggressive()))); // aggressive grounds: fewer (bots have no potions yet)
         return Math.max(1, (int) Math.round(t));
     }
 

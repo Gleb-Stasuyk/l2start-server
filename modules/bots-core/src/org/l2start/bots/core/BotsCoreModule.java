@@ -364,8 +364,38 @@ public final class BotsCoreModule implements GameModule {
         }
         r.died();
         ctx.metrics().counter("deaths").inc();
+        if (director != null) {
+            logDeath(r, e.getAttacker());
+        }
         brains.post(r, new BotEvent.Died(e.getAttacker() == null ? 0 : e.getAttacker().getObjectId()));
         scheduleReturn(r);
+    }
+
+    private long deathLogWindow;
+    private int deathLogs;
+
+    /** Director mode: why bots die (at most 10 lines a minute): level, order, killer, the last actions of the brain. */
+    private synchronized void logDeath(BotRecord r, Creature killer) {
+        final long now = System.currentTimeMillis();
+        if ((now - deathLogWindow) > 60_000) {
+            deathLogWindow = now;
+            deathLogs = 0;
+        }
+        if (deathLogs++ >= 10) {
+            return;
+        }
+        final Player p = r.player();
+        final StringBuilder sb = new StringBuilder("died: ").append(r.name()).append(" lv ").append(p == null ? 0 : p.getLevel()).append(" class ").append(p == null ? 0 : p.getPlayerClass().getId())
+            .append(", order ").append(r.assignment()).append(", killer ").append(killer == null ? "-" : killer.getName() + " lv " + killer.getLevel())
+            .append(p == null ? "" : " at " + p.getX() + "," + p.getY() + "," + p.getZ()).append(", last:");
+        final org.l2start.bots.runtime.BotSlot slot = brains.slot(r);
+        if (slot != null) {
+            final List<org.l2start.bots.runtime.ActionLog.Entry> l = slot.log().entries();
+            for (int i = Math.min(6, l.size()) - 1; i >= 0; i--) { // newest first in the log: oldest of the 6 first here
+                sb.append(" | ").append(l.get(i).text());
+            }
+        }
+        ctx.log().info(sb.toString());
     }
 
     /** Lies dead DeathReturnMin..Max, then "To village" (like a player reading the death dialog). */
