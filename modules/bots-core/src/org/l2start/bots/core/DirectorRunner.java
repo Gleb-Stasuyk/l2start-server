@@ -107,7 +107,8 @@ public final class DirectorRunner {
             tickNanos = System.nanoTime() - start;
             return; // nobody to show anything to: zero cost
         }
-        final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, DirectorRunner::ground);
+        final boolean needGeo = ctx.config().getBoolean("RequireGeodata");
+        final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, p -> ground(p, needGeo));
         for (Director.Command c : cmds) {
             switch (c) {
                 case Director.Command.Materialize m -> materialize(m);
@@ -118,12 +119,7 @@ public final class DirectorRunner {
                         module.brains().wake(r);
                     }
                 }
-                case Director.Command.Logout o -> {
-                    final BotRecord r = byId(o.botId());
-                    if ((r != null) && busy.add(r.botId())) {
-                        module.brains().async("leave " + r.name(), () -> logout(r, o.why()));
-                    }
-                }
+                case Director.Command.Logout o -> requestLogout(byId(o.botId()), o.why());
             }
         }
         tickNanos = System.nanoTime() - start;
@@ -152,11 +148,14 @@ public final class DirectorRunner {
         return l;
     }
 
-    /** A walkable point with geodata near {@code approx}, at the right height (null = no geodata there). */
-    static Pos ground(Pos approx) {
+    /**
+     * A walkable point with geodata near {@code approx}, at the right height (null = no geodata there). Without
+     * RequireGeodata (smoke image: no geodata at all) the catalogue height is taken as it is.
+     */
+    static Pos ground(Pos approx, boolean requireGeo) {
         final GeoEngine geo = GeoEngine.getInstance();
         if (!geo.hasGeo(approx.x(), approx.y())) {
-            return null;
+            return requireGeo ? null : approx;
         }
         final int z = geo.getHeight(approx.x(), approx.y(), approx.z());
         if (Math.abs(z - approx.z()) > 2000) {
@@ -210,6 +209,13 @@ public final class DirectorRunner {
                 }
             }
         });
+    }
+
+    /** Take a bot out (director decision, or its brain left by the gatekeeper). */
+    public void requestLogout(BotRecord r, String why) {
+        if ((r != null) && r.inWorld() && busy.add(r.botId())) {
+            module.brains().async("leave " + r.name(), () -> logout(r, why));
+        }
     }
 
     private void logout(BotRecord r, String why) {

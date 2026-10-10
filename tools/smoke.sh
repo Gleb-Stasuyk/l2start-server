@@ -69,7 +69,8 @@ wait_game() { # wait_game healthy|exited TIMEOUT_S
 
 start_game() { # start_game PROFILE DISABLE_ALL FIXTURES(on|off) [BOTS_CREATE BOTS_SPAWN [BRAIN]]
   export SMOKE_PROFILE=$1 SMOKE_DISABLE_ALL=$2 SMOKE_FIXTURES=$3 SMOKE_BOTS_CREATE=${4:-0} SMOKE_BOTS_SPAWN=${5:-0} SMOKE_BOTS_BRAIN=${6:-basic} SMOKE_BOTS_STATS=20s
-  if [ "${4:-0}" != 0 ]; then export SMOKE_BOTS_GEO=false SMOKE_BOTS_SEED=12345; else export SMOKE_BOTS_GEO=true SMOKE_BOTS_SEED=0; fi
+  export SMOKE_BOTS_PRESENCE=${SMOKE_BOTS_PRESENCE:-director} SMOKE_BOTS_ANCHORS=${SMOKE_BOTS_ANCHORS:-}
+  if [ "${4:-0}" != 0 ] || [ -n "$SMOKE_BOTS_ANCHORS" ]; then export SMOKE_BOTS_GEO=false SMOKE_BOTS_SEED=12345; else export SMOKE_BOTS_GEO=true SMOKE_BOTS_SEED=0; fi
   "${C[@]}" up -d --no-build --force-recreate --no-deps game >/dev/null 2>&1 || "${C[@]}" up -d --no-build --force-recreate game
 }
 
@@ -205,13 +206,16 @@ check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bot
 check "bots-brain-basic: hunting grounds loaded" grep -qE "Module\[bots-brain-basic\]: brain 'basic' registered: [0-9]+ hunting grounds around 5 starting villages" "$OUT/6-solo.log"
 check "runtime started" grep -qE 'Module\[bots-core\]: runtime: [0-9]+ shards, wave 100 ms, budget 25 ms' "$OUT/6-solo.log"
 check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-core\]: ready: 0 bots known .*geodata in starting villages: NO' "$OUT/6-solo.log"
-check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity mod_bots_core_persona mod_bots_core_state "
+check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity mod_bots_core_persona mod_bots_core_progress mod_bots_core_state "
+check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
+check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "bots-core: no bot created by default" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity")" = 0
 real_modules "$OUT/6-solo.log" 6
 check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
 
 # ---- 7 bots: create + enter the world without a client (smoke image has no geodata -> RequireGeodata=false)
-say "-- 7 bots (AutoCreate=20, AutoSpawn=10)"
+say "-- 7 bots (AutoCreate=20, AutoSpawn=10, Presence=manual)"
+export SMOKE_BOTS_PRESENCE=manual
 BOTCHARS="SELECT char_id FROM mod_bots_core_identity"
 wait_log() { # wait_log REGEX TIMEOUT_S
   local t=0; while [ $t -lt "$2" ]; do gamelog | grep -qE "$1" && return 0; sleep 3; t=$((t + 3)); done; return 1
@@ -267,6 +271,31 @@ sql "$POS" > "$OUT/7-pos-after.txt"
 cut -f1 "$OUT/7-pos-before.txt" > "$OUT/7-pos-names.txt"
 grep -F -w -f "$OUT/7-pos-names.txt" "$OUT/7-pos-after.txt" > "$OUT/7-pos-after-same.txt"
 check "same places: positions saved at the 2nd stop == positions at the 1st stop (>= 8 of 10 bots alive)" bash -c "diff -q \"\$0\" \"\$1\" && test \$(wc -l < \"\$0\") -ge 8" "$OUT/7-pos-before.txt" "$OUT/7-pos-after-same.txt"
+
+# ---- 8 presence director: two test players (Anchors) - one in Giran, one on a level 39-40 ground (Field of Silence)
+say "-- 8 presence director (Anchors: Giran + Field of Silence)"
+docker stop -t 120 l2s-game >/dev/null 2>&1 || true
+export SMOKE_BOTS_PRESENCE=director SMOKE_BOTS_ANCHORS="82800;148500;-3450,88659;189101;-3610"
+start_game solo false off
+if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
+check "director: anchors 2, old in-world marks cleared" wait_log 'Module\[bots-core\]: presence: director \([0-9]+ old in-world marks cleared, anchors 2\)' 120
+check "director: 2 players in 2 clusters, bots brought in" wait_log 'DIRECTOR players=2 clusters=2 .* materialized=([4-9]|[1-9][0-9])' 300
+check "director bots hunt (attacks)" wait_log 'BOTS world=[1-9][0-9]* .* attacks=[1-9]' 300
+gamelog > "$OUT/8-director.log"
+grep -E 'DIRECTOR players=|BOTS world=' "$OUT/8-director.log" | tail -4 | tee -a "$SUMMARY" >/dev/null
+check "director: no bots-core errors" bash -c "! grep -qE 'Module\[bots-(core|brain-basic)\]: .*(ERROR|cannot)|Platform: module bots-(core|brain-basic) |brain of ' \"\$0\"" "$OUT/8-director.log"
+docker stop -t 120 l2s-game >/dev/null
+docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
+check "director: bots logged out on shutdown, nobody marked to come back" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_state WHERE in_world<>0")" = 0
+BOTS8="SELECT i.char_id FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id"
+sql "SELECT i.char_name, c.level, c.classid, g.level_base, (SELECT COUNT(*) FROM items it WHERE it.owner_id=c.charId AND it.loc='PAPERDOLL') FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id JOIN characters c ON c.charId=i.char_id ORDER BY i.bot_id" > "$OUT/8-bots.txt"
+cat "$OUT/8-bots.txt" | tee -a "$SUMMARY" >/dev/null
+check "director: >= 4 personas got a level of their zone (>= 30)" test "$(sql "SELECT COUNT(*) FROM characters WHERE level >= 30 AND charId IN ($BOTS8)")" -ge 4
+check "director: level >= 20 = a profession (no starting class)" test "$(sql "SELECT COUNT(*) FROM characters WHERE level >= 20 AND classid IN (0,10,18,25,31,38,44,49,53) AND charId IN ($BOTS8)")" = 0
+check "director: level >= 20 bots wear zone gear (>= 4 items)" test "$(sql "SELECT COUNT(*) FROM characters c WHERE c.level >= 20 AND c.charId IN ($BOTS8) AND (SELECT COUNT(*) FROM items it WHERE it.owner_id=c.charId AND it.loc='PAPERDOLL') < 4")" = 0
+check "director: loot vanished (nothing in bags but arrows)" test "$(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345) AND owner_id IN ($BOTS8)")" = 0
+check "director: bots hidden (online=0)" test "$(sql "SELECT COUNT(*) FROM characters WHERE online<>0 AND charId IN ($BOTS8)")" = 0
+unset SMOKE_BOTS_ANCHORS
 
 say "-- cleanup"
 cleanup

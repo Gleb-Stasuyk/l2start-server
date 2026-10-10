@@ -18,7 +18,7 @@
   10 исключений за 10 мин → бот выходит из мира, причина в `//bots info`. Волна и шард не падают.
 - `//bots pause` останавливает все шарды (и сбрасывает текущие интенции ботов), `resume` — продолжает.
 
-## LOD (3c — упрощённый, полный population manager — 3e)
+## LOD (3c; в 3e «живыми игроками» для LOD считаются и `Anchors` режиссёра)
 | LOD | Когда | Тик |
 |---|---|---|
 | ACTIVE | живой (не бот) игрок ближе `PromoteRadius` (3000) | 0,3–1 с |
@@ -42,7 +42,9 @@
   деревни (`//bots spawn N here`), охотится у неё; бот далеко от всех деревень просто гуляет на месте.
 - `returnToTown()` — мёртвый: стоковое «В деревню»; живой: как свиток возврата (`TeleportWhereType.TOWN`).
 - `Brain` (`tick`, `state`, `inCombat`, `stop`), `BrainFactory` (`id`, `create(BotInfo)`), `BrainContext`
-  (`info`, `world`, `act`, `rnd`, `now`, `blackboard`, `reactionDelay`, `note`).
+  (`info`, `world`, `act`, `rnd`, `now`, `blackboard`, `reactionDelay`, `note`, `assignment` — приказ режиссёра
+  присутствия 3e: `Assignment` TOWN/HUNT/LEAVE_RUN/LEAVE_GK с местом, точками и выходом; `null` без режиссёра).
+- `logout()` в режиме режиссёра идёт через него: добыча исчезает, уровень сохраняется в `mod_bots_core_progress`.
 - Сервис `BrainRegistry`: модуль с зависимостью `bots-core` делает
   `ctx.services().require(BrainRegistry.class).register(factory)` и `unregister(id)` в `ctx.cleanup`.
   Боты получают мозг с id из ключа `Brain` (по умолчанию `basic`).

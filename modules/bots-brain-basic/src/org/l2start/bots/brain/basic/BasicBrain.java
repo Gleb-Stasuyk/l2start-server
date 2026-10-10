@@ -6,12 +6,14 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.l2start.bots.api.ActionResult;
+import org.l2start.bots.api.Assignment;
 import org.l2start.bots.api.Actuators;
 import org.l2start.bots.api.BotEvent;
 import org.l2start.bots.api.Brain;
 import org.l2start.bots.api.BrainContext;
 import org.l2start.bots.api.DropView;
 import org.l2start.bots.api.NpcView;
+import org.l2start.bots.api.PlayerView;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
 import org.l2start.bots.api.SkillView;
@@ -22,6 +24,12 @@ import org.l2start.bots.api.WorldView;
  * walk to a hunting ground -> kill monsters of about its level -> rest -> die -> back in town -> again", not combat
  * realism. Warriors hit, mystics use their first offensive magic skill and the staff when MP is low. No potions,
  * soulshots or buffs (phase 4). Uses only org.l2start.bots.api: tested offline on FakeWorld.
+ * <p>
+ * Step 3e: when the presence director gives an order ({@link BrainContext#assignment()}), the bot follows it instead
+ * (plan section 20.5): TOWN = errands between gatekeeper, shops, warehouse and trainers, standing in groups, sitting;
+ * HUNT = hunt on that ground, move between its spawns, rest; LEAVE_RUN / LEAVE_GK = drop everything and run off
+ * (out of sight) or to the gatekeeper and "teleport" (log out there). Never a monster a real player fights or stands
+ * next to. Without an order (Presence = manual) it lives as in step 3d.
  */
 public final class BasicBrain implements Brain {
     public enum Phase {
@@ -62,6 +70,14 @@ public final class BasicBrain implements Brain {
     private boolean far;
     private double restTo;
     private final Map<Integer, Long> blacklist = new HashMap<>();
+    /** Monsters this close to a real player are theirs (presence rule 6). */
+    static final int PLAYER_MOB_RADIUS = 700;
+    // presence director orders
+    private long orderSeq = -1;
+    private Pos errand;
+    private String errandWhat = "";
+    private long arrivedAt;
+    private long leaveAt;
 
     public BasicBrain(int botId, LevelZones zones, List<Village> villages, MobClaims claims) {
         this.botId = botId;
@@ -100,7 +116,8 @@ public final class BasicBrain implements Brain {
         final WorldView w = ctx.world();
         final SelfView me = w.self();
         final long now = ctx.now();
-        if (!started) {
+        final Assignment order = ctx.assignment();
+        if (!started && (order == null)) {
             start(ctx, me, now);
         }
         boolean revived = false;
@@ -128,6 +145,15 @@ public final class BasicBrain implements Brain {
                 endFight();
             }
             return 2000; // bots-core brings it back to town after 5-40 s
+        }
+        if (order != null) {
+            if (phase == Phase.DEAD) {
+                enter(ctx, Phase.TOWN_IDLE, "revived"); // in town now: the director sends it away
+            }
+            if (me.teleporting()) {
+                return 500;
+            }
+            return presence(ctx, w, me, now, order, attacker(w, me));
         }
         if (phase == Phase.DEAD || (revived && (fightId == 0) && (phase != Phase.TOWN_IDLE))) {
             // back on its feet in town: a short pause, then hunting again
@@ -415,6 +441,9 @@ public final class BasicBrain implements Brain {
             if (blacklist.containsKey(n.objectId()) || claims.takenByOther(n.objectId(), botId, now)) {
                 continue;
             }
+            if (nearRealPlayer(w, n)) {
+                continue; // a real player's monster: never steal it
+            }
             if (!w.geo().canMoveTo(me.pos(), n.pos())) {
                 continue;
             }
@@ -425,6 +454,248 @@ public final class BasicBrain implements Brain {
             }
         }
         return best;
+    }
+
+    /** A real (not bot) player stands next to this monster, or the monster fights one. */
+    static boolean nearRealPlayer(WorldView w, NpcView n) {
+        for (PlayerView p : w.players()) {
+            if (!p.bot() && ((p.pos().distance2d(n.pos()) <= PLAYER_MOB_RADIUS) || (p.targetId() == n.objectId()) || (n.targetId() == p.objectId()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------ presence director orders
+
+    private long presence(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (a.seq() != orderSeq) {
+            orderSeq = a.seq();
+            newOrder(ctx, me, now, a);
+        }
+        return switch (a.kind()) {
+            case LEAVE_RUN, LEAVE_GK -> leaving(ctx, w, me, now, a);
+            case TOWN -> town(ctx, w, me, now, a, attacker);
+            case HUNT -> hunt(ctx, w, me, now, a, attacker);
+        };
+    }
+
+    private void newOrder(BrainContext ctx, SelfView me, long now, Assignment a) {
+        ctx.note("order " + a);
+        errand = null;
+        arrivedAt = 0;
+        stuck = 0;
+        detourSide = 0;
+        nextIdleAction = now + ctx.reactionDelay();
+        if (a.leaving()) {
+            endFight();
+            ctx.act().stop();
+            standIfSitting(ctx, me);
+            enter(ctx, Phase.LEVEL, a.kind() == Assignment.Kind.LEAVE_GK ? "to the gatekeeper" : "running off");
+            leaveAt = 0;
+        } else if (a.kind() == Assignment.Kind.HUNT) {
+            zone = new LevelZone(a.place(), "", a.center(), a.radius(), a.minLevel(), a.maxLevel(), a.spots().size(), false, java.util.Set.of());
+            enter(ctx, Phase.LEVEL, "hunt " + a.place());
+        } else {
+            zone = null;
+            enter(ctx, Phase.TOWN_IDLE, "town " + a.place());
+        }
+    }
+
+    /** Run to the exit; at the gatekeeper "teleport" (log out) after a moment, else the director logs it out unseen. */
+    private long leaving(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a) {
+        standIfSitting(ctx, me);
+        final Pos exit = a.exit();
+        if ((exit == null) || (me.pos().distance2d(exit) <= 150)) {
+            if (arrivedAt == 0) {
+                arrivedAt = now;
+                final boolean gk = a.kind() == Assignment.Kind.LEAVE_GK;
+                leaveAt = now + (gk ? 2000 + ctx.rnd().nextInt(5000) : 120_000);
+                detail = gk ? "at the gatekeeper" : "out of sight";
+            }
+            if (now >= leaveAt) {
+                ctx.note(a.kind() == Assignment.Kind.LEAVE_GK ? "teleported away (logout at the gatekeeper)" : "logout");
+                ctx.act().logout();
+                return 5000;
+            }
+            return 1000;
+        }
+        detail = (a.kind() == Assignment.Kind.LEAVE_GK ? "to gk " : "away ") + (int) me.pos().distance2d(exit);
+        return walk(ctx, w, me, exit, now);
+    }
+
+    /** Errands in town: gatekeeper, shops, warehouse, trainers; stand in a group; sit; stroll. */
+    private long town(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if ((attacker != null) && !me.inPeaceZone()) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, attacker, now);
+        }
+        if (errand != null) {
+            if (me.pos().distance2d(errand) > 120) {
+                if ((now - nextIdleAction) > 120_000) {
+                    errand = null; // cannot get there: something else
+                } else {
+                    detail = "to " + errandWhat;
+                    return walk(ctx, w, me, errand, now);
+                }
+            } else {
+                errand = null;
+                detail = "at " + errandWhat;
+                nextIdleAction = now + 15_000 + ctx.rnd().nextInt(60_000);
+            }
+        }
+        if (now < nextIdleAction) {
+            return Math.max(500, Math.min(5000, nextIdleAction - now));
+        }
+        if (me.sitting()) {
+            ctx.act().stand();
+            nextIdleAction = now + 1500 + ctx.rnd().nextInt(3000);
+            detail = "stand";
+            return 2000;
+        }
+        final double r = ctx.rnd().nextDouble();
+        final List<Assignment.Anchor> points = new java.util.ArrayList<>();
+        for (Assignment.Anchor p : a.anchors()) {
+            if (!"restart".equals(p.kind()) && (p.pos().distance2d(me.pos()) < 4000)) {
+                points.add(p);
+            }
+        }
+        if ((r < 0.5) && !points.isEmpty()) {
+            final Assignment.Anchor p = points.get(ctx.rnd().nextInt(points.size()));
+            errand = around(ctx, w, p.pos(), 60, 160);
+            errandWhat = p.kind();
+            nextIdleAction = now; // the errand timer (gives up after 2 min)
+            detail = "to " + errandWhat;
+            return walk(ctx, w, me, errand, now);
+        }
+        if (r < 0.7) {
+            final List<PlayerView> others = new java.util.ArrayList<>();
+            for (PlayerView p : w.players()) {
+                if (!p.inCombat() && (p.distance() < 1500) && (p.distance() > 100)) {
+                    others.add(p);
+                }
+            }
+            if (!others.isEmpty()) {
+                final PlayerView p = others.get(ctx.rnd().nextInt(others.size()));
+                errand = around(ctx, w, p.pos(), 70, 140);
+                errandWhat = "group";
+                nextIdleAction = now;
+                detail = "to a group";
+                return walk(ctx, w, me, errand, now);
+            }
+        }
+        if (r < 0.85) {
+            if (ctx.act().sit().ok()) {
+                detail = "sit";
+            }
+            nextIdleAction = now + 30_000 + ctx.rnd().nextInt(90_000);
+            return 3000;
+        }
+        final Optional<Pos> p = w.geo().randomReachablePoint(me.pos(), 800, ctx.rnd());
+        if (p.isPresent() && ctx.act().moveTo(p.get()).ok()) {
+            detail = "stroll";
+        }
+        nextIdleAction = now + 8_000 + ctx.rnd().nextInt(20_000);
+        return 3000;
+    }
+
+    /** A reachable point min..max from {@code c} (not on top of the NPC or player). */
+    private static Pos around(BrainContext ctx, WorldView w, Pos c, int min, int max) {
+        for (int i = 0; i < 6; i++) {
+            final double ang = ctx.rnd().nextDouble() * Math.PI * 2;
+            final int r = min + ctx.rnd().nextInt((max - min) + 1);
+            final Pos p = new Pos(c.x() + (int) (Math.cos(ang) * r), c.y() + (int) (Math.sin(ang) * r), c.z());
+            if (w.geo().canMoveTo(c, p)) {
+                return new Pos(p.x(), p.y(), w.geo().height(p));
+            }
+        }
+        return c;
+    }
+
+    /** Hunt on the ordered ground: fight, loot, rest, move between its spawns (never next to a real player). */
+    private long hunt(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (phase == Phase.REST) {
+            return rest(ctx, w, me, now, attacker);
+        }
+        if (phase != Phase.LEVEL) {
+            enter(ctx, Phase.LEVEL, "hunt " + a.place());
+        }
+        if (me.sitting() && (fightId == 0) && (attacker == null)) {
+            ctx.act().stand();
+            return 1500;
+        }
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (attacker != null) {
+            return startFight(ctx, me, attacker, now);
+        }
+        if (now < lootUntil) {
+            final long d = loot(ctx, w, me);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (needsRest(me)) {
+            restTo = 80 + (ctx.info().patience() * 15);
+            enter(ctx, Phase.REST, String.format(java.util.Locale.ROOT, "hp %.0f%%, mp %.0f%%", me.hpPct(), me.mpPct()));
+            return rest(ctx, w, me, now, null);
+        }
+        final double toZone = me.pos().distance2d(a.center());
+        if (toZone < (a.radius() + 1500)) {
+            final NpcView mob = chooseMob(ctx, w, me, now);
+            if (mob != null) {
+                errand = null;
+                return startFight(ctx, me, mob, now);
+            }
+        }
+        if (toZone > a.radius() && (errand == null)) {
+            detail = "to " + a.place() + " " + (int) toZone;
+            return walk(ctx, w, me, a.center(), now);
+        }
+        // between spawns: another spot of the ground nobody (real) stands at, or around here
+        if ((errand != null) && (me.pos().distance2d(errand) > 200)) {
+            if (stuck >= 3) {
+                errand = null; // that spawn is hard to reach: search here
+                stuck = 0;
+            } else {
+                return walk(ctx, w, me, errand, now);
+            }
+        }
+        errand = null;
+        detail = "search " + a.place();
+        if (!me.moving() || checkStuck(me, now)) {
+            if (!a.spots().isEmpty() && (ctx.rnd().nextDouble() < 0.35)) {
+                final Pos spot = a.spots().get(ctx.rnd().nextInt(a.spots().size()));
+                if (!realPlayerNear(w, spot, 1200) && (spot.distance2d(me.pos()) > 300)) {
+                    errand = spot;
+                    detail = "to another spawn";
+                    return walk(ctx, w, me, spot, now);
+                }
+            }
+            final Optional<Pos> p = w.geo().randomReachablePoint(me.pos(), Math.min(a.radius(), 1200), ctx.rnd());
+            final Pos target = p.filter(x -> x.distance2d(a.center()) <= a.radius()).orElse(me.pos().toward(a.center(), 800));
+            ctx.act().moveTo(target);
+        }
+        return 2000 + ctx.rnd().nextInt(2000);
+    }
+
+    private static boolean realPlayerNear(WorldView w, Pos p, int radius) {
+        for (PlayerView o : w.players()) {
+            if (!o.bot() && (o.pos().distance2d(p) <= radius)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private long startFight(BrainContext ctx, SelfView me, NpcView mob, long now) {

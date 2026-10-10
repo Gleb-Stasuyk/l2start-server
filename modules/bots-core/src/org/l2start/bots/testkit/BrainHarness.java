@@ -51,7 +51,13 @@ public final class BrainHarness {
         @Override public Map<String, Object> blackboard() { return blackboard; }
         @Override public long reactionDelay() { return Math.max(200, Math.min(1200, Math.round(info.reactionMs() * (0.7 + (rnd.nextDouble() * 0.6))))); }
         @Override public void note(String text) { notes.add(clock.now() / 1000 + "s " + text); }
+        @Override public org.l2start.bots.api.Assignment assignment() { return assignment; }
     };
+
+    private volatile org.l2start.bots.api.Assignment assignment;
+
+    /** The presence director's order (null = none, manual mode). */
+    public void setAssignment(org.l2start.bots.api.Assignment a) { assignment = a; }
 
     /** Run for {@code ms} of game time. */
     public void run(long ms) {

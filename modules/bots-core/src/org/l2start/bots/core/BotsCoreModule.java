@@ -58,7 +58,7 @@ public final class BotsCoreModule implements GameModule {
         personas = buildPersonas(); // bad dictionary or weights: the module fails to enable with a clear message
         factory = new BotFactory(repo, registry, () -> personas, () -> seeds.nextLong());
         world = new BotWorld(repo, ctx.log());
-        brains = new BrainHost(ctx, registry, world, this::despawn);
+        brains = new BrainHost(ctx, registry, world, this::brainLogout);
         world.setListener(new BotWorld.Listener() {
             @Override
             public void entered(BotRecord r) {
@@ -511,6 +511,16 @@ public final class BotsCoreModule implements GameModule {
             scheduleReturn(r); // logged out dead (stock keeps it dead on login): back to town like after a death
         }
         return true;
+    }
+
+    /** A brain asked to log out: in director mode through the director (loot vanishes, level saved). */
+    private void brainLogout(BotRecord r) {
+        final DirectorRunner d = director;
+        if (d != null) {
+            d.requestLogout(r, "brain");
+        } else {
+            despawn(r);
+        }
     }
 
     /** Log out; it does not come back after a restart. */

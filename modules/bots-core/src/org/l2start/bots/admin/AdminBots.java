@@ -113,6 +113,24 @@ public final class AdminBots implements IAdminCommandHandler {
                     gm.sendMessage("Bot runtime " + ("pause".equals(sub) ? "paused: bots stand still (stock AI only)." : "resumed."));
                     core.ctx().log().info("runtime " + sub + "d by " + gm.getName());
                     return true;
+                case "director": {
+                    final org.l2start.bots.core.DirectorRunner d = core.director();
+                    if (d == null) {
+                        gm.sendMessage("Presence = manual: no director (module key Presence).");
+                        return true;
+                    }
+                    final String op = st.hasMoreTokens() ? st.nextToken().toLowerCase() : "";
+                    if ("pause".equals(op) || "resume".equals(op)) {
+                        d.setPaused("pause".equals(op));
+                        gm.sendMessage("Director " + op + ("pause".equals(op) ? "d: no bot comes or goes (bots in the world keep playing)." : "d."));
+                        core.ctx().log().info("director " + op + "d by " + gm.getName());
+                    }
+                    showDirector(gm, d);
+                    return true;
+                }
+                case "near":
+                    showNear(gm);
+                    return true;
                 case "goto": {
                     final BotRecord r = core.registry().byName(st.hasMoreTokens() ? st.nextToken() : "");
                     if ((r == null) || !r.inWorld()) {
@@ -123,7 +141,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -239,6 +257,8 @@ public final class AdminBots implements IAdminCommandHandler {
             sb.append("patience ").append(t.patience()).append(", skill ").append(t.skill()).append(" (reaction ").append(t.reactionMs()).append(" ms), chat ").append(t.chattiness()).append("<br>");
         }
         sb.append("Home ").append(r.homeX()).append(", ").append(r.homeY()).append(", ").append(r.homeZ()).append(", goal ").append(r.goal()).append(r.restore() ? ", back after restart" : "").append("<br><br>");
+        final org.l2start.bots.api.Assignment a = r.assignment();
+        sb.append("Order: ").append(a == null ? "none (manual)" : escape(a.toString())).append(", paper level ").append(r.paperLevel(System.currentTimeMillis())).append("<br>");
         sb.append("Deaths: ").append(r.deaths()).append(", whispers received: ").append(r.whispers()).append("<br>");
         if (r.trouble() != null) {
             sb.append("<font color=\"FF6666\">Last trouble: ").append(escape(r.trouble())).append("</font><br>");
@@ -313,6 +333,67 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("<td><button value=\"").append(paused ? "Resume" : "Pause").append("\" action=\"bypass -h admin_bots ").append(paused ? "resume" : "pause").append("\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
         sb.append("<td><button value=\"List\" action=\"bypass -h admin_bots list\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table>");
         sb.append("</body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    private void showDirector(Player gm, org.l2start.bots.core.DirectorRunner d) {
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: presence director</title><body>");
+        sb.append("<font color=\"LEVEL\">Director</font>").append(d.paused() ? " <font color=\"FF6666\">PAUSED</font>" : "").append("<br>");
+        sb.append("<font color=\"808080\">").append(escape(d.statsLine())).append("</font><br><br>");
+        sb.append("<table width=280><tr><td width=130>Place</td><td width=50>players</td><td width=50>bots</td><td width=50>target</td></tr>");
+        int n = 0;
+        for (org.l2start.bots.director.Director.PlaceState p : d.director().places()) {
+            if (n++ >= 20) {
+                break;
+            }
+            sb.append("<tr><td>").append(p.town() ? "<font color=\"LEVEL\">" + p.id() + "</font>" : p.id()).append("</td><td>").append(p.players()).append("</td><td>")
+                .append(p.present()).append(p.pending() > 0 ? "+" + p.pending() : "").append("</td><td>").append(p.target()).append("</td></tr>");
+        }
+        sb.append("</table><br><font color=\"LEVEL\">Last decisions</font><br>");
+        for (String line : d.director().decisions()) {
+            sb.append(escape(line)).append("<br>");
+        }
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "director");
+        button(sb, d.paused() ? "Resume" : "Pause", "director " + (d.paused() ? "resume" : "pause"));
+        button(sb, "Near me", "near");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    private void showNear(Player gm) {
+        final org.l2start.bots.core.DirectorRunner d = core.director();
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: around me</title><body>");
+        final org.l2start.bots.api.Pos me = new org.l2start.bots.api.Pos(gm.getX(), gm.getY(), gm.getZ());
+        if (d != null) {
+            final org.l2start.bots.director.WorldCatalog w = d.director().catalog();
+            final org.l2start.bots.director.WorldCatalog.Town t = w.townAt(me, d.director().config().townMargin());
+            sb.append("Town: ").append(t == null ? "-" : t.name() + " (lv " + t.minLevel() + "-" + t.maxLevel() + ", " + t.anchors().size() + " points)").append("<br>");
+            sb.append("Hunting grounds within ").append(d.director().config().groundReach()).append(":<br>");
+            int n = 0;
+            for (org.l2start.bots.director.WorldCatalog.Ground g : w.groundsNear(me, d.director().config().groundReach())) {
+                if (n++ >= 8) {
+                    break;
+                }
+                sb.append("&nbsp;").append(g.id()).append(" lv ").append(g.minLevel()).append("-").append(g.maxLevel()).append(", ").append(g.monsters()).append(" mobs, ")
+                    .append((int) g.center().distance2d(me)).append(" away").append(g.indoor() ? ", indoor" : "").append("<br>");
+            }
+        } else {
+            sb.append("Presence = manual: no director.<br>");
+        }
+        sb.append("<br><font color=\"LEVEL\">Bots within 6000</font><br>");
+        final long now = System.currentTimeMillis();
+        for (BotRecord r : core.registry().sorted()) {
+            final Player p = r.player();
+            if ((p == null) || (p.calculateDistance2D(gm) > 6000)) {
+                continue;
+            }
+            final org.l2start.bots.api.Assignment a = r.assignment();
+            sb.append("<a action=\"bypass -h admin_bots info ").append(r.name()).append("\">").append(r.name()).append("</a> lv ").append(p.getLevel()).append(", ")
+                .append((int) p.calculateDistance2D(gm)).append(" away, ").append(a == null ? "no order" : escape(a.toString())).append("<br>");
+        }
+        sb.append("<br><a action=\"bypass -h admin_bots director\">Director</a> <a action=\"bypass -h admin_bots list\">List</a></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 
