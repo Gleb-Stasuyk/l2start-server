@@ -134,6 +134,31 @@ public final class DirectorRunner {
         return null;
     }
 
+    /** Race of a starting class (0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf), -1 = not a starting class. */
+    static int race(int startClass) {
+        return switch (startClass) {
+            case 0, 10 -> 0;
+            case 18, 25 -> 1;
+            case 31, 38 -> 2;
+            case 44, 49 -> 3;
+            case 53 -> 4;
+            default -> -1;
+        };
+    }
+
+    /** A starting class of that race (fighter or mystic), -1 = any. */
+    static int startClass(int race) {
+        final boolean mystic = java.util.concurrent.ThreadLocalRandom.current().nextBoolean();
+        return switch (race) {
+            case 0 -> mystic ? 10 : 0;
+            case 1 -> mystic ? 25 : 18;
+            case 2 -> mystic ? 38 : 31;
+            case 3 -> mystic ? 49 : 44;
+            case 4 -> 53;
+            default -> -1;
+        };
+    }
+
     private List<Director.Candidate> available(int minLevel, int maxLevel, long now) {
         final List<Director.Candidate> l = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
@@ -142,7 +167,7 @@ public final class DirectorRunner {
             }
             final int lvl = r.paperLevel(now);
             if ((lvl >= minLevel) && (lvl <= maxLevel)) {
-                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout()));
+                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId())));
             }
         }
         return l;
@@ -176,7 +201,7 @@ public final class DirectorRunner {
                     if (module.active().size() >= ctx.config().getInt("MaxBots")) {
                         return;
                     }
-                    r = module.createOne(-1);
+                    r = module.createOne(startClass(m.race()));
                     if (r == null) {
                         return;
                     }

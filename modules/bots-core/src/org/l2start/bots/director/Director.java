@@ -32,7 +32,23 @@ public final class Director {
     }
 
     /** A persona that could enter: not in the world, its level now (paper or real, the higher). */
-    public record Candidate(int botId, int level, long lastLogout) {
+    /** @param race 0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf, -1 unknown */
+    public record Candidate(int botId, int level, long lastLogout, int race) {
+        public Candidate(int botId, int level, long lastLogout) {
+            this(botId, level, lastLogout, -1);
+        }
+    }
+
+    /** Starting villages are of their race (Talking Island humans, Elven Village elves, ...); -1 = any race. */
+    public static int raceOf(String townId) {
+        return switch (townId) {
+            case "talking_island" -> 0;
+            case "elven_village" -> 1;
+            case "dark_elven_village" -> 2;
+            case "orc_village" -> 3;
+            case "dwarven_village" -> 4;
+            default -> -1;
+        };
     }
 
     /** Personas not in the world whose level is in the band (and that did not leave just now). */
@@ -47,7 +63,8 @@ public final class Director {
 
     public sealed interface Command {
         /** Bring this persona (botId 0 = create a new one) at {@code level} into the world at {@code at} with this order. */
-        record Materialize(int botId, int level, Pos at, Assignment assignment) implements Command {
+        /** @param race the race of a new persona (botId 0), -1 = any */
+        record Materialize(int botId, int level, Pos at, Assignment assignment, int race) implements Command {
         }
 
         /** A new order for a bot in the world (leave). */
@@ -353,7 +370,8 @@ public final class Director {
             return null;
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
-        cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()));
+        final int race = d.town() ? raceOf(d.townRef().id()) : -1;
+        cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         int botId = 0;
         int level;
         if (!cands.isEmpty()) {
@@ -381,7 +399,7 @@ public final class Director {
             created++;
         }
         note(now, (botId == 0 ? "new persona" : "bot " + botId) + " lv " + level + " -> " + a.kind() + " " + d.id() + " at " + at);
-        return new Command.Materialize(botId, level, at, a);
+        return new Command.Materialize(botId, level, at, a, race);
     }
 
     private Candidate weighted(List<Candidate> cands, long now) {
