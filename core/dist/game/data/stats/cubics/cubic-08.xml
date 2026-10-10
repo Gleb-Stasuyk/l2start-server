@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 8: Spark Cubic. Control cubic that periodically attempts Shock on the owner's valid combat target. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="8" level="1" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="282.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="1" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="2" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="377.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="2" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="3" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="497.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="3" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="4" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="644.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="4" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="5" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="820.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="5" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="6" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="1026.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="6" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="7" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="1264.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="7" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="8" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="1530.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="8" /> <!-- Shock -->
+		</skills>
+	</cubic>
+	<cubic id="8" level="9" slot="8" duration="900" delay="30" maxCount="10" useUp="1" power="1822.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4166" level="9" /> <!-- Shock -->
+		</skills>
+	</cubic>
+</list>

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 6: Binding Cubic. Control cubic that periodically attempts Paralysis on the owner's valid combat target. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="6" level="1" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="282.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="1" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="2" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="377.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="2" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="3" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="497.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="3" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="4" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="644.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="4" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="5" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="820.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="5" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="6" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="1026.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="6" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="7" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="1264.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="7" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="8" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="1530.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="8" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+	<cubic id="6" level="9" slot="6" duration="900" delay="30" maxCount="10" useUp="1" power="1822.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4164" level="9" /> <!-- Paralysis -->
+		</skills>
+	</cubic>
+</list>

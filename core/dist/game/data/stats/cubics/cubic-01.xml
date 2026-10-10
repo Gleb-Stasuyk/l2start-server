@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 1: Storm Cubic. Offensive cubic that periodically casts Cubic DD against the owner's valid combat target. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="1" level="1" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="282.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="1" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="2" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="434.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="2" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="3" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="677.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="3" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="4" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="919.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="4" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="5" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="1141.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="5" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="6" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="1394.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="6" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="7" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="1673.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="7" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+	<cubic id="1" level="8" slot="1" duration="900" delay="10" maxCount="30" useUp="1" power="1975.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4049" level="8" /> <!-- Cubic DD -->
+		</skills>
+	</cubic>
+</list>

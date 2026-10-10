@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 2: Vampiric Cubic. Offensive cubic that periodically drains HP from the owner's valid combat target. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="2" level="1" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="351.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="1" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+	<cubic id="2" level="2" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="531.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="2" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+	<cubic id="2" level="3" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="773.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="3" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+	<cubic id="2" level="4" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="1026.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="4" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+	<cubic id="2" level="5" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="1264.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="5" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+	<cubic id="2" level="6" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="1530.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="6" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+	<cubic id="2" level="7" slot="2" duration="900" delay="15" maxCount="20" useUp="1" power="1822.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4050" level="7" /> <!-- Cubic Drain -->
+		</skills>
+	</cubic>
+</list>

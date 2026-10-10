@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/multisell.xsd">
+	<npcs>
+		<npc>50010</npc>
+	</npcs>
+	<item>
+		<ingredient id="57" count="768" />
+		<production id="4" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="12500" />
+		<production id="5" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="138" />
+		<production id="6" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="768" />
+		<production id="7" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="244000" />
+		<production id="87" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8070" />
+		<production id="152" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="18500" />
+		<production id="153" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="54100" />
+		<production id="154" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="244000" />
+		<production id="155" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="25500" />
+		<production id="747" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="4990" />
+		<production id="748" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="66600" />
+		<production id="1300" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="66600" />
+		<production id="1301" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="25500" />
+		<production id="1511" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="138" />
+		<production id="2370" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="136000" />
+		<production id="2501" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="244000" />
+		<production id="4221" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="56000000" />
+		<production id="7817" count="1" />
+	</item>
+</list>

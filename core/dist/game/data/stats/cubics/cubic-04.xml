@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 4: Viper Cubic. Offensive cubic that periodically applies Poison to the owner's valid combat target. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="4" level="1" slot="4" duration="900" delay="20" maxCount="15" useUp="0" power="531.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4052" level="1" /> <!-- Poison -->
+		</skills>
+	</cubic>
+	<cubic id="4" level="2" slot="4" duration="900" delay="20" maxCount="15" useUp="0" power="773.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4052" level="2" /> <!-- Poison -->
+		</skills>
+	</cubic>
+	<cubic id="4" level="3" slot="4" duration="900" delay="20" maxCount="15" useUp="0" power="1026.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4052" level="3" /> <!-- Poison -->
+		</skills>
+	</cubic>
+	<cubic id="4" level="4" slot="4" duration="900" delay="20" maxCount="15" useUp="0" power="1264.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4052" level="4" /> <!-- Poison -->
+		</skills>
+	</cubic>
+	<cubic id="4" level="5" slot="4" duration="900" delay="20" maxCount="15" useUp="0" power="1530.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4052" level="5" /> <!-- Poison -->
+		</skills>
+	</cubic>
+	<cubic id="4" level="6" slot="4" duration="900" delay="20" maxCount="15" useUp="0" power="1822.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4052" level="6" /> <!-- Poison -->
+		</skills>
+	</cubic>
+</list>
