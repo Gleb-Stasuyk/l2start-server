@@ -67,8 +67,9 @@ cleanup() {
 
 if [ "${1:-}" = "--build" ]; then
   say "building images ..."
-  docker build -f docker/Dockerfile --target runtime -t l2start-server:dev "$ROOT" || exit 2
-  docker build -f docker/Dockerfile --target smoke -t l2start-server:smoke "$ROOT" || exit 2
+  # relative paths from the repo root (absolute /f/... paths would break docker.exe under Git Bash)
+  (cd "$ROOT" && docker build -f docker/Dockerfile --target runtime -t l2start-server:dev .) || exit 2
+  (cd "$ROOT" && docker build -f docker/Dockerfile --target smoke -t l2start-server:smoke .) || exit 2
 fi
 docker image inspect l2start-server:dev l2start-server:smoke >/dev/null 2>&1 || { echo "images missing: run with --build"; exit 2; }
 
