@@ -216,14 +216,14 @@ check "all bot accounts banned (accessLevel=-1)" test "$(sql "SELECT COUNT(*) FR
 check "bots hidden: characters.online=0" test "$(sql "SELECT COUNT(*) FROM characters WHERE online<>0 AND charId IN ($BOTCHARS)")" = 0
 check "bots level 1, starting classes" test "$(sql "SELECT COUNT(*) FROM characters WHERE level=1 AND classid IN (0,10,18,25,31,38,44,49,53) AND charId IN ($BOTCHARS)")" = 20
 check "bots have their starting gear (starter-kit)" test "$(sql "SELECT COUNT(DISTINCT owner_id) FROM items WHERE loc='PAPERDOLL' AND owner_id IN ($BOTCHARS)")" = 20
-check "10 bots logged in" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_login IS NOT NULL")" = 10
+check "10 bots logged in" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_login > 0")" = 10
 sql "SELECT i.char_name, i.class_id, c.x, c.y, c.z, c.online, a.accessLevel FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN accounts a ON a.login=i.account_name ORDER BY i.bot_id" > "$OUT/7-bots.txt"
 docker restart -t 120 l2s-game >/dev/null
 sleep 10
 if wait_game healthy 900; then ok "game healthy after restart"; else ko "game healthy after restart"; fi
 check "after restart: none created, 10 in the world again" wait_log 'Module\[bots-core\]: autostart: created 0, in world 10' 180
 gamelog > "$OUT/7-bots-restart.log"
-check "bots logged out on shutdown (10)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_logout IS NOT NULL")" = 10
+check "bots logged out on shutdown (10)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_logout > 0")" = 10
 check "still 20 bots, 20 accounts" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity"),$(sql "SELECT COUNT(*) FROM mod_bots_core_account")" = "20,20"
 check "ready line sees 20 bots" grep -qE 'Module\[bots-core\]: ready: 20 bots known \(0 retired\)' "$OUT/7-bots-restart.log"
 
