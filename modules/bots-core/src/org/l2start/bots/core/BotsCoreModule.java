@@ -171,7 +171,7 @@ public final class BotsCoreModule implements GameModule {
                 });
             }
             ctx.log().info("presence: director (" + cleared + " old in-world marks cleared, anchors " + director.anchors().size() + ")");
-            ctx.scheduler().fixedRate("pool warm-up", Duration.ofSeconds(30), Duration.ofSeconds(10), this::warmUp);
+            ctx.scheduler().fixedRate("pool warm-up", Duration.ofSeconds(30), Duration.ofSeconds(5), this::warmUp);
             final int autoCreate = ctx.config().getInt("AutoCreate");
             if (autoCreate > 0) {
                 ctx.scheduler().schedule("startup", Duration.ofSeconds(1), () -> {
@@ -490,7 +490,7 @@ public final class BotsCoreModule implements GameModule {
     }
 
     /**
-     * Pool warm-up (director): a few new personas every 10 s (DirectorPoolWarmup a minute) until MaxBots exist, of every
+     * Pool warm-up (director): a new persona every 5 s (DirectorPoolWarmup a minute) until MaxBots exist, of every
      * race and of levels spread over the game (fewer at the top), progress saved, so they are ready when needed.
      */
     private void warmUp() {
@@ -499,8 +499,8 @@ public final class BotsCoreModule implements GameModule {
             return;
         }
         final int max = ctx.config().getInt("MaxBots");
-        int n = Math.max(1, perMin / 6);
-        if ((perMin < 6) && (ThreadLocalRandom.current().nextInt(6) >= perMin)) {
+        int n = Math.max(1, perMin / 12); // one database insert at a time keeps each call short (no "slow call")
+        if ((perMin < 12) && (ThreadLocalRandom.current().nextInt(12) >= perMin)) {
             return;
         }
         final ThreadLocalRandom rnd = ThreadLocalRandom.current();
