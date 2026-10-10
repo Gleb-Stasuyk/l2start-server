@@ -8,12 +8,20 @@ public enum DataType {
     SPAWNS(false),
     MULTISELL(true),
     BUYLISTS(true),
-    HTML(false);
+    HTML(false),
+    /** Starting items per class (stock format of data/stats/players/initialEquipment.xml); replaces the listed classes. Since API 1.1. */
+    INITIAL_EQUIPMENT(false, "initialEquipment");
 
     private final boolean hasIds;
+    private final String key;
 
     DataType(boolean hasIds) {
+        this(hasIds, null);
+    }
+
+    DataType(boolean hasIds, String key) {
         this.hasIds = hasIds;
+        this.key = key;
     }
 
     /** True when the folder defines ids that must be reserved and must not collide with stock data. */
@@ -21,8 +29,9 @@ public enum DataType {
         return hasIds;
     }
 
+    /** Key in module.json "data" (matched case-insensitively). */
     public String key() {
-        return name().toLowerCase(Locale.ROOT);
+        return key != null ? key : name().toLowerCase(Locale.ROOT);
     }
 
     public static DataType byKey(String key) {

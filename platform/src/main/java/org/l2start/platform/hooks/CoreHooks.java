@@ -9,7 +9,7 @@ import java.util.logging.Logger;
 import org.l2start.platform.Platform;
 
 /**
- * The only entry points used by core/ (lines marked [HOOK:P1-*], see docs/PLATFORM_HOOKS.md).
+ * The only entry points used by core/ (lines marked [HOOK:P1-*] and [HOOK:P2-*], see docs/PLATFORM_HOOKS.md).
  * Every method is safe: an unexpected platform error is logged and the stock server continues.
  */
 public final class CoreHooks {
@@ -55,7 +55,8 @@ public final class CoreHooks {
     }
 
     /**
-     * [HOOK:P1-DATA-*] Module data folders of one type ("npcs", "spawns", "multisell", "buylists").
+     * [HOOK:P1-DATA-*] [HOOK:P2-DATA-INITEQUIP] Module data folders of one type
+     * ("npcs", "spawns", "multisell", "buylists", "initialequipment"; matched case-insensitively).
      * @param exists id already defined by stock data (null when ids do not matter)
      */
     public static List<File> dataDirs(String type, IntPredicate exists) {

@@ -7,7 +7,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.l2jmobius.gameserver.cache.HtmCache;
 import org.l2jmobius.gameserver.data.SpawnTable;
+import org.l2jmobius.gameserver.data.xml.InitialEquipmentData;
 import org.l2jmobius.gameserver.data.xml.NpcData;
+import org.l2jmobius.gameserver.entity.actor.enums.player.PlayerClass;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.handler.AdminCommandHandler;
@@ -103,6 +105,13 @@ public final class FxCore implements GameModule {
             ctx.log().warn("FIXTURE fx-core checks FAILED: " + bad + " (ok: " + ok + ")");
         }
         ctx.log().info("FIXTURE fx-core db n=" + n);
+        // starting gear as the server will hand it out (starter-kit replaces it through hook P2-DATA-INITEQUIP)
+        final StringBuilder kit = new StringBuilder();
+        for (int classId : new int[] { 0, 10, 53 }) {
+            final var eq = InitialEquipmentData.getInstance().getClassEquipment(PlayerClass.getPlayerClass(classId));
+            kit.append(kit.isEmpty() ? "" : ",").append(classId).append('=').append((eq == null) || eq.isEmpty() ? "none" : eq.iterator().next().getId());
+        }
+        ctx.log().info("FIXTURE fx-core initial equipment first items " + kit);
 
         final Duration period = ctx.config().getDuration("TickPeriod");
         ctx.scheduler().fixedRate("tick", period, period, () -> {

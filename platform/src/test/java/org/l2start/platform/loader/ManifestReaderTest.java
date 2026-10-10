@@ -122,6 +122,19 @@ class ManifestReaderTest {
     }
 
     @Test
+    void initialEquipmentDataType() throws Exception {
+        final Path dir = root.resolve("kit");
+        Files.createDirectories(dir.resolve("data/initialEquipment"));
+        TestModules.write(dir.resolve("module.json"), "{\"id\":\"kit\",\"name\":\"n\",\"version\":\"1.0.0\",\"kind\":\"data\",\"platform\":\"^1.1\",\"data\":{\"initialEquipment\":\"data/initialEquipment\"}}");
+        final ModuleManifest m = ManifestReader.read(dir);
+        assertEquals("data/initialEquipment", m.data().get(DataType.INITIAL_EQUIPMENT));
+        // the core hook asks with the lower-case key; no id reserves are needed
+        assertEquals(DataType.INITIAL_EQUIPMENT, DataType.byKey("initialequipment"));
+        assertFalse(DataType.INITIAL_EQUIPMENT.hasIds());
+        assertTrue(has(fails("kit2", "{\"id\":\"kit2\",\"name\":\"n\",\"version\":\"1.0.0\",\"kind\":\"data\",\"platform\":\"*\",\"reserves\":{\"initialEquipment\":[[1,2]]}}"), "reserves.initialEquipment: only npcs"));
+    }
+
+    @Test
     void badReserves() throws Exception {
         assertTrue(has(fails("r1", "{\"id\":\"r1\",\"name\":\"n\",\"version\":\"1.0.0\",\"kind\":\"data\",\"platform\":\"*\",\"reserves\":{\"npcs\":[[5,1],[1],\"x\"]}}"), "each range"));
     }

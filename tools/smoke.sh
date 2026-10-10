@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docker smoke test of the module platform (phase 1). Runs on Linux (CI) and in Git Bash on Windows.
+# Docker smoke test of the module platform and the real modules (phases 1-2). Runs on Linux (CI) and in Git Bash on Windows.
 #
 #   bash tools/smoke.sh [--build]
 #
@@ -8,13 +8,17 @@
 # It REPLACES the running l2s-* containers (same names/ports). Start the normal stack afterwards (start.bat solo).
 #
 # Scenarios:
-#   1 stock     DisableAll=true                     -> healthy, startup counts == tools/smoke/baseline.txt
+# The image always contains the real modules of modules/ (starter-kit, lw-fixes, on in both profiles);
+# the smoke image adds 9 test modules (platform/test/fixtures), switched by SMOKE_FIXTURES.
+#   1 stock     DisableAll=true                     -> healthy, startup counts == tools/smoke/baseline.txt, no module data
 #   2 fixtures  profile solo + 9 fixtures           -> healthy, each module in its expected state, counts = baseline + module data,
-#                                                      fx-core verifies NPC/spawn/html/commands/i18n/db/config/scheduler/reload,
+#                                                      fx-core verifies NPC/spawn/html/commands/i18n/db/config/scheduler/reload
+#                                                      and the starting gear (starter-kit through hook P2-DATA-INITEQUIP),
 #                                                      breaker degrades fx-flaky, DB tables/migrations written
 #   3 restart   same as 2, game restarted           -> healthy, no migration applied again, shutdown hook ran, module data kept
 #   4 abort     profile online + fixtures            -> game exits with code 1, "FailurePolicy=abort"
-#   5 online    profile online, fixtures off        -> healthy, all 9 fixtures DISABLED
+#   5 online    profile online, fixtures off        -> healthy, all 9 fixtures DISABLED, starter-kit + lw-fixes RUNNING, counts == stock
+#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes RUNNING, counts == stock
 set -uo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -89,6 +93,7 @@ grep -vE '^#' "$BASE" > "$OUT/baseline.txt"
 counts "$OUT/1-stock.log" > "$OUT/1-counts.txt"
 if diff "$OUT/baseline.txt" "$OUT/1-counts.txt" > "$OUT/1-counts.diff"; then ok "startup counts identical to stock baseline ($(wc -l < "$OUT/baseline.txt") lines)"; else ko "startup counts differ from stock baseline (see 1-counts.diff)"; cat "$OUT/1-counts.diff"; fi
 check "no platform tables created" test -z "$(sql "SHOW TABLES LIKE 'platform_%'")"
+check "no module starting gear loaded" hasnt "initialEquipment from modules" "$OUT/1-stock.log"
 
 # ---- 2 fixtures, solo
 say "-- 2 solo + fixtures"
@@ -97,7 +102,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 9 discovered: 3 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 11 discovered: 5 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -109,6 +114,10 @@ check "fx-core: db row written (n=1)" has "FIXTURE fx-core db n=1" "$L"
 check "fx-ok-dep RUNNING" state_is fx-ok-dep RUNNING "$L"
 check "fx-ok-dep: sees fx-core classes + service" has "service answer=42" "$L"
 check "fx-ok-dep: its buylist 95010 loaded" has "FIXTURE fx-ok-dep ready, buylist 95010 loaded" "$L"
+check "starter-kit RUNNING" state_is starter-kit RUNNING "$L"
+check "lw-fixes RUNNING" state_is lw-fixes RUNNING "$L"
+check "starter-kit: module starting gear folder read (hook P2-DATA-INITEQUIP)" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$L"
+check "starter-kit: classes 0/10/53 start with Long Sword/Mage Staff/Ubiquitous Axe" has "FIXTURE fx-core initial equipment first items 0=2,10=177,53=4221" "$L"
 check "fx-missing-dep REFUSED" state_is fx-missing-dep REFUSED "$L"
 check "fx-broken-enable FAILED" state_is fx-broken-enable FAILED "$L"
 check "fx-broken-enable task was unregistered" hasnt "FIXTURE fx-broken-enable task ran" "$L"
@@ -158,7 +167,26 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: 0 failed" grep -qE 'Platform: profile=online, 9 discovered: 0 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures disabled" grep -qE 'Platform: profile=online, 11 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/5-online.log"
+real_modules() { # real_modules LOG N
+  check "$2: starter-kit RUNNING" state_is starter-kit RUNNING "$1"
+  check "$2: lw-fixes RUNNING" state_is lw-fixes RUNNING "$1"
+  check "$2: lw-fixes cursed weapon fix on" has "Module[lw-fixes]: enabled: CursedWeaponRefresh=true" "$1"
+  check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
+  check "$2: no platform error for starter-kit / lw-fixes" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes) ' \"\$0\"" "$1"
+  counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
+  if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
+}
+real_modules "$OUT/5-online.log" 5
+
+# ---- 6 solo, fixtures off: exactly what the player's server runs
+say "-- 6 solo, real modules only"
+start_game solo false off
+if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
+gamelog > "$OUT/6-solo.log"
+check "summary: 2 running, fixtures disabled" grep -qE 'Platform: profile=solo, 11 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+real_modules "$OUT/6-solo.log" 6
+check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
 
 say "-- cleanup"
 cleanup
