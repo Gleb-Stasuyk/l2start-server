@@ -342,6 +342,11 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     }
 
     @Override
+    public void async(String name, Runnable task) {
+        ctx.scheduler().schedule(name, Duration.ZERO, task);
+    }
+
+    @Override
     public long now() {
         return clock.now();
     }

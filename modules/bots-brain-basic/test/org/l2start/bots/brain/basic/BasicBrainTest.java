@@ -145,6 +145,34 @@ class BasicBrainTest {
     }
 
     @Test
+    void farFromTheStartingVillagesItDoesNotWalkAcrossTheWorld() {
+        final FakeWorld w = world(8, false);
+        w.teleport(new Pos(100_000, 100_000, 0));
+        final BrainHarness h = harness(w, false, 8);
+        h.run(20 * MIN);
+        assertEquals(BasicBrain.Phase.TOWN_IDLE, ((BasicBrain) h.brain()).phase());
+        assertTrue(h.notes().get(0).contains("far from the starting villages"), h.notes().toString());
+        assertTrue(w.pos().distance2d(new Pos(100_000, 100_000, 0)) < 1000, "stayed where it is: " + w.pos());
+        assertEquals(0, w.kills);
+    }
+
+    @Test
+    void placedAtAnotherVillageItHuntsThere() {
+        final List<Village> two = List.of(new Village("TEST", TOWN, 500), new Village("OTHER", new Pos(20_000, 0, 0), 500));
+        final LevelZones z = new LevelZones(List.of(new LevelZone("home", "TEST", new Pos(3000, 0, 0), 900, 1, 3, 12, false, Set.of(1)),
+            new LevelZone("there", "OTHER", new Pos(23_000, 0, 0), 900, 1, 3, 12, false, Set.of(1))));
+        final FakeWorld w = new FakeWorld(9, new Pos(20_000, 0, 0), false);
+        for (int i = 0; i < 6; i++) {
+            w.addMob(1, 2, new Pos(23_000 + (i * 100), 200, 0));
+            w.addMob(1, 2, new Pos(3000 + (i * 100), 200, 0));
+        }
+        final BrainHarness h = new BrainHarness(new BasicBrain(1, z, two, new MobClaims()), info(false), w, 9); // home = TEST (0,0)
+        h.run(15 * MIN);
+        assertEquals("there", ((BasicBrain) h.brain()).zone().id());
+        assertTrue(w.kills > 0);
+    }
+
+    @Test
     void claimsKeepTwoBotsOffOneMonster() {
         final MobClaims c = new MobClaims();
         assertTrue(c.claim(10, 1, 0, 1000));

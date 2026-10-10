@@ -36,6 +36,9 @@ final class MobiusActuators implements Actuators {
 
         void logout(BotRecord r);
 
+        /** Run off the bot's shard (database writes). */
+        void async(String name, Runnable task);
+
         long now();
     }
 
@@ -238,7 +241,15 @@ final class MobiusActuators implements Actuators {
     @Override
     public int learnSkills() {
         final Player p = alive();
-        final int n = p == null ? 0 : SkillLearner.learn(p);
+        final int n = p == null ? 0 : SkillLearner.preview(p);
+        if (n > 0) {
+            // adding a skill writes character_skills: done on the stock pool, not on the shard
+            sink.async("learn skills " + r.name(), () -> {
+                if (r.player() == p) {
+                    SkillLearner.learn(p);
+                }
+            });
+        }
         done("learnSkills", n, ActionResult.OK);
         return n;
     }

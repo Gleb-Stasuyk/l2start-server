@@ -36,7 +36,10 @@
   геодата (`RequireGeodata`), откат и MP. Результат — `ActionResult` (`OK`/`INVALID`/`COOLDOWN`/`NOT_REACHABLE`),
   каждое действие пишется в журнал бота (последние 10 в `//bots info`) и метрики.
 - `learnSkills()` — как `RequestAcquireSkill` (CLASS) без тренера: доступные по `SkillTreeData` скиллы за SP,
-  без книг/предметов (упрощение до фазы 4).
+  без книг/предметов (упрощение до фазы 4). Само изучение пишет в БД, поэтому идёт сразу после тика в стоковом
+  пуле, а не в шарде.
+- Мозг `basic` охотится только в 30 000 от одной из 5 стартовых деревень; бот, поставленный GM у другой стартовой
+  деревни (`//bots spawn N here`), охотится у неё; бот далеко от всех деревень просто гуляет на месте.
 - `returnToTown()` — мёртвый: стоковое «В деревню»; живой: как свиток возврата (`TeleportWhereType.TOWN`).
 - `Brain` (`tick`, `state`, `inCombat`, `stop`), `BrainFactory` (`id`, `create(BotInfo)`), `BrainContext`
   (`info`, `world`, `act`, `rnd`, `now`, `blackboard`, `reactionDelay`, `note`).

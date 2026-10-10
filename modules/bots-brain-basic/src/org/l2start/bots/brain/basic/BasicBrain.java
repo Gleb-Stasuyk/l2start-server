@@ -33,6 +33,8 @@ public final class BasicBrain implements Brain {
     static final int LOOT_RANGE = 500;
     static final long FIGHT_TIMEOUT = 60_000;
     static final long BLACKLIST_MS = 300_000;
+    /** Farther than this from every starting village: no hunting (phase 3 area). */
+    static final int FAR = 30_000;
 
     private final LevelZones zones;
     private final List<Village> villages;
@@ -57,6 +59,7 @@ public final class BasicBrain implements Brain {
     private long lastMovedAt;
     private int stuck;
     private int detourSide;
+    private boolean far;
     private double restTo;
     private final Map<Integer, Long> blacklist = new HashMap<>();
 
@@ -147,8 +150,13 @@ public final class BasicBrain implements Brain {
 
     private void start(BrainContext ctx, SelfView me, long now) {
         started = true;
+        // the village it is at now (a GM may have placed it elsewhere: //bots spawn here), else its home village
         final Pos home = ctx.info().home();
-        village = Village.nearest(villages, (home.x() == 0) && (home.y() == 0) ? me.pos() : home);
+        village = Village.nearest(villages, me.pos());
+        if ((village.center().distance2d(me.pos()) > FAR) && !((home.x() == 0) && (home.y() == 0))) {
+            village = Village.nearest(villages, home);
+        }
+        far = village.center().distance2d(me.pos()) > FAR;
         ctx.act().learnSkills(); // SP collected before (or before this brain existed)
         final boolean inTown = me.pos().distance2d(village.center()) < (village.radius() + 1500);
         if (inTown && (ctx.rnd().nextDouble() < 0.3)) {
@@ -157,6 +165,11 @@ public final class BasicBrain implements Brain {
         } else if (inTown) {
             idleUntil = now + 5_000 + ctx.rnd().nextInt(25_000);
             enter(ctx, Phase.TOWN_IDLE, "");
+        } else if (far) {
+            // phase 3 bots live around the five starting villages; far away it only strolls where it is
+            village = new Village("HERE", me.pos(), 400);
+            idleUntil = Long.MAX_VALUE;
+            enter(ctx, Phase.TOWN_IDLE, "far from the starting villages");
         } else {
             enter(ctx, Phase.LEVEL, "");
         }
@@ -291,6 +304,9 @@ public final class BasicBrain implements Brain {
         // 5. a hunting ground
         if ((zone == null) || !zone.fits(me.level())) {
             zone = zones.pick(me.level(), village.id(), me.pos(), ctx.rnd());
+            if ((zone != null) && (zone.center().distance2d(me.pos()) > FAR)) {
+                zone = null; // not walking across the world
+            }
             if (zone == null) {
                 idleUntil = now + 300_000;
                 enter(ctx, Phase.TOWN_IDLE, "no hunting ground for level " + me.level());

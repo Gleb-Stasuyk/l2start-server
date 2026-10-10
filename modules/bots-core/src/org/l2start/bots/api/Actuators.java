@@ -32,7 +32,10 @@ public interface Actuators {
     /** To the nearest town (like "To village" after death, or a scroll of escape when alive). */
     ActionResult returnToTown();
 
-    /** Learn every class skill the bot can afford with SP (simplification until phase 4). @return skills learned */
+    /**
+     * Learn every class skill the bot can afford with SP (simplification until phase 4). The learning itself runs
+     * right after, off the bot's thread (it writes the database). @return skills it can learn now
+     */
     int learnSkills();
 
     /** Stop: drop the current intention. */

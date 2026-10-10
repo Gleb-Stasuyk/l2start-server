@@ -15,7 +15,23 @@ final class SkillLearner {
     private SkillLearner() {
     }
 
-    /** @return skills learned */
+    /** Skills the player can afford right now (first round only; no change). */
+    static int preview(Player p) {
+        int n = 0;
+        long sp = p.getSp();
+        for (SkillLearn s : SkillTreeData.getInstance().getAvailableSkills(p, p.getPlayerClass(), false, false)) {
+            if ((s.getGetLevel() <= p.getLevel()) && s.getRequiredItems().isEmpty()) {
+                final int cost = s.getCalculatedLevelUpSp(p.getPlayerClass(), p.getLearningClass());
+                if (cost <= sp) {
+                    sp -= cost;
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** @return skills learned (writes character_skills: call it off the shard threads) */
     static int learn(Player p) {
         int learned = 0;
         for (int round = 0; round < 20; round++) { // a learned level can make the next one available
