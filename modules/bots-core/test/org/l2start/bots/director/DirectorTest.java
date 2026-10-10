@@ -123,7 +123,7 @@ class DirectorTest {
                 final double near = Math.min(m.at().distance2d(GK), m.at().distance2d(new Pos(-500, 0, 0)));
                 assertTrue(near <= 260, "appears at the gatekeeper or restart point: " + m.at());
                 assertTrue(m.at().distance2d(player) >= 300, "not under the player's nose");
-                assertEquals(Assignment.Kind.TOWN, m.assignment().kind());
+                assertTrue((m.assignment().kind() == Assignment.Kind.TOWN) || (m.assignment().kind() == Assignment.Kind.TRANSIT), "kind " + m.assignment().kind());
             }
         }
         assertTrue(s.created > 0);
@@ -198,7 +198,7 @@ class DirectorTest {
         final DirectorConfig c = new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), d.hiddenMin(), d.hiddenMax(), d.seenRadius(), d.unseenRadius(),
             d.unseenLogoutMs(), d.lingerMinMs(), d.lingerMaxMs(), d.townNight(), d.townDay(), d.townEvening(), d.groundMin(), d.groundMax(), d.indoorFactor(),
             d.huntPerCluster(), d.huntPerExtraPlayer(), d.maxPerCluster(), 3, d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), d.returnCooldownMs(),
-            d.pendingTimeoutMs(), d.onlineCurve());
+            d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs());
         final Sim s = new Sim(c);
         s.run(20, at(new Pos(0, -1500, 0), FIELD), 10 * 60_000);
         assertTrue(s.bots.size() <= 3, "budget: " + s.bots.size());
@@ -223,5 +223,83 @@ class DirectorTest {
         final WorldCatalog.Ground cave = new WorldCatalog.Ground("c", "t", FIELD, 3000, 30, 34, 80, 0, true, List.of());
         assertEquals(5, Director.groundTarget(c, big, 1));
         assertTrue(Director.groundTarget(c, cave, 1) < 5);
+    }
+
+    static long materialized(Sim s, Assignment.Kind kind) {
+        return s.all.stream().filter(c -> (c instanceof Director.Command.Materialize m) && (m.assignment().kind() == kind)).count();
+    }
+
+    @Test
+    void gatekeeperTransitIsFrequentInTheEvening() {
+        final Sim s = new Sim(DirectorConfig.defaults());
+        s.run(20, at(new Pos(0, -1500, 0)), 10 * 60_000);
+        final long transit = materialized(s, Assignment.Kind.TRANSIT);
+        assertTrue((transit >= 12) && (transit <= 35), "transits in 10 evening minutes: " + transit);
+        for (Director.Command c : s.all) {
+            if ((c instanceof Director.Command.Materialize m) && (m.assignment().kind() == Assignment.Kind.TRANSIT)) {
+                assertTrue(m.at().distance2d(GK) <= 260, "transit at the gatekeeper: " + m.at());
+                assertFalse(m.assignment().leaving());
+                assertTrue(m.assignment().passing());
+            }
+        }
+        final Sim night = new Sim(DirectorConfig.defaults());
+        night.run(4, at(new Pos(0, -1500, 0)), 10 * 60_000);
+        assertTrue(materialized(night, Assignment.Kind.TRANSIT) < (transit / 2), "night transit: " + materialized(night, Assignment.Kind.TRANSIT));
+    }
+
+    @Test
+    void transitIsRareInStartingVillages() {
+        final DirectorConfig c = DirectorConfig.defaults();
+        final Random r = new Random(1);
+        for (int i = 0; i < 100; i++) {
+            final long giran = Director.transitInterval(c, "giran", 1, r);
+            assertTrue((giran >= 20_000) && (giran <= 40_000), "giran evening " + giran);
+            final long day = Director.transitInterval(c, "giran", 0.5, r);
+            assertTrue((day >= 40_000) && (day <= 80_000), "giran day " + day);
+            assertTrue(Director.transitInterval(c, "talking_island", 1, r) >= 80_000);
+        }
+    }
+
+    @Test
+    void passersByRunPastAPlayerOnTheRoad() {
+        final DirectorConfig c = DirectorConfig.defaults();
+        final Sim s = new Sim(c);
+        final Pos player = new Pos(100_000, 0, 0);
+        s.run(20, at(player), 30 * 60_000);
+        final long pass = materialized(s, Assignment.Kind.PASS);
+        assertTrue((pass >= 10) && (pass <= 35), "passers-by in 30 evening minutes: " + pass);
+        for (Director.Command cmd : s.all) {
+            if (cmd instanceof Director.Command.Materialize m) {
+                assertEquals(Assignment.Kind.PASS, m.assignment().kind());
+                assertTrue(m.at().distance2d(player) >= c.hiddenMin(), "appeared in sight");
+                final Pos to = m.assignment().exit();
+                final double dot = ((m.at().x() - player.x()) * (double) (to.x() - player.x())) + ((m.at().y() - player.y()) * (double) (to.y() - player.y()));
+                assertTrue(dot < 0, "runs past the player to the other side");
+                assertTrue(to.distance2d(player) > c.unseenRadius(), "vanishes out of sight");
+            }
+        }
+    }
+
+    @Test
+    void inADungeonWallsHide() {
+        final DirectorConfig c = DirectorConfig.defaults();
+        final Director d = new Director(catalog(), c, new Random(3));
+        final Pos player = new Pos(30_000, 0, 0);
+        final Pos spot = new Pos(31_600, 0, 0);
+        final WorldCatalog.Ground cave = new WorldCatalog.Ground("cave", "town", new Pos(31_000, 0, 0), 800, 30, 34, 40, 0, true, List.of(spot));
+        final Director.Terrain walls = new Director.Terrain() {
+            @Override
+            public Pos ground(Pos approx) {
+                return approx;
+            }
+
+            @Override
+            public boolean canSee(Pos from, Pos to) {
+                return false;
+            }
+        };
+        assertEquals(spot, d.hiddenPoint(c, cave, at(player), walls));
+        final Pos open = d.hiddenPoint(c, cave, at(player), p -> p);
+        assertTrue((open == null) || (open.distance2d(player) >= c.hiddenMin()), "in sight without walls: " + open);
     }
 }

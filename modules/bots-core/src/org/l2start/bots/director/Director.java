@@ -59,6 +59,11 @@ public final class Director {
     /** Geodata: a walkable point near {@code approx} (with the right height), or null. */
     public interface Terrain {
         Pos ground(Pos approx);
+
+        /** Line of sight by geodata (walls of a dungeon); without geodata: true (no hiding behind walls). */
+        default boolean canSee(Pos from, Pos to) {
+            return true;
+        }
     }
 
     public sealed interface Command {
@@ -114,6 +119,8 @@ public final class Director {
     private long unseenLogouts;
     private long noSpot;
     private long noPersona;
+    private long transits;
+    private long passers;
 
     public Director(WorldCatalog catalog, DirectorConfig cfg, Random rnd) {
         this.catalog = catalog;
@@ -173,7 +180,7 @@ public final class Director {
                 }
             }
             final Assignment a = b.assignment();
-            final boolean leaving = (a != null) && a.leaving();
+            final boolean leaving = (a != null) && a.passing();
             if ((t.unseenSince != 0) && ((leaving && ((now - t.unseenSince) >= 3000)) || ((now - t.unseenSince) >= c.unseenLogoutMs()))) {
                 out.add(new Command.Logout(b.botId(), leaving ? "left unseen" : "nobody around"));
                 unseenLogouts++;
@@ -281,6 +288,40 @@ public final class Director {
                     }
                 }
                 states.add(new PlaceState(d.id(), d.town(), d.players(), want, here.size(), pend));
+            }
+            // gatekeeper transit in the towns of this cluster; a passer-by on the road where there is no place at all
+            for (Demand d : demand.values()) {
+                if (!d.town() || (c.transitMinMs() <= 0) || (total >= c.maxInWorld())) {
+                    continue;
+                }
+                final String key = "transit:" + d.id();
+                final Long next = nextSpawn.get(key);
+                if (next == null) {
+                    nextSpawn.put(key, now + (transitInterval(c, d.id(), curve, rnd) / 2));
+                } else if (now >= next) {
+                    nextSpawn.put(key, now + transitInterval(c, d.id(), curve, rnd));
+                    final Command.Materialize m = transit(c, now, d.townRef(), live, pool, terrain, createdThisTick);
+                    if (m != null) {
+                        out.add(m);
+                        total++;
+                        createdThisTick |= m.botId() == 0;
+                    }
+                }
+            }
+            if (demand.isEmpty() && (c.passMinMs() > 0) && (total < c.maxInWorld())) {
+                final String key = "road:" + cluster.get(0).id();
+                final Long next = nextSpawn.get(key);
+                if (next == null) {
+                    nextSpawn.put(key, now + (passInterval(c, curve, rnd) / 2));
+                } else if (now >= next) {
+                    nextSpawn.put(key, now + passInterval(c, curve, rnd));
+                    final Command.Materialize m = passer(c, now, cluster, live, pool, terrain, createdThisTick);
+                    if (m != null) {
+                        out.add(m);
+                        total++;
+                        createdThisTick |= m.botId() == 0;
+                    }
+                }
             }
         }
         // 4. bots that stood in front of a player for too long leave (one per place per interval)
@@ -402,6 +443,110 @@ public final class Director {
         return new Command.Materialize(botId, level, at, a, race);
     }
 
+    /** Next transit at this town: evening peak min..max, rarer by the online curve, much rarer in the starting villages. */
+    static long transitInterval(DirectorConfig c, String townId, double curve, Random rnd) {
+        final long base = c.transitMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.transitMaxMs() - c.transitMinMs()));
+        double k = 1.0 / Math.max(0.2, curve);
+        if (raceOf(townId) >= 0) {
+            k *= Math.max(1, c.transitStarterFactor());
+        }
+        return (long) (base * k);
+    }
+
+    /** Next passer-by: min..max at a usual hour (curve 0.5), twice as often at the evening peak, rarer at night. */
+    static long passInterval(DirectorConfig c, double curve, Random rnd) {
+        final long base = c.passMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.passMaxMs() - c.passMinMs()));
+        return (long) (base * (0.5 / Math.max(0.25, curve)));
+    }
+
+    /** A persona for a short appearance (transit, passer-by): one of the pool, else a new one (at most one per tick). */
+    private int[] persona(DirectorConfig c, long now, Pool pool, int lo, int hi, int race, boolean createdThisTick) {
+        final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
+        cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
+        if (!cands.isEmpty()) {
+            final Candidate pick = weighted(cands, now);
+            return new int[] { pick.botId(), pick.level() };
+        }
+        if (createdThisTick) {
+            noPersona++;
+            return null;
+        }
+        created++;
+        return new int[] { 0, lo + rnd.nextInt((hi - lo) + 1) };
+    }
+
+    private Command.Materialize transit(DirectorConfig c, long now, WorldCatalog.Town t, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+        final List<Pos> gks = t.anchors("gk");
+        if (gks.isEmpty()) {
+            return null;
+        }
+        Pos at = null;
+        Pos gk = null;
+        for (int k = 0; (k < 6) && (at == null); k++) {
+            gk = gks.get(rnd.nextInt(gks.size()));
+            final double ang = rnd.nextDouble() * Math.PI * 2;
+            final int r = 80 + rnd.nextInt(171);
+            final Pos approx = new Pos(gk.x() + (int) (Math.cos(ang) * r), gk.y() + (int) (Math.sin(ang) * r), gk.z());
+            if (nearest(live, approx) >= 300) {
+                at = terrain.ground(approx);
+            }
+        }
+        if (at == null) {
+            noSpot++;
+            return null;
+        }
+        final int race = raceOf(t.id());
+        final int[] who = persona(c, now, pool, t.minLevel(), t.maxLevel(), race, createdThisTick);
+        if (who == null) {
+            return null;
+        }
+        final Assignment a = new Assignment(++seq, Assignment.Kind.TRANSIT, t.id(), at, 400, t.minLevel(), t.maxLevel(), List.of(), t.anchors(), gk);
+        pending.put(who[0] == 0 ? --newKey : who[0], new Pending("transit:" + t.id(), a.seq(), now));
+        transits++;
+        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> TRANSIT " + t.id() + " at " + at);
+        return new Command.Materialize(who[0], who[1], at, a, race);
+    }
+
+    /** Somebody runs along the road past the player: appears out of sight on one side, runs past, vanishes on the other. */
+    private Command.Materialize passer(DirectorConfig c, long now, List<Live> cluster, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+        final Live p0 = cluster.get(rnd.nextInt(cluster.size()));
+        WorldCatalog.Town near = null;
+        for (WorldCatalog.Town t : catalog.towns()) {
+            if ((near == null) || (t.center().distance2d(p0.pos()) < near.center().distance2d(p0.pos()))) {
+                near = t;
+            }
+        }
+        final int lo = near == null ? 1 : near.minLevel();
+        final int hi = near == null ? 20 : Math.max(lo, near.maxLevel());
+        for (int k = 0; k < 8; k++) {
+            final double ang = rnd.nextDouble() * Math.PI * 2;
+            final double r = c.hiddenMin() + (rnd.nextDouble() * 600);
+            final Pos from0 = new Pos(p0.pos().x() + (int) (Math.cos(ang) * r), p0.pos().y() + (int) (Math.sin(ang) * r), p0.pos().z());
+            final double back = ang + Math.PI + (Math.toRadians(10 + rnd.nextInt(25)) * (rnd.nextBoolean() ? 1 : -1));
+            final double r2 = c.unseenRadius() + 800;
+            final Pos to0 = new Pos(p0.pos().x() + (int) (Math.cos(back) * r2), p0.pos().y() + (int) (Math.sin(back) * r2), p0.pos().z());
+            if (nearest(live, from0) < c.hiddenMin()) {
+                continue;
+            }
+            final Pos from = terrain.ground(from0);
+            final Pos to = terrain.ground(to0);
+            if ((from == null) || (to == null) || (nearest(live, from) < c.hiddenMin())) {
+                continue;
+            }
+            final int[] who = persona(c, now, pool, lo, hi, -1, createdThisTick);
+            if (who == null) {
+                return null;
+            }
+            final Assignment a = new Assignment(++seq, Assignment.Kind.PASS, "road", p0.pos(), 0, lo, hi, List.of(), List.of(), to);
+            pending.put(who[0] == 0 ? --newKey : who[0], new Pending("road", a.seq(), now));
+            passers++;
+            note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> PASS by player " + p0.id() + " from " + from + " to " + to);
+            return new Command.Materialize(who[0], who[1], from, a, -1);
+        }
+        noSpot++;
+        return null;
+    }
+
     private Candidate weighted(List<Candidate> cands, long now) {
         double sum = 0;
         final double[] w = new double[cands.size()];
@@ -423,11 +568,13 @@ public final class Director {
     Pos hiddenPoint(DirectorConfig c, WorldCatalog.Ground g, List<Live> live, Terrain terrain) {
         final List<Pos> spots = new ArrayList<>(g.spots());
         Collections.shuffle(spots, rnd);
+        // in a dungeon walls hide: a spot closer than usual will do when no player has a line of sight to it
+        final double min = g.indoor() ? Math.min(1500, c.hiddenMin()) : c.hiddenMin();
         for (Pos s : spots) {
             final double d = nearest(live, s);
-            if ((d >= c.hiddenMin()) && (d <= (c.hiddenMax() + 2500))) {
+            if ((d >= min) && (d <= (c.hiddenMax() + 2500))) {
                 final Pos p = terrain.ground(s);
-                if ((p != null) && (nearest(live, p) >= c.hiddenMin())) {
+                if ((p != null) && (nearest(live, p) >= min) && ((nearest(live, p) >= c.hiddenMin()) || !inSight(c, live, p, terrain))) {
                     return p;
                 }
             }
@@ -451,6 +598,16 @@ public final class Director {
             }
         }
         return null;
+    }
+
+    /** Some player within the unseen radius has a line of sight to {@code p}. */
+    static boolean inSight(DirectorConfig c, List<Live> live, Pos p, Terrain terrain) {
+        for (Live l : live) {
+            if ((l.pos().distance2d(p) <= c.unseenRadius()) && terrain.canSee(l.pos(), p)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** At the gatekeeper (as after a teleport) or a restart point (as after a scroll of escape), not under a player's nose. */
@@ -620,6 +777,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona;
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers;
     }
 }

@@ -480,7 +480,8 @@ public final class BasicBrain implements Brain {
             newOrder(ctx, me, now, a);
         }
         return switch (a.kind()) {
-            case LEAVE_RUN, LEAVE_GK -> leaving(ctx, w, me, now, a);
+            case LEAVE_RUN, LEAVE_GK, PASS -> leaving(ctx, w, me, now, a);
+            case TRANSIT -> transit(ctx, me, now);
             case TOWN -> town(ctx, w, me, now, a, attacker);
             case HUNT -> hunt(ctx, w, me, now, a, attacker);
         };
@@ -499,6 +500,12 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             enter(ctx, Phase.LEVEL, a.kind() == Assignment.Kind.LEAVE_GK ? "to the gatekeeper" : "running off");
             leaveAt = 0;
+        } else if (a.kind() == Assignment.Kind.TRANSIT) {
+            zone = null;
+            endFight();
+            standIfSitting(ctx, me);
+            transitUntil = now + 3000 + ctx.rnd().nextInt(7000);
+            enter(ctx, Phase.TOWN_IDLE, "transit at the gatekeeper of " + a.place());
         } else if (a.kind() == Assignment.Kind.HUNT) {
             mobBelow = 8;
             mobAbove = 1;
@@ -511,6 +518,20 @@ public final class BasicBrain implements Brain {
             badAnchors.clear();
             enter(ctx, Phase.TOWN_IDLE, "town " + a.place());
         }
+    }
+
+    /** Appeared at the gatekeeper "after a teleport": stands 3-10 s, then teleports on (logs out). */
+    private long transit(BrainContext ctx, SelfView me, long now) {
+        if (me.sitting()) {
+            ctx.act().stand();
+        }
+        detail = "transit at the gatekeeper";
+        if (now >= transitUntil) {
+            ctx.note("teleported on (logout at the gatekeeper)");
+            ctx.act().logout();
+            return 5000;
+        }
+        return Math.max(500, Math.min(2000, transitUntil - now));
     }
 
     /** Run to the exit; at the gatekeeper "teleport" (log out) after a moment, else the director logs it out unseen. */
@@ -531,12 +552,12 @@ public final class BasicBrain implements Brain {
             }
             return 1000;
         }
-        detail = (a.kind() == Assignment.Kind.LEAVE_GK ? "to gk " : "away ") + (int) me.pos().distance2d(exit);
+        detail = (a.kind() == Assignment.Kind.LEAVE_GK ? "to gk " : a.kind() == Assignment.Kind.PASS ? "passing by " : "away ") + (int) me.pos().distance2d(exit);
         return walk(ctx, w, me, exit, now);
     }
 
-    /** Share of town bots that appear at the gatekeeper only "in transit": stand 3-10 s and teleport on. */
-    static final double TRANSIT_SHARE = 0.25;
+    /** Transit at the gatekeeper is the director's now (order TRANSIT); town bots stay for their errands. */
+    static final double TRANSIT_SHARE = 0;
     /** Chance that a bot that ran to the gatekeeper teleports away (logs out) there. */
     static final double GK_TELEPORT = 0.4;
     private static final String[] KINDS = { "gk", "shop", "wh", "trainer" };

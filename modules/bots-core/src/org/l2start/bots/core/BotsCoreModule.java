@@ -299,12 +299,19 @@ public final class BotsCoreModule implements GameModule {
             curve[i] = Math.max(0, Math.min(1, Double.parseDouble(curveList.get(i))));
         }
         final int unseen = ctx.config().getInt("DirectorUnseenRadius");
+        final List<String> transit = ctx.config().getList("DirectorTransit");
+        final List<String> pass = ctx.config().getList("DirectorPass");
+        if ((transit.size() != 2) || (pass.size() != 2)) {
+            throw new IllegalArgumentException("DirectorTransit / DirectorPass: min,max expected");
+        }
         return new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), hidden[0], Math.max(hidden[0], hidden[1]), Math.min(d.seenRadius(), unseen - 500), unseen,
             ctx.config().getDuration("DirectorUnseenLogout").toMillis(), millis(linger.get(0)),
             millis(linger.get(1)), ints(ctx.config().getList("DirectorTownNight"), 2, "DirectorTownNight"),
             ints(ctx.config().getList("DirectorTownDay"), 2, "DirectorTownDay"), ints(ctx.config().getList("DirectorTownEvening"), 2, "DirectorTownEvening"), ground[0],
             Math.max(ground[0], ground[1]), d.indoorFactor(), hunt[0], hunt[1], ctx.config().getInt("DirectorMaxPerCluster"), ctx.config().getInt("DirectorMaxInWorld"),
-            d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), ctx.config().getDuration("DirectorReturnCooldown").toMillis(), d.pendingTimeoutMs(), curve);
+            d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), ctx.config().getDuration("DirectorReturnCooldown").toMillis(), d.pendingTimeoutMs(), curve,
+            millis(transit.get(0)), millis(transit.get(1)), Double.parseDouble(ctx.config().getString("DirectorTransitStarterFactor").trim()), millis(pass.get(0)),
+            millis(pass.get(1)));
     }
 
     /** "90s", "20m", "2h". */

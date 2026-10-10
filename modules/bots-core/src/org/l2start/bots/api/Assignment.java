@@ -7,7 +7,9 @@ import java.util.List;
  * replaces the previous one. Null in {@link BrainContext#assignment()} = no director (manual mode, phase 3d).
  * @param seq increasing number of this order
  * @param kind TOWN (live in a town), HUNT (hunt in a ground), LEAVE_RUN (run to {@code exit} and log out),
- *     LEAVE_GK (run to the gatekeeper at {@code exit} and log out there: for a client that is a teleport)
+ *     LEAVE_GK (run to the gatekeeper at {@code exit} and log out there: for a client that is a teleport),
+ *     TRANSIT (appeared at a gatekeeper "after a teleport": stand a few seconds, then teleport on = log out),
+ *     PASS (a passer-by on a road: run past the player to {@code exit}, vanish out of sight)
  * @param place id of the town or hunting ground (world catalogue)
  * @param center centre of the place
  * @param radius radius of the place
@@ -19,7 +21,7 @@ import java.util.List;
  */
 public record Assignment(long seq, Kind kind, String place, Pos center, int radius, int minLevel, int maxLevel, List<Pos> spots, List<Anchor> anchors, Pos exit) {
     public enum Kind {
-        TOWN, HUNT, LEAVE_RUN, LEAVE_GK
+        TOWN, HUNT, LEAVE_RUN, LEAVE_GK, TRANSIT, PASS
     }
 
     /** A point of interest in a town: kind = gk, shop, wh, trainer, restart. */
@@ -27,7 +29,12 @@ public record Assignment(long seq, Kind kind, String place, Pos center, int radi
     }
 
     public boolean leaving() {
-        return (kind == Kind.LEAVE_RUN) || (kind == Kind.LEAVE_GK);
+        return (kind == Kind.LEAVE_RUN) || (kind == Kind.LEAVE_GK) || (kind == Kind.PASS);
+    }
+
+    /** Only passing through (transit at a gatekeeper, passer-by, leaving): not one of the bots that live at a place. */
+    public boolean passing() {
+        return leaving() || (kind == Kind.TRANSIT);
     }
 
     /** The same place, now leaving towards {@code exit}. */

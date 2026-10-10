@@ -98,4 +98,29 @@ class PresenceBrainTest {
         assertTrue(after.stream().filter(c -> c.action().equals("attack")).count() <= 3, "kept fighting: " + after.stream().filter(c -> c.action().equals("attack")).count());
         assertTrue(w.pos().distance2d(exit) < 3000, "did not run off: " + w.pos());
     }
+
+    @Test
+    void transitStandsAMomentAtTheGatekeeperAndTeleportsOn() {
+        final FakeWorld w = BasicBrainTest.world(8, false);
+        final BrainHarness h = BasicBrainTest.harness(w, false, 8);
+        final Pos gk = new Pos(300, 0, 0);
+        h.setAssignment(new Assignment(1, Assignment.Kind.TRANSIT, "test", w.pos(), 400, 1, 10, List.of(), town(1).anchors(), gk));
+        h.run(2500);
+        assertEquals(0, h.act().countOk("logout"), "teleported on at once");
+        h.run(10_000);
+        assertTrue(h.act().countOk("logout") >= 1, "never teleported on: " + h.notes());
+        assertEquals(0, h.act().count("sit"));
+        assertEquals(0, h.act().count("attack"));
+    }
+
+    @Test
+    void passerByRunsToTheOtherSide() {
+        final FakeWorld w = BasicBrainTest.world(9, false);
+        final BrainHarness h = BasicBrainTest.harness(w, false, 9);
+        final Pos exit = new Pos(w.pos().x() + 2500, w.pos().y(), 0);
+        h.setAssignment(new Assignment(1, Assignment.Kind.PASS, "road", w.pos(), 0, 1, 10, List.of(), List.of(), exit));
+        h.run(2 * MIN);
+        assertTrue(w.pos().distance2d(exit) <= 300, "did not run past: " + w.pos());
+        assertEquals(0, h.act().count("sit"));
+    }
 }

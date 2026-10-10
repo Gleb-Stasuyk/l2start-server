@@ -111,7 +111,18 @@ public final class DirectorRunner {
             return; // nobody to show anything to: zero cost
         }
         final boolean needGeo = ctx.config().getBoolean("RequireGeodata");
-        final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, p -> ground(p, needGeo));
+        final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, new Director.Terrain() {
+            @Override
+            public Pos ground(Pos approx) {
+                return DirectorRunner.ground(approx, needGeo);
+            }
+
+            @Override
+            public boolean canSee(Pos from, Pos to) {
+                final GeoEngine geo = GeoEngine.getInstance();
+                return !geo.hasGeo(from.x(), from.y()) || geo.canSeeTarget(from.x(), from.y(), from.z() + 40, to.x(), to.y(), to.z() + 40);
+            }
+        });
         for (Director.Command c : cmds) {
             switch (c) {
                 case Director.Command.Materialize m -> materialize(m);
