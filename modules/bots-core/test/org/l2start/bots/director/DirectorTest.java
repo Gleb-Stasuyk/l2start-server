@@ -181,7 +181,8 @@ class DirectorTest {
         assertFalse(s.bots.isEmpty());
         // the player goes far away: every bot is unseen and logs out after DirectorUnseenLogout
         s.run(20, at(new Pos(200_000, 200_000, 0)), 3 * 60_000);
-        assertTrue(s.bots.isEmpty(), "left: " + s.bots.size());
+        // (only passers-by of the player's new road may be around)
+        assertTrue(s.bots.values().stream().allMatch(b -> b.assignment().kind() == Assignment.Kind.PASS), "left: " + s.bots.size());
     }
 
     @Test
