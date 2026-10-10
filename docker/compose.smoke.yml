@@ -29,6 +29,7 @@ services:
       # presence director (scenario 8): Anchors = test players; scenario 7 runs the manual mode of 3a-3d
       L2_MOD_BOTS_CORE__PRESENCE: "${SMOKE_BOTS_PRESENCE:-director}"
       L2_MOD_BOTS_CORE__ANCHORS: "${SMOKE_BOTS_ANCHORS:-}"
+      L2_MOD_BOTS_CORE__DIRECTORPOOLWARMUP: "${SMOKE_BOTS_WARMUP:-0}"
       L2_MODULE_FX_CORE: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_OK_DEP: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_MISSING_DEP: "${SMOKE_FIXTURES:-on}"

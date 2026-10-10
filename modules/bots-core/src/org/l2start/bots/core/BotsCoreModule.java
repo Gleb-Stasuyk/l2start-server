@@ -91,7 +91,7 @@ public final class BotsCoreModule implements GameModule {
             }, unreachable);
             ctx.log().info("town NPCs: " + checked[1] + " of " + checked[0] + " routes checked by geodata pathfinding, " + unreachable.size() + " NPCs unreachable");
             if (!unreachable.isEmpty()) {
-                ctx.log().warn("town NPCs bots cannot reach, left out of town errands: " + String.join("; ", unreachable));
+                ctx.log().warn("town NPCs unreachable by geodata, left out of town errands: " + String.join("; ", unreachable));
             }
             final GearTable gear = GearTable.load(ctx.resources().path("data/gear.xml"));
             director = new DirectorRunner(this, catalog, gear, directorConfig());
@@ -171,6 +171,7 @@ public final class BotsCoreModule implements GameModule {
                 });
             }
             ctx.log().info("presence: director (" + cleared + " old in-world marks cleared, anchors " + director.anchors().size() + ")");
+            ctx.scheduler().fixedRate("pool warm-up", Duration.ofSeconds(30), Duration.ofSeconds(10), this::warmUp);
             final int autoCreate = ctx.config().getInt("AutoCreate");
             if (autoCreate > 0) {
                 ctx.scheduler().schedule("startup", Duration.ofSeconds(1), () -> {
@@ -486,6 +487,41 @@ public final class BotsCoreModule implements GameModule {
     /** null in manual presence mode. */
     public DirectorRunner director() {
         return director;
+    }
+
+    /**
+     * Pool warm-up (director): a few new personas every 10 s (DirectorPoolWarmup a minute) until MaxBots exist, of every
+     * race and of levels spread over the game (fewer at the top), progress saved, so they are ready when needed.
+     */
+    private void warmUp() {
+        final int perMin = ctx.config().getInt("DirectorPoolWarmup");
+        if ((perMin <= 0) || (director == null) || director.stopping()) {
+            return;
+        }
+        final int max = ctx.config().getInt("MaxBots");
+        int n = Math.max(1, perMin / 6);
+        if ((perMin < 6) && (ThreadLocalRandom.current().nextInt(6) >= perMin)) {
+            return;
+        }
+        final ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        int made = 0;
+        while ((n-- > 0) && (active().size() < max)) {
+            try {
+                final BotRecord r = factory.create(DirectorRunner.startClass(rnd.nextInt(5))); // quietly: no log line for each
+                ctx.metrics().counter("created").inc();
+                final int level = 1 + (int) (75 * Math.pow(rnd.nextDouble(), 1.4));
+                final long now = System.currentTimeMillis();
+                r.setProgress(level, now, 1);
+                repo.saveProgress(r.botId(), level, now);
+                made++;
+            } catch (Exception e) {
+                ctx.log().warn("pool warm-up: cannot create a persona", e);
+                return;
+            }
+        }
+        if ((made > 0) && ((active().size() % 100) < made)) {
+            ctx.log().info("pool warm-up: " + active().size() + " of " + max + " personas");
+        }
     }
 
     /** One new persona with its account and character (director: when no existing persona fits). */
