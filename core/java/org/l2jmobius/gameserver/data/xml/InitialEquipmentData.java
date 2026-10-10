@@ -54,6 +54,7 @@ public class InitialEquipmentData implements IXmlReader
 	{
 		_classEquipment.clear();
 		parseDatapackFile("data/stats/players/initialEquipment.xml");
+		for (java.io.File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("initialequipment", null)) parseDirectory(dir, true); // [HOOK:P2-DATA-INITEQUIP]
 		LOGGER.info(getClass().getSimpleName() + ": Loaded " + _classEquipment.size() + " initial equipment data.");
 	}
 	

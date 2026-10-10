@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../data/xsd/initialEquipment.xsd">
+	<!--
+		No-Grade top equipment for new characters.
+		Fighter: Long Sword + Bronze set + Leather Helmet + Bracer + Boots + Blue Diamond jewelry + Soulshots.
+		Mage: Mage Staff + Magic tunic set + same accessories + Blessed Spiritshots.
+		Dwarf: Ubiquitous Axe instead of Long Sword.
+	-->
+	<!-- Human Fighter -->
+	<equipment classId="0">
+		<item id="2" count="1" equipped="true" /> <!-- Long Sword -->
+		<item id="26" count="1" equipped="true" /> <!-- Bronze Breastplate -->
+		<item id="34" count="1" equipped="true" /> <!-- Bronze Gaiters -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="1835" count="1000" /> <!-- Soulshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Human Mystic -->
+	<equipment classId="10">
+		<item id="177" count="1" equipped="true" /> <!-- Mage Staff -->
+		<item id="1102" count="1" equipped="true" /> <!-- Tunic of Magic -->
+		<item id="1105" count="1" equipped="true" /> <!-- Stockings of Magic -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="3947" count="1000" /> <!-- Blessed Spiritshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Elven Fighter -->
+	<equipment classId="18">
+		<item id="2" count="1" equipped="true" /> <!-- Long Sword -->
+		<item id="26" count="1" equipped="true" /> <!-- Bronze Breastplate -->
+		<item id="34" count="1" equipped="true" /> <!-- Bronze Gaiters -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="1835" count="1000" /> <!-- Soulshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Elven Mystic -->
+	<equipment classId="25">
+		<item id="177" count="1" equipped="true" /> <!-- Mage Staff -->
+		<item id="1102" count="1" equipped="true" /> <!-- Tunic of Magic -->
+		<item id="1105" count="1" equipped="true" /> <!-- Stockings of Magic -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="3947" count="1000" /> <!-- Blessed Spiritshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Dark Fighter -->
+	<equipment classId="31">
+		<item id="2" count="1" equipped="true" /> <!-- Long Sword -->
+		<item id="26" count="1" equipped="true" /> <!-- Bronze Breastplate -->
+		<item id="34" count="1" equipped="true" /> <!-- Bronze Gaiters -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="1835" count="1000" /> <!-- Soulshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Dark Mystic -->
+	<equipment classId="38">
+		<item id="177" count="1" equipped="true" /> <!-- Mage Staff -->
+		<item id="1102" count="1" equipped="true" /> <!-- Tunic of Magic -->
+		<item id="1105" count="1" equipped="true" /> <!-- Stockings of Magic -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="3947" count="1000" /> <!-- Blessed Spiritshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Orc Fighter -->
+	<equipment classId="44">
+		<item id="2" count="1" equipped="true" /> <!-- Long Sword -->
+		<item id="26" count="1" equipped="true" /> <!-- Bronze Breastplate -->
+		<item id="34" count="1" equipped="true" /> <!-- Bronze Gaiters -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="1835" count="1000" /> <!-- Soulshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Orc Mystic -->
+	<equipment classId="49">
+		<item id="177" count="1" equipped="true" /> <!-- Mage Staff -->
+		<item id="1102" count="1" equipped="true" /> <!-- Tunic of Magic -->
+		<item id="1105" count="1" equipped="true" /> <!-- Stockings of Magic -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="115" count="1" equipped="true" /> <!-- Earring of Wisdom -->
+		<item id="3947" count="1000" /> <!-- Blessed Spiritshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+	<!-- Dwarf Fighter -->
+	<equipment classId="53">
+		<item id="4221" count="1" equipped="true" /> <!-- Ubiquitous Axe -->
+		<item id="26" count="1" equipped="true" /> <!-- Bronze Breastplate -->
+		<item id="34" count="1" equipped="true" /> <!-- Bronze Gaiters -->
+		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
+		<item id="51" count="1" equipped="true" /> <!-- Bracer -->
+		<item id="39" count="1" equipped="true" /> <!-- Boots -->
+		<item id="909" count="1" equipped="true" /> <!-- Blue Diamond Necklace -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="878" count="1" equipped="true" /> <!-- Blue Coral Ring -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="114" count="1" equipped="true" /> <!-- Earring of Strength -->
+		<item id="1835" count="1000" /> <!-- Soulshot: No Grade -->
+		<item id="5588" count="1" /> <!-- Tutorial Guide -->
+	</equipment>
+</list>

@@ -44,6 +44,15 @@ Docker Desktop сейчас ~3,8 ГБ. Профиль `solo` держит игр
 Если будет мало, увеличь память WSL в `%USERPROFILE%\.wslconfig` (`[wsl2]`, `memory=5GB`) и выполни `wsl --shutdown`
 (остановит все контейнеры).
 
+## Игровые настройки профилей (фаза 2)
+
+Оба профиля (`solo` и `online`) используют **стоковые механики и рейты Mobius (x1)**. Игровых override нет:
+в `overrides/<profile>/game/config/` лежит только README, в `overrides/<profile>/login/config/Server.ini` — только сетевые/аккаунт-ключи.
+Сверху включены 2 модуля: `starter-kit` и `lw-fixes` (`modules/README.md`).
+
+На будущее: соло-настройки (рейты, автолут, вес, бесплатные профы, чемпионы и т.п.) будет выставлять лаунчер через
+этот же механизм override.
+
 ## Модули (фаза 1)
 
 - Образ содержит модули из `modules/` (`/opt/l2/game/modules`) и `game/config/{platform.ini,modules.ini}`.

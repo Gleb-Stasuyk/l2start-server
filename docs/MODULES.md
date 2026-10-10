@@ -5,7 +5,7 @@
 Сломанный модуль никогда не роняет сервер молча: его состояние и причина видны в логе и в `//modules`.
 
 API для кода модулей: `docs/PLATFORM_API.md`. Диапазоны id: `docs/ID_RANGES.md`. Хуки в `core/`: `docs/PLATFORM_HOOKS.md`.
-С сервером не поставляется ни одного модуля: минимальный пример ниже, раздел «Минимальный модуль».
+С сервером поставляются `starter-kit` и `lw-fixes` (`modules/README.md`); минимальный пример ниже, раздел «Минимальный модуль».
 Все механизмы платформы проверяются тестовым модулем `platform/test/fixtures/modules/fx-core` (только в smoke-тестах).
 
 ## Виды модулей
@@ -27,7 +27,7 @@ modules/<id>/
   sql/V001__name.sql     версионные миграции (накатываются один раз, по порядку)
   sql/remove.sql         ручное удаление таблиц модуля (платформа сама не запускает)
   i18n/messages_<lang>.properties
-  data/npcs, data/spawns, data/multisell, data/buylists, data/html   (пути задаются в module.json)
+  data/npcs, data/spawns, data/multisell, data/buylists, data/html, data/initialEquipment   (пути задаются в module.json)
   test/...               JUnit-тесты модуля (ant test)
 ```
 
@@ -39,7 +39,7 @@ modules/<id>/
   "name": "Greeter",
   "version": "1.0.0",                 // semver
   "kind": "jar",
-  "platform": "^1.0",                 // версия API платформы (сейчас 1.0.0)
+  "platform": "^1.0",                 // версия API платформы (сейчас 1.1.0)
   "entrypoint": "org.l2start.modules.greeter.GreeterModule",
   "dependencies": [ {"id": "other", "version": "^1.2", "optional": false} ],
   "conflicts":    [ {"id": "old-greeter", "version": "*"} ],
@@ -57,6 +57,9 @@ modules/<id>/
 - Ошибки манифеста собираются все сразу (не по одной), модуль получает INVALID.
 - Версии зависимостей: `^1.2`, `~1.2.3`, `>=1.0`, `<2`, `=1.0.0`, `*`, частичные версии (`1`, `1.2`).
 - Типы настроек: `string`, `bool`, `int`, `long`, `double`, `duration` (`250ms`, `10s`, `5m`, `2h`, `1d`; число без единицы = мс), `enum` (`values`), `list` (через запятую). Для чисел и duration есть `min`/`max`.
+- `data.initialEquipment` (API 1.1+, модуль указывает `"platform": "^1.1"`): папка с xml в стоковом формате
+  `data/stats/players/initialEquipment.xml` (xsd `../../../../data/xsd/initialEquipment.xsd`). Каждый `classId` из файлов модуля
+  **заменяет** стоковую стартовую экипировку этого класса (хук `P2-DATA-INITEQUIP`); id не резервируются. Пример: `modules/starter-kit`.
 - Данные с id (NPC, мультиселлы, байлисты) обязаны лежать в объявленных `reserves`. Совпадение id со стоковыми данными: модуль FAILED, его данные не грузятся.
 
 ## Включение и выключение

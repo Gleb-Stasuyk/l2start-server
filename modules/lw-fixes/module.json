@@ -1,0 +1,14 @@
+{
+  "id": "lw-fixes",
+  "name": "Living Worlds fixes",
+  "description": "Small client-side fixes taken from L2-Living-Worlds. Now: refresh the client after a cursed weapon leaves its owner on death.",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.0",
+  "entrypoint": "org.l2start.modules.lwfixes.LwFixesModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "config": {
+    "CursedWeaponRefresh": { "type": "bool", "default": true, "reloadable": true, "description": "Resend the inventory and character info after a cursed weapon was dropped or vanished on its owner's death." },
+    "CursedWeaponRefreshDelay": { "type": "duration", "default": "300ms", "min": 0, "max": 5000, "reloadable": true, "description": "Delay after death, so the stock drop has finished." }
+  }
+}

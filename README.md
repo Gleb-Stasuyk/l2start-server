@@ -3,7 +3,9 @@
 Сервер Lineage 2 Interlude для l2start.ru на основе **L2J Mobius CT_0 Interlude**, с модульной системой
 дополнений и ботами, похожими на живых игроков (см. `docs/ARCHITECTURE.md`).
 
-**Статус: фаза 1 (платформа модулей)** в ветке `phase1`: 9 хуков в `core/`, загрузчик модулей (проверка, зависимости, SQL-миграции, профили solo/online, circuit breaker), админ-команды `//modules`, unit- и Docker smoke-тесты (на тестовых модулях). Модулей с сервером пока не поставляется. Фаза 0 завершена 10.10.2026.
+**Статус: фаза 2** в ветке `phase2`: первые модули `starter-kit` (стартовая экипировка) и `lw-fixes` (исправление проклятого оружия), хук `P2-DATA-INITEQUIP`, API платформы 1.1.0. Профили `solo` и `online` = стоковые механики и рейты Mobius (x1) + эти 2 модуля. Фазы 0 и 1 (платформа модулей: 9 хуков, загрузчик, `//modules`, smoke-тесты) завершены 10.10.2026; план фазы 2: `docs/PHASE2_PLAN.md`.
+
+**На будущее:** настройки соло-игры (рейты, автолут, вес, бесплатные профы, чемпионы и т.п.) будут выставляться из лаунчера; сервер для этого уже умеет профильные override (`docker/overrides/<profile>/`). Сейчас ни один профиль их не использует.
 
 ## Структура
 
@@ -11,10 +13,10 @@
 |---|---|
 | `core/` | L2J Mobius CT_0 Interlude **байт в байт** (база: `upstream.lock`) + 9 помеченных хуков `[HOOK:id]` (`docs/PLATFORM_HOOKS.md`). |
 | `platform/` | Платформа модулей: загрузчик, API для модулей, тесты, тестовые модули для smoke (`docs/MODULES.md`, `docs/PLATFORM_API.md`). |
-| `modules/` | Модули сервера (пока пусто; минимальный пример в `docs/MODULES.md`). Диапазоны id: `docs/ID_RANGES.md`. |
+| `modules/` | Модули сервера: `starter-kit`, `lw-fixes` (`modules/README.md`); минимальный пример в `docs/MODULES.md`. Диапазоны id: `docs/ID_RANGES.md`. |
 | `docker/` | Docker: Dockerfile, compose, профили `solo` / `online`, `start.bat` / `stop.bat`. |
 | `tools/` | Импорт и проверка upstream, проверка хуков (`check-hooks.sh`, `test-check-hooks.sh`, `hook-report.sh`), Docker smoke-тест (`smoke.sh`). |
-| `docs/` | Архитектура, планы фаз 0 и 1, модули, API, хуки, диапазоны id, обновление upstream. |
+| `docs/` | Архитектура, планы фаз 0–2, модули, API, хуки, диапазоны id, обновление upstream. |
 
 ## Ветки
 
@@ -58,7 +60,7 @@ GitHub Actions (`.github/workflows/ci.yml`):
 - `test`: `ant test` (JUnit 5);
 - `verify-core`: импорт совпадает с upstream, в `core/` только помеченные и описанные хуки (+ самотест проверки);
 - `docker`: сборка образа;
-- `smoke`: `tools/smoke.sh` (сток-база, сломанные модули, рестарт, online abort) на PR, в main и вручную.
+- `smoke`: `tools/smoke.sh` (сток-база, сломанные модули, рестарт, online abort, настоящие модули в online и solo) на PR, в main и вручную.
 
 ## Лицензия
 

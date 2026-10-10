@@ -32,6 +32,7 @@ After an upstream update (`tools/import-upstream.ps1`) re-apply the hooks by the
 | `P1-HTML` | `gameserver/cache/HtmCache.java` | before `// In case localisation does not exist try the default path.` | on a cache miss for `data/html/modules/<id>/...` serves the module's `data/html` (with `lang/<lang>/`) | phase 1 |
 | `P1-READY` | `gameserver/GameServer.java` | before `new ConnectionManager<>(...)` | `CoreHooks.serverReady()`: `onServerReady`, summary log line, FailurePolicy checkpoint | phase 1 |
 | `P1-SHUTDOWN` | `gameserver/Shutdown.java` | after `_countdownFinished = true;` in `startShutdownActions` | `CoreHooks.shutdown()`: `onShutdown` in reverse order, cancels tasks, unregisters everything (bounded by `ShutdownTimeout`) | phase 1 |
+| `P2-DATA-INITEQUIP` | `gameserver/data/xml/InitialEquipmentData.java` | in `load()`, after `parseDatapackFile("data/stats/players/initialEquipment.xml");` | parses `data/initialEquipment` folders of active modules (stock format); each `classId` in a module file replaces the stock starting items of that class (module `starter-kit`) | phase 2 |
 
 Paths are relative to `core/java/org/l2jmobius/`.
 Later hooks (combat, chat, items, AI, …) are added together with the modules that need them (phases 2–3).
