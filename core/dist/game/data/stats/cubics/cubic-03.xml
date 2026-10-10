@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 3: Life Cubic. Support cubic that periodically uses Cubic Heal through the HEAL target route. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="3" level="1" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="1" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+	<cubic id="3" level="2" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="2" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+	<cubic id="3" level="3" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="3" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+	<cubic id="3" level="4" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="4" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+	<cubic id="3" level="5" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="5" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+	<cubic id="3" level="6" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="6" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+	<cubic id="3" level="7" slot="3" duration="900" delay="13" maxCount="20" useUp="1" power="0.0" selectionMode="RANDOM" targetType="HEAL">
+		<skills>
+			<skill id="4051" level="7" /> <!-- Cubic Heal -->
+		</skills>
+	</cubic>
+</list>

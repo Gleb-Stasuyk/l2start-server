@@ -1,0 +1,146 @@
+AddHate: Instant effect that increases target's hate towards you.
+ApplySkillEffects: Apply skill effects directly on effected without animations. (l2jmobius)
+AttackTrait: Stat that manages all attack traits.
+Backstab: Inflicts physical damage according to the backstab formula.
+Betray: Causes the target summon to attack its owner.
+BlockAbnormalSlot: Blocks any AbnormalType from receiving its skill effects. Horn, Drum, Pipe Organ Melody etc are using this.
+BlockChat: Chat ban effect (Bot Report button stuff)
+BlockParty: Party ban effect (Bot Report button stuff)
+BlockResurrection: Blocked target from getting ressurected.
+Bluff: Rotates the target so you face its back.
+Buff: Buff effect handler. (l2jmobius)
+CallParty: Recalls whole party.
+CallPc: Recalls a Player.
+CallSkill: Triggers a specified skill.
+ChameleonRest: Relax and Silent Move-like effect.
+ChangeFace: Changes the Player's face. Facelifting Potion.
+ChangeFishingMastery: Empty effect.
+ChangeHairColor: Changes the Player's hair color.
+ChangeHairStyle: Changes the Player's Hair style.
+ClanGate: Clan gate effect handler. (l2jmobius)
+Confuse: Causes the target to attack random target.
+ConsumeBody: Removes target NPC's corpse.
+CpDamPercent: CP dam percent effect handler. (l2jmobius)
+CpHeal: Increases current CP by a given amount.
+CpHealOverTime: Increases current CP by a given amount over time.
+CpHealPercent: Increases current CP by a given percentage amount.
+CrystalGradeModify: Crystal grade modify effect handler. (l2jmobius)
+CubicMastery: Max cubics stat.
+DamOverTime: Damage over time effect. Magic Critical results in 10 times amount to me instantly inflicted before the effect is started.
+DamOverTimePercent: Damage percentage of HP over time.
+DeathLink: Inflicts magical damage proportional to your current HP.
+Debuff: Debuff effect handler. (l2jmobius)
+DefenceTrait: Stat that manages all defence traits.
+DeleteHate: Has a chance to delete target's hate towards everyone.
+DeleteHateOfMe: Has a chance to delete target's hate towards you.
+DetectHiddenObjects: Finds hidden doors
+Detection: Detects hidden creatures.
+Disarm: Removes the weapon of target player.
+DispelAll: Stops all effects of the target.
+DispelByCategory: Removes given amount of target's effects from a BUFF/DEBUFF category.
+DispelBySlot: Removes given amount of target's effects by specified AbnormalType and maximum abnormal level.
+DispelBySlotProbability: Removes given amount of effects by specified AbnormalType at a given rate.
+Distrust: Make the monsters attack each other. (l2jmobius)
+ElementSeed: Element seed effect handler. (l2jmobius)
+EnableCloak: See/unsee cloaks.
+EnergyDamage: Physical damage based on Momentum formula. Triple Sonic Slash, Double Sonic Slash etc.
+EnlargeAbnormalSlot: Increase the amount of buff slots.
+Escape: Teleport to Town, Castle, Clanhall etc effect. Scroll of Escape effects.
+FakeDeath: Plays dead to avoid enemy NPC aggression.
+FatalBlow: Physical attack based on blow formula. Deadly Blow, Lethal Blow etc.
+Fear: Causes the target to run away. Does not block it though.
+Fishing: Fishing effect handler. (l2jmobius)
+Flag: Starts pvpflag.
+FocusEnergy: Max momentum stat.
+FocusMaxEnergy: Focus max energy effect handler. (l2jmobius)
+GetAgro: Causes enemy NPC to attack you.
+GiveRecommendation: Gives recommendations to a player. Blue name.
+GiveSp: Gives a given amount of SP.
+Grow: Sets NPC collision to its growth collision.
+Harvesting: Manor's harvesting seed.
+HeadquarterCreate: Creates a siege flag
+Heal: Increases current HP by a given amount.
+HealOverTime: Increases current HP by a given amount over time.
+HealPercent: Increases current HP by a given percentage amount.
+Hide: Hide effect.
+HpByLevel: recovers certain amount of HP, but current implementation is wrong... final amount should be computed from skill power and character level difference
+HpDrain: Magical attack that absorbs given percentage of the damage inflicted as HP.
+ImmobileBuff: Immobile buff effect handler. (l2jmobius)
+ImmobilePetBuff: Causes your pet to become immobilized.
+Invincible: Invincible effect handler. (l2jmobius)
+Lethal: Upon success sets enemy Player's CP to 1 and enemy NPC's HP to 50%.
+Lucky: dummy effect since behavior is hardcoded
+MagicalDamage: Magical damage effect.
+MagicalDamageByAbnormal: Curse of divinity effect.
+MagicalDamageMp: Mana burn effect.
+ManaDamOverTime: Mana damage over time.
+ManaHeal: Increases current MP.
+ManaHealByLevel: Increases current MP depending on the level diff of the effector and effected.
+ManaHealOverTime: Increases current MP over time.
+ManaHealPercent: Increases current MP by a given percentage.
+MaxCp: Max. CP stat.
+MaxHp: Max. HP stat.
+MpConsumePerLevel: Consumes mana over time depending on your level.
+Mute: Prevents target from using magical skills. Silence.
+NoblesseBless: Does not remove buffs upon death except itself.
+OpenChest: Opens a treasure chest.
+OpenCommonRecipeBook: Shows the common recipe book window.
+OpenDoor: Unlocks doors at a given chance.
+OpenDwarfRecipeBook: Shows the dwarven craft recipe book window.
+Paralyze: Paralyze effect handler. (l2jmobius)
+Passive: Disables skills and movement of npc.
+Petrification: Petrification effect handler. (l2jmobius)
+PhysicalDamage: Physical damage effect.
+PhysicalDamageHpLink: Physical damage proportional to your current HP.
+PhysicalDamageMute: Prevents autoattack.
+PhysicalMute: Prevents the usage of physical skills. Shield Slam.
+PolearmSingleTarget: Effect used by Focus Attack (317) skill.
+ProtectionBlessing: Keeps you safe from a PK if he is 10 levels or higher.
+Pumping: Pumping effect handler. (l2jmobius)
+RandomizeHate: Target NPC stops hating you and starts hating random target with your hate.
+RebalanceHP: Balances targets' current HP.
+Recovery: Decreases death penalty level.
+Reeling: Reeling effect handler. (l2jmobius)
+Relax: Sits down and increases HP regeneration until full.
+ResistSkill: Become invulnerable against given skills.
+Restoration: Creates specified item id and count.
+RestorationRandom: Creates items randomly from a specified list. Its multiplied by extractable rate from config.
+Resurrection: Resurrects target Player or Summon.
+ResurrectionSpecial: Resurrects target Player or Summon only in specified instance IDs.
+Ride: Ride NPC effect. (l2jmobius)
+Root: Stops movement.
+RunAway: Run away effect handler. (l2jmobius)
+ServitorShare: Servitor share effect.
+SetSkill: Adds a skill to the Player and saves it in the database.
+SilentMove: Prevents aggressive mobs from attacking you when entering aggression range.
+SkillTurning: Stops target's casting.
+Sleep: Sleep effect handler. (l2jmobius)
+Sow: Planting a seed into NPC target. Manor stuff.
+Spoil: Spoils a mob activating its extra sweep drop.
+StaticDamage: Static damage effect handler. (l2jmobius)
+StealAbnormal: Steals enemy's buffs.
+Stun: Stun effect handler. (l2jmobius)
+Summon: Summons a servitor.
+SummonAgathion: Summons the specified agathion Npc Id.
+SummonCubic: Summons the specified Cubic ID.
+SummonNpc: Summons a specified Npc Id.
+SummonPet: Summons a specified pet.
+SummonTrap: Summons a trap.
+Sweeper: Takes extra items from a spoiled mob's corpse.
+TakeCastle: Engraves a castle.
+TargetCancel: Cancels enemy's target.
+TargetMe: Changes your enemy's target to you.
+TargetMeProbability: Changes your enemy's target to you with a given probability.
+Teleport: Teleports to a specified XYZ location.
+TeleportToTarget: Teleports to your target.
+TransferDamage: Transfer damage effect handler. (l2jmobius)
+TransferHate: Transfers Npc's hate from you to your target.
+TrapDetect: Detects a hidden trap.
+TrapRemove: Removes a trap.
+TriggerSkillByAvoid: Triggers a specified skill when you avoid autoattack damage.
+TriggerSkillByDamageDealt: Triggers a specified skill when you deal damage.
+TriggerSkillByDamageReceived: Triggers a specified skill when you receive damage.
+TriggerSkillBySkill: Triggers skill when you finish casting a specified skill.
+Unsummon: Unsummons a target summon.
+UnsummonAgathion: Unsummons current summoned agathion.
+VitalityPointUp: Increases vitality points.

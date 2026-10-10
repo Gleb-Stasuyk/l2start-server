@@ -1,0 +1,8 @@
+# Pristine upstream imported into core/ (byte-identical, verified by tools/verify-upstream)
+repo=https://gitlab.com/MobiusDevelopment/L2J_Mobius.git
+path=L2J_Mobius_CT_0_Interlude
+commit=9fb01cb2051
+commit_date=2026-10-10T07:11:12+03:00
+commit_subject=Raid boss spawn locations corrected and missing raid bosses added.
+files=19144
+manifest_sha256=8b0a1264c489787bf03607ed814770ff26dfbc73449aa8947eab565b2726b0b1

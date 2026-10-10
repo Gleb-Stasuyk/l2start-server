@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/cubics.xsd">
+	<!-- Interlude cubic ID 5: Poltergeist Cubic. Debuff cubic that randomly applies physical attack, physical defense, or attack speed reduction. -->
+	<!-- Attribute guide: duration is active time in seconds; delay is action interval in seconds; maxCount limits activations. -->
+	<!-- Attribute guide: useUp controls removal after maxCount; power controls cubic skill formula strength when used by the runtime. -->
+	<!-- Attribute guide: selectionMode controls skill selection; targetType controls target resolution for TARGET or HEAL behavior. -->
+	<cubic id="5" level="1" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="282.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="1" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="1" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="1" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="2" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="434.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="2" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="2" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="2" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="3" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="644.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="3" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="3" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="3" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="4" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="919.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="4" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="4" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="4" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="5" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="1141.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="5" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="5" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="5" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="6" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="1394.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="6" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="6" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="6" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="7" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="1673.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="7" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="7" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="7" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+	<cubic id="5" level="8" slot="5" duration="900" delay="8" maxCount="30" useUp="1" power="1975.0" selectionMode="RANDOM" targetType="TARGET">
+		<skills>
+			<skill id="4053" level="8" /> <!-- Decrease P. Atk. -->
+			<skill id="4054" level="8" /> <!-- Decrease P. Def. -->
+			<skill id="4055" level="8" /> <!-- Decrease Atk. Spd. -->
+		</skills>
+	</cubic>
+</list>

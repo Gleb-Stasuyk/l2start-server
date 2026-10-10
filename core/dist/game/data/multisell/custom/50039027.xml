@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../xsd/multisell.xsd">
+	<npcs>
+		<npc>50010</npc>
+	</npcs>
+	<item>
+		<ingredient id="57" count="13100000" />
+		<production id="79" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="136" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="137" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="138" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="139" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="140" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="141" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="142" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="146" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="148" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="4714" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="4715" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="4716" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="13100000" />
+		<production id="4717" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="13100000" />
+		<production id="4718" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="13100000" />
+		<production id="4719" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="7722" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="7723" count="1" />
+	</item>
+	<item>
+		<ingredient id="57" count="8680000" />
+		<production id="7724" count="1" />
+	</item>
+</list>
