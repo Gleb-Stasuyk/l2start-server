@@ -123,4 +123,56 @@ class PresenceBrainTest {
         assertTrue(w.pos().distance2d(exit) <= 300, "did not run past: " + w.pos());
         assertEquals(0, h.act().count("sit"));
     }
+
+    static PlayerView pk(Pos at) {
+        return new PlayerView(950, "Pk", 6, 0, at, 0, 0, true, true, FakeWorld.SELF_ID, false);
+    }
+
+    @Test
+    void fightBackChanceDependsOnLevelAndTraits() {
+        final double even = BasicBrain.fightBackChance(0.5, 20, 20, 0.5, 0.5, 100);
+        assertEquals(0.5, even, 1e-9);
+        assertTrue(BasicBrain.fightBackChance(0.5, 30, 20, 0.5, 0.5, 100) > even, "stronger bot");
+        assertTrue(BasicBrain.fightBackChance(0.5, 10, 20, 0.5, 0.5, 100) < even, "weaker bot");
+        assertTrue(BasicBrain.fightBackChance(0.5, 20, 20, 0.9, 0.5, 100) > even, "aggressive persona");
+        assertTrue(BasicBrain.fightBackChance(0.5, 20, 20, 0.5, 0.5, 20) < even, "already hurt");
+        assertEquals(0, BasicBrain.fightBackChance(0, 80, 1, 1, 0, 100));
+        assertEquals(1, BasicBrain.fightBackChance(1, 1, 80, 0, 1, 10));
+    }
+
+    private static BrainHarness attackedOnTheGround(FakeWorld w, long seed) {
+        w.setLevel(5);
+        final BrainHarness h = BasicBrainTest.harness(w, false, seed);
+        h.setAssignment(hunt(1));
+        h.run(4 * MIN);
+        w.addPlayer(pk(new Pos(w.pos().x() + 200, w.pos().y(), 0)));
+        h.run(20_000);
+        return h;
+    }
+
+    @Test
+    void fightsBackARealPlayer() {
+        final double old = BasicBrain.fightBackBase;
+        try {
+            BasicBrain.fightBackBase = 1;
+            final BrainHarness h = attackedOnTheGround(BasicBrainTest.world(10, false), 10);
+            assertTrue(h.act().calls().stream().anyMatch(c -> c.action().equals("attack") && c.arg().equals("950")), "did not fight back: " + h.notes());
+            assertEquals(0, h.act().count("returnToTown"));
+        } finally {
+            BasicBrain.fightBackBase = old;
+        }
+    }
+
+    @Test
+    void runsFromARealPlayerAndEscapes() {
+        final double old = BasicBrain.fightBackBase;
+        try {
+            BasicBrain.fightBackBase = 0;
+            final BrainHarness h = attackedOnTheGround(BasicBrainTest.world(11, false), 11);
+            assertTrue(h.act().count("returnToTown") >= 1, "no scroll of escape: " + h.notes());
+            assertTrue(h.act().calls().stream().noneMatch(c -> c.action().equals("attack") && c.arg().equals("950")), "fought back");
+        } finally {
+            BasicBrain.fightBackBase = old;
+        }
+    }
 }

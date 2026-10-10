@@ -149,6 +149,7 @@ public final class BasicBrain implements Brain {
             if (phase != Phase.DEAD) {
                 enter(ctx, Phase.DEAD, "waiting");
                 endFight();
+                pvpId = 0;
             }
             return 2000; // bots-core brings it back to town after 5-40 s
         }
@@ -171,6 +172,10 @@ public final class BasicBrain implements Brain {
         }
         if (me.teleporting()) {
             return 500;
+        }
+        final long pv = pvp(ctx, w, me, now);
+        if (pv > 0) {
+            return pv;
         }
         final NpcView attacker = attacker(w, me);
         return switch (phase) {
@@ -214,6 +219,127 @@ public final class BasicBrain implements Brain {
         }
         phase = p;
         detail = why;
+    }
+
+    // ------------------------------------------------------------------ a real player attacks
+
+    /** Base chance to fight back a real player who attacks (config PvpFightBack of bots-brain-basic); else it flees. */
+    static volatile double fightBackBase = 0.5;
+    /** How far a bot follows its attacker: no chasing across the map. */
+    static final int PVP_LEASH = 900;
+    private int pvpId;
+    private boolean pvpFight;
+    private Pos pvpStart;
+    private Pos pvpFlee;
+    private long pvpSince;
+    private long pvpQuietSince;
+    private final Map<Integer, Long> pvpDone = new HashMap<>();
+
+    /** A real player (not a bot) who attacks this bot: has it targeted, fights, and is flagged or has karma. */
+    static PlayerView playerAttacker(WorldView w, SelfView me) {
+        for (PlayerView p : w.players()) {
+            if (!p.bot() && (p.targetId() == me.objectId()) && p.inCombat() && (p.pvpFlag() || (p.karma() > 0)) && (p.pos().distance2d(me.pos()) <= 1200)) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Chance to fight back: the base, more when the bot is stronger (level), more for aggressive personas, less for
+     * patient ones and when already hurt. Base 0 = always flee, 1 = always fight.
+     */
+    static double fightBackChance(double base, int myLevel, int theirLevel, double aggression, double patience, double hpPct) {
+        if (base <= 0) {
+            return 0;
+        }
+        if (base >= 1) {
+            return 1;
+        }
+        double c = base + Math.max(-0.35, Math.min(0.35, 0.05 * (myLevel - theirLevel))) + ((aggression - 0.5) * 0.4) - ((patience - 0.5) * 0.1);
+        if (hpPct < 40) {
+            c -= 0.25;
+        }
+        return Math.max(0.05, Math.min(0.95, c));
+    }
+
+    /**
+     * Reaction to a real player's attack, as a player would: fight back (stock PvP: the bot gets the flag, karma rules
+     * as for anybody) or run and use a scroll of escape. No chasing: a fight ends when the attacker is gone, far or
+     * quiet, or the bot would have to follow him. @return the delay, or 0 when there is nothing of the kind going on
+     */
+    private long pvp(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (pvpId == 0) {
+            if (me.inPeaceZone()) {
+                return 0;
+            }
+            final PlayerView p = playerAttacker(w, me);
+            if ((p == null) || (pvpDone.getOrDefault(p.objectId(), 0L) > now)) {
+                return 0;
+            }
+            pvpId = p.objectId();
+            pvpStart = me.pos();
+            pvpSince = now;
+            pvpQuietSince = 0;
+            final double chance = fightBackChance(fightBackBase, me.level(), p.level(), ctx.info().aggression(), ctx.info().patience(), me.hpPct());
+            pvpFight = ctx.rnd().nextDouble() < chance;
+            endFight();
+            standIfSitting(ctx, me);
+            ctx.note((pvpFight ? "fights back " : "runs from ") + p.name() + " lv " + p.level() + String.format(java.util.Locale.ROOT, " (chance to fight %.2f)", chance));
+            if (!pvpFight) {
+                final double dx = me.pos().x() - p.pos().x();
+                final double dy = me.pos().y() - p.pos().y();
+                final double len = Math.max(1, Math.hypot(dx, dy));
+                pvpFlee = new Pos(me.pos().x() + (int) ((dx / len) * 1200), me.pos().y() + (int) ((dy / len) * 1200), me.pos().z());
+                ctx.act().moveTo(pvpFlee);
+                return 600;
+            }
+        }
+        final PlayerView p = w.players().stream().filter(x -> x.objectId() == pvpId).findFirst().orElse(null);
+        if (!pvpFight) {
+            // a few seconds of running, then a scroll of escape (logs out later in town, the director sends it away)
+            detail = "runs from a player";
+            if (((now - pvpSince) > (3000 + ctx.rnd().nextInt(3000))) || (p == null) || (pvpFlee.distance2d(me.pos()) < 150)) {
+                ctx.note("scroll of escape");
+                ctx.act().returnToTown();
+                pvpOver(now, 120_000);
+                return 3000;
+            }
+            if (!me.moving()) {
+                ctx.act().moveTo(pvpFlee);
+            }
+            return 600;
+        }
+        final boolean quiet = (p != null) && !((p.targetId() == me.objectId()) && p.inCombat());
+        if (quiet && (pvpQuietSince == 0)) {
+            pvpQuietSince = now;
+        } else if (!quiet) {
+            pvpQuietSince = 0;
+        }
+        if ((p == null) || (p.pos().distance2d(me.pos()) > 1200) || (me.pos().distance2d(pvpStart) > PVP_LEASH) || (quiet && ((now - pvpQuietSince) > 5000))
+            || ((now - pvpSince) > 120_000) || me.inPeaceZone()) {
+            ctx.note("the fight with a player is over");
+            ctx.act().stop();
+            pvpOver(now, 60_000);
+            return 1000;
+        }
+        detail = "fights " + p.name();
+        if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
+            final SkillView nuke = nuke(me, 0, badSkills, now);
+            if ((nuke != null) && nuke.ready() && (nuke.mpCost() <= me.mp()) && ctx.act().cast(nuke.id(), p.objectId()).ok()) {
+                return 700;
+            }
+        }
+        if (!"ATTACK".equals(me.intention()) || (me.targetId() != p.objectId())) {
+            ctx.act().attack(p.objectId());
+        }
+        return 500;
+    }
+
+    private void pvpOver(long now, long ignoreMs) {
+        pvpDone.put(pvpId, now + ignoreMs);
+        pvpDone.values().removeIf(t -> t < now);
+        pvpId = 0;
     }
 
     /** A living monster that is fighting this bot (self-defence comes before anything else). */
@@ -478,6 +604,10 @@ public final class BasicBrain implements Brain {
         if (a.seq() != orderSeq) {
             orderSeq = a.seq();
             newOrder(ctx, me, now, a);
+        }
+        final long pv = pvp(ctx, w, me, now);
+        if (pv > 0) {
+            return pv;
         }
         return switch (a.kind()) {
             case LEAVE_RUN, LEAVE_GK, PASS -> leaving(ctx, w, me, now, a);

@@ -11,9 +11,10 @@ public final class BotsBrainBasicModule implements GameModule {
     @Override
     public void onEnable(ModuleContext ctx) throws Exception {
         final LevelZones zones = LevelZones.load(ctx.resources().path("data/levelzones.xml"));
+        BasicBrain.fightBackBase = Math.max(0, Math.min(1, Double.parseDouble(ctx.config().getString("PvpFightBack").trim())));
         registry = ctx.services().require(BrainRegistry.class);
         registry.register(new BasicBrainFactory(zones, Village.STARTING));
         ctx.cleanup("unregister brain basic", () -> registry.unregister(BasicBrainFactory.ID));
-        ctx.log().info("brain 'basic' registered: " + zones.all().size() + " hunting grounds around " + Village.STARTING.size() + " starting villages");
+        ctx.log().info("brain 'basic' registered: " + zones.all().size() + " hunting grounds around " + Village.STARTING.size() + " starting villages, fights back real players with base chance " + BasicBrain.fightBackBase);
     }
 }
