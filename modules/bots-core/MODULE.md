@@ -28,10 +28,12 @@
   LOD: ACTIVE (живой игрок ближе 3000; тик 0,3–1 с) / PRESENT (тик 3–5 с), обратно через 45 с дальше 4500;
   исключение в мозге → бот 60 с «SAFE_IDLE», 10 исключений за 10 мин → бот выходит из мира (причина в `//bots info`);
 - **API мозгов** `org.l2start.bots.api` (без классов Mobius): снимок мира, действия через валидатор
-  (`moveTo`, `attack`, `cast`, `pickUp`, `sit`/`stand`, `say`, `returnToTown`, `learnSkills`, …), сервис
+  (`moveTo`, `attack`, `cast`, `pickUp`, `sit`/`stand`, `say`, `returnToTown`, `learnSkills`, `setWalking`, …); боты **бегают**
+  по умолчанию, как игроки (шагом — только если мозг явно попросит `setWalking(true)`), сервис
   `BrainRegistry` для модулей-мозгов; оффлайн-набор для тестов `org.l2start.bots.testkit` (`FakeWorld`,
   `RecordingActuators`, `ManualClock`, `BrainHarness`);
-- строка `BOTS world=… active=… p99=… overrun=… errors=…` в лог раз в 60 с, пока боты в мире.
+- строка `BOTS world=… active=… p99=… overrun=… errors=… walking=…` в лог раз в 60 с, пока боты в мире
+  (`walking` — живые боты, идущие шагом; норма 0).
 
 ## Команды GM
 | Команда | Что |

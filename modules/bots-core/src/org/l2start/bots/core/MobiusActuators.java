@@ -47,6 +47,8 @@ final class MobiusActuators implements Actuators {
     private final Sink sink;
     private final long[] said = new long[SAY_PER_MINUTE];
     private int saidPos;
+    /** Gait asked by the brain: false = run (the default, like a client). */
+    private volatile boolean walk;
 
     MobiusActuators(BotRecord r, BotWorld world, Sink sink) {
         this.r = r;
@@ -62,7 +64,22 @@ final class MobiusActuators implements Actuators {
     /** The bot's player when it can act at all (in the world, alive, not teleporting). */
     private Player alive() {
         final Player p = r.player();
-        return (p == null) || p.isDead() || p.isTeleporting() ? null : p;
+        if ((p == null) || p.isDead() || p.isTeleporting()) {
+            return null;
+        }
+        gait(p);
+        return p;
+    }
+
+    /** Keep the asked gait before every action (stock code or a revive may have changed it); broadcasts only on change. */
+    private void gait(Player p) {
+        if (walk == p.isRunning()) {
+            if (walk) {
+                p.setWalking();
+            } else {
+                p.setRunning();
+            }
+        }
     }
 
     private static Creature creature(Player p, int objectId) {
@@ -252,6 +269,13 @@ final class MobiusActuators implements Actuators {
         }
         done("learnSkills", n, ActionResult.OK);
         return n;
+    }
+
+    @Override
+    public ActionResult setWalking(boolean walk) {
+        this.walk = walk;
+        final Player p = alive();
+        return done("setWalking", walk, p == null ? ActionResult.INVALID : ActionResult.OK);
     }
 
     @Override

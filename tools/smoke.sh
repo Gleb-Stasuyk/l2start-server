@@ -184,6 +184,8 @@ real_modules() { # real_modules LOG N
   check "$2: starter-kit RUNNING" state_is starter-kit RUNNING "$1"
   check "$2: lw-fixes RUNNING" state_is lw-fixes RUNNING "$1"
   check "$2: lw-fixes cursed weapon fix on" has "Module[lw-fixes]: enabled: CursedWeaponRefresh=true" "$1"
+  check "$2: profile override AutoLoot = True" has "override game/Player.ini: AutoLoot = True" "$1"
+  check "$2: profile override DisableTutorial = True" has "override game/Player.ini: DisableTutorial = True" "$1"
   check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
   check "$2: no platform error for starter-kit / lw-fixes" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes) ' \"\$0\"" "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
@@ -226,6 +228,7 @@ check "brain: bots attack monsters" wait_log 'BOTS world=10 ticking=10 .* attack
 check "brain: bots kill monsters" wait_log 'BOTS world=10 ticking=10 .* kills=[1-9]' 300
 gamelog > "$OUT/7-bots.log"
 grep -E 'BOTS world=' "$OUT/7-bots.log" | tail -3 | tee -a "$SUMMARY" >/dev/null
+check "bots run, not walk (walking=0)" bash -c "grep -E 'BOTS world=' \"\$0\" | tail -1 | grep -qE ' walking=0([^0-9]|\$)'" "$OUT/7-bots.log"
 check "brain: 0 brain errors, 0 safe-idle" bash -c "grep -E 'BOTS world=' \"\$0\" | tail -1 | grep -qE ' errors=0 safeIdle=0 '" "$OUT/7-bots.log"
 check "brain: no brain failure logged" hasnt "brain of " "$OUT/7-bots.log"
 check "20 bot identities" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE status='ACTIVE'")" = 20

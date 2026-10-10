@@ -56,4 +56,4 @@
 Счётчики `ctx.metrics()` модуля `bots-core`: `actions`, `actionsRejected`, `moves`, `attacks`, `kills`, `deaths`,
 `levelUps`, `brainErrors`, `lodChanges`, `logins`, … Строка в лог раз в `StatsLogInterval` (60 с):
 
-    BOTS world=25 ticking=25 active=6 present=19 brain=basic noBrain=0 ticks=… p50=0.08ms p99=0.9ms overrun=0 errors=0 safeIdle=0 paused=false moves=… attacks=… kills=… deaths=… levelUps=… rejected=… ticks/s=… shardCpu=…%
+    BOTS world=25 ticking=25 active=6 present=19 brain=basic noBrain=0 ticks=… p50=0.08ms p99=0.9ms overrun=0 errors=0 safeIdle=0 paused=false moves=… attacks=… kills=… deaths=… levelUps=… rejected=… ticks/s=… shardCpu=…% walking=0

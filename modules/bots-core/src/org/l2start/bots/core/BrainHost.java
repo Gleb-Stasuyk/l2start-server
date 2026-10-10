@@ -428,7 +428,14 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         final long busy = t.busyNanos();
         final double secs = Math.max(1, now - lastLogAt) / 1000.0;
         final double cpu = ((busy - lastLogBusy) / 1e9) / secs * 100;
-        ctx.log().info(statsLine() + String.format(Locale.ROOT, " ticks/s=%.1f shardCpu=%.2f%%", (ticks - lastLogTicks) / secs, cpu));
+        int walking = 0; // bots in the world that walk instead of running (should be 0: they run like players)
+        for (BotRecord r : registry.all()) {
+            final Player p = r.player();
+            if ((p != null) && !p.isDead() && !p.isRunning()) {
+                walking++;
+            }
+        }
+        ctx.log().info(statsLine() + String.format(Locale.ROOT, " ticks/s=%.1f shardCpu=%.2f%% walking=%d", (ticks - lastLogTicks) / secs, cpu, walking));
         lastLogTicks = ticks;
         lastLogBusy = busy;
         lastLogAt = now;

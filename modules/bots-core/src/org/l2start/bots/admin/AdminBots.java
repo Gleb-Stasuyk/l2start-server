@@ -222,7 +222,7 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("Status: ").append(r.status()).append(p != null ? ", in world since " + f.format(new Date(r.inWorldSince())) : ", offline").append("<br>");
         sb.append("Last login: ").append(r.lastLogin() > 0 ? f.format(new Date(r.lastLogin())) : "-").append(", last logout: ").append(r.lastLogout() > 0 ? f.format(new Date(r.lastLogout())) : "-").append("<br>");
         if (p != null) {
-            sb.append("Level ").append(p.getLevel()).append(", HP ").append((int) p.getCurrentHp()).append("/").append(p.getMaxHp()).append(p.isDead() ? " (dead)" : "").append(p.isSitting() ? " (sitting)" : "").append("<br>");
+            sb.append("Level ").append(p.getLevel()).append(", HP ").append((int) p.getCurrentHp()).append("/").append(p.getMaxHp()).append(p.isDead() ? " (dead)" : "").append(p.isSitting() ? " (sitting)" : "").append(p.isRunning() ? ", runs" : ", walks").append("<br>");
             sb.append("Loc ").append(p.getX()).append(", ").append(p.getY()).append(", ").append(p.getZ()).append("<br>");
             final Item w = p.getActiveWeaponInstance();
             sb.append("Weapon: ").append(w == null ? "-" : w.getName()).append("<br>");

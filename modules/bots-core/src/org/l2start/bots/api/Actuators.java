@@ -5,7 +5,7 @@ package org.l2start.bots.api;
  * a validator first: alive, distance, peace zone, geodata, the target exists.
  */
 public interface Actuators {
-    /** Walk there (stock MOVE_TO with pathfinding). Long ways: call again with the next leg. */
+    /** Go there (stock MOVE_TO with pathfinding), running unless {@link #setWalking} asked to walk. Long ways: call again with the next leg. */
     ActionResult moveTo(Pos to);
 
     ActionResult follow(int objectId);
@@ -37,6 +37,12 @@ public interface Actuators {
      * right after, off the bot's thread (it writes the database). @return skills it can learn now
      */
     int learnSkills();
+
+    /**
+     * Gait for every following move, like the client's run/walk toggle. Bots run by default (as real players do);
+     * walk only when a behaviour explicitly needs it, and switch back to running after.
+     */
+    ActionResult setWalking(boolean walk);
 
     /** Stop: drop the current intention. */
     ActionResult stop();

@@ -92,6 +92,7 @@ public final class BotWorld {
         r.enteredWorld(p, now); // registered before it becomes visible: hooks see a bot from the first packet
         try {
             p.setOnlineStatus(true, false);
+            p.setRunning(); // like stock GameClient on login: running is the default (a bot has no client to ask for it)
             p.spawnMe(x, y, z);
             p.restoreEffects();
             p.onPlayerEnter();
