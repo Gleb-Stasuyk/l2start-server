@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  l2start-server root build: core/java (L2J Mobius + marked platform hooks) and platform/ are compiled together
+  into GameServer.jar; modules/* are built into build/dist/game/modules/<id>/.
+  core/build.xml (upstream) is NOT used and stays untouched; keep java.release and the jar include/exclude lists
+  below in sync with it (tools/check-hooks.sh checks the Java version).
+
+  ant dist        jars + modules + platform config            -> build/dist
+  ant test        unit tests (JUnit 5 console launcher)        -> build/test-reports
+  ant fixtures    smoke-test modules (platform/test/fixtures)  -> build/fixtures
+-->
+<project name="l2start-server" default="dist" basedir=".">
+	<property name="java.release" value="27" />
+	<property name="core" location="core" />
+	<property name="libs" location="${core}/dist/libs" />
+	<property name="build" location="build" />
+	<property name="classes" location="${build}/classes" />
+	<property name="dist" location="${build}/dist" />
+	<property name="dist.libs" location="${dist}/libs" />
+	<property name="dist.modules" location="${dist}/game/modules" />
+	<property name="junit.version" value="1.13.4" />
+	<property name="junit.sha512" value="d01f5fb79b2305309c999eb6f48c1655ddf9007fc1b4cdcc98c1e5088aa360ab5b1c0c1de77eb3bf798b1d161017cc1e25608d4accd847d72aa3ecae0f4df40b" />
+	<property name="junit.jar" location="${build}/tools/junit-platform-console-standalone-${junit.version}.jar" />
+
+	<path id="classpath">
+		<fileset dir="${libs}">
+			<include name="*.jar" />
+			<exclude name="**/*-sources.jar" />
+		</fileset>
+	</path>
+
+	<pathconvert property="manifest.libs" pathsep=" ">
+		<path refid="classpath" />
+		<mapper>
+			<chainedmapper>
+				<flattenmapper />
+				<globmapper from="*.jar" to="../libs/*.jar" />
+			</chainedmapper>
+		</mapper>
+	</pathconvert>
+
+	<target name="check">
+		<fail message="Java ${java.release} is required, this is Java ${ant.java.version}.">
+			<condition>
+				<not>
+					<javaversion atleast="${java.release}" />
+				</not>
+			</condition>
+		</fail>
+	</target>
+
+	<target name="compile" depends="check" description="Compile core + platform.">
+		<mkdir dir="${classes}" />
+		<javac destdir="${classes}" classpathref="classpath" release="${java.release}" encoding="UTF-8" debug="true" debuglevel="lines,vars,source" includeantruntime="false" compiler="modern">
+			<src path="${core}/java" />
+			<src path="platform/src/main/java" />
+		</javac>
+		<copy todir="${classes}">
+			<fileset dir="platform/src/main/resources" />
+		</copy>
+	</target>
+
+	<target name="jar" depends="compile" description="LoginServer.jar and GameServer.jar (same layout as core/build.xml).">
+		<tstamp>
+			<format property="time.stamp" pattern="yyyy-MM-dd HH:mm:ss z" />
+		</tstamp>
+		<jar destfile="${dist.libs}/LoginServer.jar" level="9">
+			<fileset dir="${classes}">
+				<exclude name="**/gameserver/**" />
+				<exclude name="org/l2start/**" />
+				<exclude name="**/tools/DatabaseInstaller**" />
+				<exclude name="**/tools/Search**" />
+			</fileset>
+			<manifest>
+				<attribute name="Build-By" value="${user.name}" />
+				<attribute name="Build-Date" value="${time.stamp}" />
+				<attribute name="Implementation-URL" value="https://github.com/Gleb-Stasuyk/l2start-server" />
+				<attribute name="Class-Path" value="${manifest.libs}" />
+				<attribute name="Main-Class" value="org.l2jmobius.loginserver.LoginServer" />
+			</manifest>
+		</jar>
+		<jar destfile="${dist.libs}/GameServer.jar" level="9">
+			<fileset dir="${classes}">
+				<exclude name="**/loginserver/**" />
+				<exclude name="**/tools/AccountManager**" />
+				<exclude name="**/tools/DatabaseInstaller**" />
+				<exclude name="**/tools/GameServerRegister**" />
+			</fileset>
+			<manifest>
+				<attribute name="Build-By" value="${user.name}" />
+				<attribute name="Build-Date" value="${time.stamp}" />
+				<attribute name="Implementation-URL" value="https://github.com/Gleb-Stasuyk/l2start-server" />
+				<attribute name="Class-Path" value="${manifest.libs}" />
+				<attribute name="Main-Class" value="org.l2jmobius.gameserver.GameServer" />
+			</manifest>
+		</jar>
+	</target>
+
+	<target name="modules" depends="compile" description="Build every modules/ID into build/dist/game/modules/ID.">
+		<subant genericantfile="modules/module-build.xml" inheritall="false" failonerror="true">
+			<property name="classes" value="${classes}" />
+			<property name="libs" value="${libs}" />
+			<property name="java.release" value="${java.release}" />
+			<property name="out.root" value="${dist.modules}" />
+			<property name="module.classes.root" value="${build}/module-classes" />
+			<dirset dir="modules" includes="*" excludes="_*" />
+		</subant>
+	</target>
+
+	<target name="fixtures" depends="compile" description="Build smoke-test modules into build/fixtures.">
+		<subant genericantfile="modules/module-build.xml" inheritall="false" failonerror="true">
+			<property name="classes" value="${classes}" />
+			<property name="libs" value="${libs}" />
+			<property name="java.release" value="${java.release}" />
+			<property name="out.root" value="${build}/fixtures" />
+			<property name="module.classes.root" value="${build}/fixture-classes" />
+			<property name="extra.classpath" value="${dist.modules}/hello/hello.jar" />
+			<dirset dir="platform/test/fixtures/modules" includes="*" />
+		</subant>
+	</target>
+
+	<target name="dist" depends="jar,modules" description="Everything the Docker image needs.">
+		<copy todir="${dist}/game/config">
+			<fileset dir="platform/dist/game/config" />
+		</copy>
+	</target>
+
+	<target name="junit-download">
+		<mkdir dir="${build}/tools" />
+		<get src="https://repo1.maven.org/maven2/org/junit/platform/junit-platform-console-standalone/${junit.version}/junit-platform-console-standalone-${junit.version}.jar" dest="${junit.jar}" skipexisting="true" />
+		<checksum file="${junit.jar}" algorithm="SHA-512" property="${junit.sha512}" verifyproperty="junit.ok" />
+		<fail message="Checksum mismatch for ${junit.jar}">
+			<condition>
+				<isfalse value="${junit.ok}" />
+			</condition>
+		</fail>
+	</target>
+
+	<target name="test" depends="modules,junit-download" description="Unit tests of platform and modules.">
+		<mkdir dir="${build}/test-classes" />
+		<path id="test.src">
+			<pathelement path="platform/src/test/java" />
+			<dirset dir="modules" includes="*/test" />
+		</path>
+		<path id="test.classpath">
+			<pathelement path="${classes}" />
+			<path refid="classpath" />
+			<dirset dir="${build}/module-classes" includes="*" />
+			<pathelement path="${junit.jar}" />
+		</path>
+		<javac destdir="${build}/test-classes" release="${java.release}" encoding="UTF-8" debug="true" includeantruntime="false">
+			<src refid="test.src" />
+			<classpath refid="test.classpath" />
+		</javac>
+		<copy todir="${build}/test-classes" failonerror="false">
+			<fileset dir="platform/src/test/resources" erroronmissingdir="false" />
+		</copy>
+		<java jar="${junit.jar}" fork="true" failonerror="true" dir="${basedir}">
+			<arg value="execute" />
+			<arg value="--disable-banner" />
+			<arg value="--details=tree" />
+			<arg value="--fail-if-no-tests" />
+			<arg value="--reports-dir=${build}/test-reports" />
+			<arg value="--class-path" />
+			<arg pathref="test.classpath" />
+			<arg value="--class-path" />
+			<arg value="${build}/test-classes" />
+			<arg value="--scan-class-path=${build}/test-classes" />
+		</java>
+	</target>
+
+	<target name="clean">
+		<delete dir="${build}" />
+	</target>
+</project>

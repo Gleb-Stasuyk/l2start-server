@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Builds ONE module (basedir = modules/<id>). Called by the root build.xml through <subant>.
+  kind "jar": src/ -> <id>.jar ; every kind: module.json, config/, data/, sql/, i18n/, MODULE.md are copied.
+-->
+<project name="module" default="build" basedir=".">
+	<basename property="module.id" file="${basedir}" />
+	<property name="out" location="${out.root}/${module.id}" />
+	<property name="module.classes" location="${module.classes.root}/${module.id}" />
+	<property name="extra.classpath" value="" />
+	<available file="${basedir}/src" type="dir" property="has.src" />
+
+	<target name="compile" if="has.src">
+		<mkdir dir="${module.classes}" />
+		<javac srcdir="${basedir}/src" destdir="${module.classes}" release="${java.release}" encoding="UTF-8" debug="true" debuglevel="lines,vars,source" includeantruntime="false">
+			<classpath>
+				<pathelement path="${classes}" />
+				<fileset dir="${libs}" includes="*.jar" excludes="*-sources.jar" />
+				<pathelement path="${extra.classpath}" />
+			</classpath>
+		</javac>
+		<mkdir dir="${out}" />
+		<jar destfile="${out}/${module.id}.jar" basedir="${module.classes}" level="9" />
+	</target>
+
+	<target name="build" depends="compile">
+		<fail message="${basedir}/module.json is missing">
+			<condition>
+				<not>
+					<available file="${basedir}/module.json" />
+				</not>
+			</condition>
+		</fail>
+		<mkdir dir="${out}" />
+		<copy todir="${out}">
+			<fileset dir="${basedir}">
+				<include name="module.json" />
+				<include name="MODULE.md" />
+				<include name="config/**" />
+				<include name="data/**" />
+				<include name="sql/**" />
+				<include name="i18n/**" />
+			</fileset>
+		</copy>
+		<echo message="module ${module.id} -> ${out}" />
+	</target>
+</project>
