@@ -307,14 +307,49 @@ class DirectorTest {
     @Test
     void unreachableTownNpcsAreLeftOut() {
         final List<String> dropped = new ArrayList<>();
-        final WorldCatalog c = catalog().withReachableAnchors((from, to) -> !to.equals(new Pos(0, 800, 0)), dropped);
+        final List<String> warnings = new ArrayList<>();
+        final WorldCatalog c = catalog().withReachableAnchors((from, to) -> to.equals(new Pos(0, 800, 0)) ? null : to, dropped, warnings);
         assertEquals(List.of("town shop 0,800,0"), dropped);
+        assertTrue(warnings.isEmpty());
         final WorldCatalog.Town t = c.town("town");
         assertEquals(2, t.anchors().size());
         assertTrue(t.anchors("shop").isEmpty());
         assertEquals(1, t.anchors("gk").size());
         assertEquals(1, t.anchors("restart").size(), "restart points stay");
         assertNotNull(c.ground("field"));
+    }
+
+    @Test
+    void aTownNeverLosesAllItsGatekeepers() {
+        final List<String> dropped = new ArrayList<>();
+        final List<String> warnings = new ArrayList<>();
+        final WorldCatalog c = catalog().withReachableAnchors((from, to) -> null, dropped, warnings);
+        assertEquals(List.of("town shop 0,800,0"), dropped);
+        assertEquals(1, c.town("town").anchors("gk").size());
+        assertEquals(1, warnings.size(), warnings.toString());
+    }
+
+    @Test
+    void anchorsThatCannotBeCheckedStay() {
+        final List<String> dropped = new ArrayList<>();
+        assertEquals(3, catalog().withReachableAnchors((from, to) -> WorldCatalog.UNKNOWN, dropped, new ArrayList<>()).town("town").anchors().size());
+        assertTrue(dropped.isEmpty());
+    }
+
+    @Test
+    void farNpcsAreReachedHopByHop() {
+        // a chain of shops 2000 apart from the restart point: each one only from the one before
+        final List<Assignment.Anchor> anchors = new ArrayList<>(List.of(new Assignment.Anchor("restart", new Pos(0, 0, 0))));
+        for (int i = 1; i <= 4; i++) {
+            anchors.add(new Assignment.Anchor("shop", new Pos(i * 2000, 0, 0)));
+        }
+        anchors.add(new Assignment.Anchor("gk", new Pos(9000, 9000, 0))); // far from everything: cannot be judged, stays
+        final WorldCatalog.Town t = new WorldCatalog.Town("long", "Long", TOWN, 12_000, 1, 10, new int[] { -1, 1, 1, -1 }, new int[] { -1, -1, 1, 1 }, anchors);
+        final List<String> dropped = new ArrayList<>();
+        final WorldCatalog c = new WorldCatalog(List.of(t), List.of()).withReachableAnchors((from, to) -> from.distance2d(to) <= 2100 ? to : null, dropped,
+            new ArrayList<>());
+        assertTrue(dropped.isEmpty(), dropped.toString());
+        assertEquals(6, c.town("long").anchors().size());
     }
 
     @Test

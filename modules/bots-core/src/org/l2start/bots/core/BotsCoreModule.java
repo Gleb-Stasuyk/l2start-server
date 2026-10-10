@@ -81,17 +81,25 @@ public final class BotsCoreModule implements GameModule {
         if ("director".equals(ctx.config().getString("Presence"))) {
             // bad catalogue or gear table: the module fails to enable with a clear message
             final List<String> unreachable = new ArrayList<>();
-            final int[] checked = new int[2];
+            final int[] checked = new int[3]; // routes asked, answered "reached", answered "cannot tell"
+            final List<String> warnings = new ArrayList<>();
             final WorldCatalog catalog = WorldCatalog.load(ctx.resources().path("data/world.xml")).withReachableAnchors((from, to) -> {
                 checked[0]++;
-                if (AnchorReach.checkable(from, to)) {
+                final Pos got = AnchorReach.reach(from, to);
+                if (got == WorldCatalog.UNKNOWN) {
+                    checked[2]++;
+                } else if (got != null) {
                     checked[1]++;
                 }
-                return AnchorReach.reachable(from, to);
-            }, unreachable);
-            ctx.log().info("town NPCs: " + checked[1] + " of " + checked[0] + " routes checked by geodata pathfinding, " + unreachable.size() + " NPCs unreachable");
+                return got;
+            }, unreachable, warnings);
+            ctx.log().info("town NPCs: " + checked[0] + " short routes checked by geodata (" + checked[1] + " reached, " + checked[2] + " cannot tell), "
+                + unreachable.size() + " NPCs unreachable");
             if (!unreachable.isEmpty()) {
                 ctx.log().warn("town NPCs unreachable by geodata, left out of town errands: " + String.join("; ", unreachable));
+            }
+            for (String w : warnings) {
+                ctx.log().warn("town NPCs: " + w);
             }
             final GearTable gear = GearTable.load(ctx.resources().path("data/gear.xml"));
             director = new DirectorRunner(this, catalog, gear, directorConfig());

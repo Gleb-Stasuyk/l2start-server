@@ -81,29 +81,112 @@ public final class WorldCatalog {
         return (((long) cx) << 32) ^ (cy & 0xffffffffL);
     }
 
+    /** Can a bot run from a point to an anchor (geodata in the game, a fake in tests)? */
+    public interface Reach {
+        /** @return a walkable point at the anchor reached from {@code from}; null = no way there; {@link #UNKNOWN} = cannot tell */
+        Pos reach(Pos from, Pos anchor);
+    }
+
+    /** {@link Reach} cannot tell (no geodata, too far for one path search, no ground under the NPC): the anchor stays. */
+    public static final Pos UNKNOWN = new Pos(Integer.MIN_VALUE, Integer.MIN_VALUE, 0);
+    /** Path searches only over short hops: from a restart point to the nearest NPCs, from those to the next, and so on. */
+    public static final int HOP = 2500;
+
     /**
-     * The same catalogue without the town anchors (NPCs) a bot cannot run to: checked from the restart points and the
-     * town centre with {@code reach} (geodata pathfinding in the game). Restart points stay as they are.
+     * The same catalogue without the town anchors (NPCs) a bot surely cannot run to. Flood from the restart points (the
+     * town centre without them) over short hops: an anchor is reached from one of the 4 nearest points reached before,
+     * within {@link #HOP}. Dropped only when it was tried from a reached point and the answer was a clear "no way"; an
+     * anchor that cannot be checked stays. A town never loses all its gatekeepers: the nearest one to a reached point
+     * stays (in {@code warnings}). Restart points always stay.
      * @param dropped gets "town kind x,y,z" for every anchor removed
      */
-    public WorldCatalog withReachableAnchors(java.util.function.BiPredicate<Pos, Pos> reach, List<String> dropped) {
+    public WorldCatalog withReachableAnchors(Reach reach, List<String> dropped, List<String> warnings) {
         final List<Town> out = new ArrayList<>();
         for (Town t : towns) {
             final List<Pos> origins = new ArrayList<>(t.anchors("restart"));
-            origins.add(t.center());
-            final List<Assignment.Anchor> keep = new ArrayList<>();
+            if (origins.isEmpty()) {
+                origins.add(t.center());
+            }
+            final List<Assignment.Anchor> todo = new ArrayList<>();
             for (Assignment.Anchor a : t.anchors()) {
-                boolean ok = a.kind().equals("restart");
-                for (int i = 0; !ok && (i < origins.size()); i++) {
-                    ok = reach.test(origins.get(i), a.pos());
+                if (!a.kind().equals("restart")) {
+                    todo.add(a);
                 }
-                if (ok) {
+            }
+            final java.util.Set<Assignment.Anchor> reached = new java.util.HashSet<>();
+            final java.util.Set<Assignment.Anchor> unknown = new java.util.HashSet<>();
+            final java.util.Set<Assignment.Anchor> refused = new java.util.HashSet<>();
+            final java.util.Set<String> tried = new java.util.HashSet<>();
+            boolean changed = true;
+            while (changed) {
+                changed = false;
+                for (Assignment.Anchor a : todo) {
+                    if (reached.contains(a)) {
+                        continue;
+                    }
+                    final List<Pos> near = new ArrayList<>();
+                    for (Pos o : origins) {
+                        if (o.distance2d(a.pos()) <= HOP) {
+                            near.add(o);
+                        }
+                    }
+                    near.sort((x, y) -> Double.compare(x.distance2d(a.pos()), y.distance2d(a.pos())));
+                    for (Pos o : near.subList(0, Math.min(4, near.size()))) {
+                        if (!tried.add(a.pos() + "<" + o)) {
+                            continue;
+                        }
+                        final Pos p = reach.reach(o, a.pos());
+                        if (p == UNKNOWN) {
+                            unknown.add(a);
+                        } else if (p == null) {
+                            refused.add(a);
+                        } else {
+                            reached.add(a);
+                            origins.add(p);
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            final List<Assignment.Anchor> keep = new ArrayList<>();
+            Assignment.Anchor bestGk = null;
+            double bestGkDist = Double.MAX_VALUE;
+            boolean gkKept = false;
+            for (Assignment.Anchor a : t.anchors()) {
+                final boolean drop = !a.kind().equals("restart") && !reached.contains(a) && refused.contains(a) && !unknown.contains(a);
+                if (!drop) {
                     keep.add(a);
-                } else {
+                    gkKept |= a.kind().equals("gk");
+                } else if (a.kind().equals("gk")) {
+                    for (Pos o : origins) {
+                        if (o.distance2d(a.pos()) < bestGkDist) {
+                            bestGkDist = o.distance2d(a.pos());
+                            bestGk = a;
+                        }
+                    }
+                }
+            }
+            if (!gkKept && (bestGk != null)) {
+                keep.add(bestGk);
+                warnings.add(t.id() + ": no gatekeeper passed the geodata check, kept the nearest one " + bestGk.pos().x() + "," + bestGk.pos().y() + "," + bestGk.pos().z());
+            }
+            for (Assignment.Anchor a : t.anchors()) {
+                if (!keep.contains(a)) {
                     dropped.add(t.id() + " " + a.kind() + " " + a.pos().x() + "," + a.pos().y() + "," + a.pos().z());
                 }
             }
-            out.add(keep.size() == t.anchors().size() ? t : new Town(t.id(), t.name(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), t.polyX(), t.polyY(), List.copyOf(keep)));
+            if (keep.size() == t.anchors().size()) {
+                out.add(t);
+            } else {
+                final List<Assignment.Anchor> ordered = new ArrayList<>();
+                for (Assignment.Anchor a : t.anchors()) {
+                    if (keep.contains(a)) {
+                        ordered.add(a);
+                    }
+                }
+                out.add(new Town(t.id(), t.name(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), t.polyX(), t.polyY(), List.copyOf(ordered)));
+            }
         }
         return new WorldCatalog(out, grounds);
     }
