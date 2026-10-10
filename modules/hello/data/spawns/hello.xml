@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list enabled="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../data/xsd/spawns.xsd">
+	<spawn name="HelloModule">
+		<npc id="95000" x="-82350" y="245260" z="-3712" heading="32768" respawnDelay="60" /> <!-- Hello Guide, Talking Island village, next to Leandro -->
+	</spawn>
+</list>

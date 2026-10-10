@@ -1,0 +1,29 @@
+{
+  "id": "hello",
+  "name": "Hello (platform demo)",
+  "description": "Exercises every platform mechanism: events, commands, tasks, NPC/spawn/multisell/html data, SQL migrations, i18n, config profiles.",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.0",
+  "entrypoint": "org.l2start.modules.hello.HelloModule",
+  "authors": ["l2start"],
+  "dependencies": [],
+  "conflicts": [],
+  "defaultEnabled": { "solo": true, "online": false },
+  "data": {
+    "npcs": "data/npcs",
+    "spawns": "data/spawns",
+    "multisell": "data/multisell",
+    "html": "data/html"
+  },
+  "reserves": {
+    "npcs": [[95000, 95009]],
+    "multisell": [[95000, 95009]]
+  },
+  "migrations": "sql",
+  "config": {
+    "GreetOnLogin": { "type": "bool", "default": true, "reloadable": true, "description": "Greeting in chat when a player enters the game" },
+    "StatsLogPeriod": { "type": "duration", "default": "10m", "min": "1m", "description": "How often the online player count is written to the log" },
+    "MaxHelloPerDay": { "type": "int", "default": 5, "min": 0, "max": 1000, "reloadable": true, "description": "How many times a player may use .hello per day" }
+  }
+}
