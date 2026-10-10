@@ -506,6 +506,9 @@ public final class BasicBrain implements Brain {
             enter(ctx, Phase.LEVEL, "hunt " + a.place());
         } else {
             zone = null;
+            townStart = true;
+            transitUntil = 0;
+            badAnchors.clear();
             enter(ctx, Phase.TOWN_IDLE, "town " + a.place());
         }
     }
@@ -532,7 +535,20 @@ public final class BasicBrain implements Brain {
         return walk(ctx, w, me, exit, now);
     }
 
-    /** Errands in town: gatekeeper, shops, warehouse, trainers; stand in a group; sit; stroll. */
+    /** Share of town bots that appear at the gatekeeper only "in transit": stand 3-10 s and teleport on. */
+    static final double TRANSIT_SHARE = 0.25;
+    /** Chance that a bot that ran to the gatekeeper teleports away (logs out) there. */
+    static final double GK_TELEPORT = 0.4;
+    private static final String[] KINDS = { "gk", "shop", "wh", "trainer" };
+    private static final double[] KIND_WEIGHTS = { 0.35, 0.30, 0.15, 0.20 };
+    private boolean townStart;
+    private long transitUntil;
+    private Pos errandAnchor;
+    private double errandBest;
+    private long errandProgressAt;
+    private final java.util.Set<Pos> badAnchors = new java.util.HashSet<>();
+
+    /** Errands in town: purposeful runs between gatekeeper, shops, warehouse and trainers; groups; never sits. */
     private long town(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
@@ -544,45 +560,69 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             return startFight(ctx, me, attacker, now);
         }
-        if (errand != null) {
-            if (me.pos().distance2d(errand) > 120) {
-                if ((now - nextIdleAction) > 120_000) {
-                    errand = null; // cannot get there: something else
-                } else {
-                    detail = "to " + errandWhat;
-                    return walk(ctx, w, me, errand, now);
-                }
-            } else {
-                errand = null;
-                detail = "at " + errandWhat;
-                nextIdleAction = now + 15_000 + ctx.rnd().nextInt(60_000);
+        if (me.sitting()) { // nobody sits in town
+            ctx.act().stand();
+            detail = "stand";
+            return 1500;
+        }
+        if (townStart) {
+            townStart = false;
+            final Assignment.Anchor gk = nearest(a, "gk", me.pos());
+            if ((gk != null) && (gk.pos().distance2d(me.pos()) < 400) && (ctx.rnd().nextDouble() < TRANSIT_SHARE)) {
+                transitUntil = now + 3000 + ctx.rnd().nextInt(7000);
             }
+        }
+        if (transitUntil > 0) {
+            detail = "at the gatekeeper (teleports on)";
+            if (now >= transitUntil) {
+                transitUntil = 0;
+                ctx.note("teleported on (logout at the gatekeeper)");
+                ctx.act().logout();
+                return 5000;
+            }
+            return 1000;
+        }
+        if (errand != null) {
+            final double d = me.pos().distance2d(errand);
+            if (d > 120) {
+                if (d < (errandBest - 80)) {
+                    errandBest = d;
+                    errandProgressAt = now;
+                }
+                if ((now - errandProgressAt) > 8000) { // runs along a wall / cannot get there: another errand
+                    ctx.note("cannot reach " + errandWhat + ": another errand");
+                    if (errandAnchor != null) {
+                        badAnchors.add(errandAnchor);
+                    }
+                    errand = null;
+                    errandAnchor = null;
+                    ctx.act().stop();
+                    nextIdleAction = now + 500;
+                    return 1000;
+                }
+                detail = "to " + errandWhat;
+                return walk(ctx, w, me, errand, now);
+            }
+            errand = null;
+            errandAnchor = null;
+            detail = "at " + errandWhat;
+            if ("gk".equals(errandWhat) && (ctx.rnd().nextDouble() < GK_TELEPORT)) {
+                transitUntil = now + 2000 + ctx.rnd().nextInt(5000); // a moment at the gatekeeper, then teleports away
+                return 1000;
+            }
+            nextIdleAction = now + 5_000 + ctx.rnd().nextInt(25_000);
         }
         if (now < nextIdleAction) {
             return Math.max(500, Math.min(5000, nextIdleAction - now));
         }
-        if (me.sitting()) {
-            ctx.act().stand();
-            nextIdleAction = now + 1500 + ctx.rnd().nextInt(3000);
-            detail = "stand";
-            return 2000;
-        }
         final double r = ctx.rnd().nextDouble();
-        final List<Assignment.Anchor> points = new java.util.ArrayList<>();
-        for (Assignment.Anchor p : a.anchors()) {
-            if (!"restart".equals(p.kind()) && (p.pos().distance2d(me.pos()) < 4000)) {
-                points.add(p);
+        if (r < 0.8) {
+            final Assignment.Anchor p = pickAnchor(ctx, a, me.pos());
+            if (p != null) {
+                return startErrand(ctx, w, me, now, p.pos(), around(ctx, w, p.pos(), 60, 160), p.kind());
             }
         }
-        if ((r < 0.5) && !points.isEmpty()) {
-            final Assignment.Anchor p = points.get(ctx.rnd().nextInt(points.size()));
-            errand = around(ctx, w, p.pos(), 60, 160);
-            errandWhat = p.kind();
-            nextIdleAction = now; // the errand timer (gives up after 2 min)
-            detail = "to " + errandWhat;
-            return walk(ctx, w, me, errand, now);
-        }
-        if (r < 0.7) {
+        if (r < 0.92) {
             final List<PlayerView> others = new java.util.ArrayList<>();
             for (PlayerView p : w.players()) {
                 if (!p.inCombat() && (p.distance() < 1500) && (p.distance() > 100)) {
@@ -591,28 +631,62 @@ public final class BasicBrain implements Brain {
             }
             if (!others.isEmpty()) {
                 final PlayerView p = others.get(ctx.rnd().nextInt(others.size()));
-                errand = around(ctx, w, p.pos(), 70, 140);
-                errandWhat = "group";
-                nextIdleAction = now;
-                detail = "to a group";
-                return walk(ctx, w, me, errand, now);
+                return startErrand(ctx, w, me, now, null, around(ctx, w, p.pos(), 70, 140), "group");
             }
         }
-        if (r < 0.85) {
-            if (ctx.act().sit().ok()) {
-                detail = "sit";
-            }
-            nextIdleAction = now + 30_000 + ctx.rnd().nextInt(90_000);
-            return 3000;
-        }
-        final Optional<Pos> p = w.geo().randomReachablePoint(me.pos(), 800, ctx.rnd());
-        if (p.isPresent() && ctx.act().moveTo(p.get()).ok()) {
-            detail = "stroll";
-        }
-        nextIdleAction = now + 8_000 + ctx.rnd().nextInt(20_000);
+        detail = "look around"; // stands a moment (no sitting in towns)
+        nextIdleAction = now + 4_000 + ctx.rnd().nextInt(12_000);
         return 3000;
     }
 
+    private long startErrand(BrainContext ctx, WorldView w, SelfView me, long now, Pos anchor, Pos to, String what) {
+        errandAnchor = anchor;
+        errand = to;
+        errandWhat = what;
+        errandBest = me.pos().distance2d(to);
+        errandProgressAt = now;
+        detail = "to " + what;
+        return walk(ctx, w, me, to, now);
+    }
+
+    /** Another kind of NPC than the last one, weighted (gatekeeper most often), not one it could not reach. */
+    private Assignment.Anchor pickAnchor(BrainContext ctx, Assignment a, Pos me) {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            double x = ctx.rnd().nextDouble();
+            String kind = KINDS[KINDS.length - 1];
+            for (int i = 0; i < KINDS.length; i++) {
+                x -= KIND_WEIGHTS[i];
+                if (x < 0) {
+                    kind = KINDS[i];
+                    break;
+                }
+            }
+            if (kind.equals(errandWhat) && (attempt < 4)) {
+                continue;
+            }
+            final List<Assignment.Anchor> l = new java.util.ArrayList<>();
+            for (Assignment.Anchor p : a.anchors()) {
+                final double d = p.pos().distance2d(me);
+                if (p.kind().equals(kind) && !badAnchors.contains(p.pos()) && (d < 4000) && (d > 200)) {
+                    l.add(p);
+                }
+            }
+            if (!l.isEmpty()) {
+                return l.get(ctx.rnd().nextInt(l.size()));
+            }
+        }
+        return null;
+    }
+
+    private static Assignment.Anchor nearest(Assignment a, String kind, Pos me) {
+        Assignment.Anchor best = null;
+        for (Assignment.Anchor p : a.anchors()) {
+            if (p.kind().equals(kind) && ((best == null) || (p.pos().distance2d(me) < best.pos().distance2d(me)))) {
+                best = p;
+            }
+        }
+        return best;
+    }
     /** A reachable point min..max from {@code c} (not on top of the NPC or player). */
     private static Pos around(BrainContext ctx, WorldView w, Pos c, int min, int max) {
         for (int i = 0; i < 6; i++) {

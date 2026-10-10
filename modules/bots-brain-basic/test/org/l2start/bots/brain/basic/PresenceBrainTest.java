@@ -54,7 +54,7 @@ class PresenceBrainTest {
     }
 
     @Test
-    void townErrandsGroupsAndSitting() {
+    void townErrandsGroupsNoSitting() {
         final FakeWorld w = BasicBrainTest.world(6, false);
         w.addPlayer(new PlayerView(901, "Other", 20, 0, new Pos(-200, -200, 0), 300, 0, false, false, 0, true));
         final BrainHarness h = BasicBrainTest.harness(w, false, 6);
@@ -63,9 +63,9 @@ class PresenceBrainTest {
         assertEquals(0, h.act().count("attack"), "no fights in town");
         assertTrue(h.act().countOk("moveTo") > 5, "runs around: " + h.act().countOk("moveTo"));
         assertTrue(h.states().stream().anyMatch(s -> s.contains("/at gk") || s.contains("/at shop") || s.contains("/at wh")), "no errands: " + h.states());
-        assertTrue(h.act().countOk("sit") > 0, "never sat");
+        assertEquals(0, h.act().count("sit"), "sat in town");
         assertTrue(w.pos().distance2d(BasicBrainTest.TOWN) < 1500, "left the town: " + w.pos());
-        assertEquals(0, h.act().count("logout"));
+        // logouts here are teleports at the gatekeeper (transit / errand to the gatekeeper)
     }
 
     @Test
