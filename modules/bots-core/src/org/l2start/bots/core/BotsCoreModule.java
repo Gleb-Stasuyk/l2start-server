@@ -259,9 +259,14 @@ public final class BotsCoreModule implements GameModule {
     /** Manual mode: bots come back after the restart. Director mode: loot vanishes, levels saved, nobody comes back. */
     private void stopAll(String why) {
         if (director != null) {
-            director.setPaused(true);
+            director.stop(10_000);
             director.cleanupAll();
             logoutAll(why, false);
+            try {
+                repo.clearInWorld(); // nobody comes back by itself in director mode, whatever was in flight
+            } catch (Exception e) {
+                ctx.log().warn("cannot clear in-world marks", e);
+            }
         } else {
             logoutAll(why, true);
         }

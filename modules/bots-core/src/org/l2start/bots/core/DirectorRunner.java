@@ -31,6 +31,9 @@ public final class DirectorRunner {
     private final Materializer materializer;
     private final Set<Integer> busy = ConcurrentHashMap.newKeySet();
     private volatile boolean paused;
+    /** Server/module stop: nobody comes in any more (a materialization in flight logs straight out). */
+    private volatile boolean stopping;
+    private final java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
     private volatile List<Pos> anchors = List.of();
     private volatile long tickNanos;
 
@@ -191,12 +194,16 @@ public final class DirectorRunner {
 
     private void materialize(Director.Command.Materialize m) {
         final BotRecord known = m.botId() == 0 ? null : byId(m.botId());
-        if ((known != null) && !busy.add(known.botId())) {
+        if (stopping || ((known != null) && !busy.add(known.botId()))) {
             return;
         }
+        inFlight.incrementAndGet();
         module.brains().async("materialize", () -> {
             BotRecord r = known;
             try {
+                if (stopping) {
+                    return;
+                }
                 if (r == null) {
                     if (module.active().size() >= ctx.config().getInt("MaxBots")) {
                         return;
@@ -219,6 +226,11 @@ public final class DirectorRunner {
                     ctx.log().info("director: " + bot.name() + " could not enter: " + why);
                     return;
                 }
+                if (stopping) { // the server began to stop while it was coming in
+                    module.despawn(bot);
+                    bot.setAssignment(null);
+                    return;
+                }
                 final Player p = bot.player();
                 final int real = p == null ? m.level() : p.getLevel();
                 bot.setProgress(real, now, real);
@@ -232,8 +244,31 @@ public final class DirectorRunner {
                 if (r != null) {
                     busy.remove(r.botId());
                 }
+                inFlight.decrementAndGet();
             }
         });
+    }
+
+    /**
+     * Before the server stops: no new bot comes in, and the ones coming in right now finish (or log straight out)
+     * before everybody is logged out, so no bot stays marked "in the world" (smoke 8).
+     */
+    void stop(long waitMs) {
+        stopping = true;
+        paused = true;
+        final long until = System.currentTimeMillis() + waitMs;
+        while ((inFlight.get() > 0) && (System.currentTimeMillis() < until)) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    public boolean stopping() {
+        return stopping;
     }
 
     /** Take a bot out (director decision, or its brain left by the gatekeeper). */
