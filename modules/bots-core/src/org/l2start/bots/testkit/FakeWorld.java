@@ -30,6 +30,8 @@ import org.l2start.bots.api.WorldView;
 public final class FakeWorld {
     public static final int SELF_ID = 1;
     public static final int NUKE_ID = 1177;
+    /** A nuke the game always refuses here (like Might of Heaven on a living monster); only with {@link #undeadOnlyNuke}. */
+    public static final int UNDEAD_NUKE_ID = 1028;
     public static final double SPEED = 120; // units per second
     public static final int MELEE_RANGE = 80;
     public static final int NUKE_RANGE = 600;
@@ -424,8 +426,14 @@ public final class FakeWorld {
             m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID)));
     }
 
+    /** Give the mage an undead-only nuke with a lower id than the real one (it is listed first). */
+    public boolean undeadOnlyNuke;
+
     public SelfView self() {
         final List<SkillView> skills = new ArrayList<>();
+        if (mage && undeadOnlyNuke) {
+            skills.add(new SkillView(UNDEAD_NUKE_ID, 1, SkillView.Kind.NUKE, NUKE_MP, NUKE_RANGE, true));
+        }
         if (mage) {
             skills.add(new SkillView(NUKE_ID, 1, SkillView.Kind.NUKE, NUKE_MP, NUKE_RANGE, now >= skillReadyAt.getOrDefault(NUKE_ID, 0L)));
         }

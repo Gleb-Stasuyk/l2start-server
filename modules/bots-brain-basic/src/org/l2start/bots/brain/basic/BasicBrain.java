@@ -70,6 +70,9 @@ public final class BasicBrain implements Brain {
     private boolean far;
     private double restTo;
     private final Map<Integer, Long> blacklist = new HashMap<>();
+    /** (skill, monster type) pairs the game refused (e.g. undead-only Might of Heaven on a living monster), skipped until then. */
+    static final long BAD_SKILL_MS = 10 * 60_000L;
+    private final Map<Long, Long> badSkills = new HashMap<>();
     /** Monsters this close to a real player are theirs (presence rule 6). */
     static final int PLAYER_MOB_RADIUS = 700;
     // presence director orders
@@ -771,7 +774,7 @@ public final class BasicBrain implements Brain {
     /** One combat decision: mystics cast their nuke while MP lasts (>= 20 %), everyone else hits. */
     private void hit(BrainContext ctx, SelfView me, NpcView mob) {
         if (me.mage() && (me.mpPct() >= 20)) {
-            final SkillView nuke = nuke(me);
+            final SkillView nuke = nuke(me, mob.npcId(), badSkills, ctx.now());
             if (nuke != null) {
                 if (me.casting()) {
                     return;
@@ -779,6 +782,10 @@ public final class BasicBrain implements Brain {
                 if (nuke.ready() && (nuke.mpCost() <= me.mp())) {
                     final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
                     if (r.ok() || (r == ActionResult.COOLDOWN)) {
+                        return;
+                    }
+                    if (r == ActionResult.INVALID) {
+                        badSkills.put(badKey(nuke.id(), mob.npcId()), ctx.now() + BAD_SKILL_MS); // next decision tries the next nuke
                         return;
                     }
                 } else {
@@ -802,8 +809,17 @@ public final class BasicBrain implements Brain {
 
     /** The first magic damage skill (Wind Strike for the human/elf/dark elf mystics). */
     static SkillView nuke(SelfView me) {
+        return nuke(me, 0, Map.of(), 0);
+    }
+
+    static long badKey(int skillId, int npcId) {
+        return ((long) skillId << 32) | (npcId & 0xFFFFFFFFL);
+    }
+
+    /** The first magic damage skill that the game has not refused lately on this monster type. */
+    static SkillView nuke(SelfView me, int npcId, Map<Long, Long> bad, long now) {
         for (SkillView s : me.skills()) {
-            if (s.kind() == SkillView.Kind.NUKE) {
+            if ((s.kind() == SkillView.Kind.NUKE) && (bad.getOrDefault(badKey(s.id(), npcId), 0L) <= now)) {
                 return s;
             }
         }

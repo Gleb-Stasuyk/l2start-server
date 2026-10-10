@@ -77,6 +77,17 @@ class BasicBrainTest {
     }
 
     @Test
+    void mageSkipsANukeTheGameRefuses() {
+        final FakeWorld w = world(2, true);
+        w.undeadOnlyNuke = true;
+        final BrainHarness h = harness(w, true, 2);
+        h.run(HOUR);
+        assertTrue(h.act().count("cast") - h.act().countOk("cast") <= 10, "refused casts " + (h.act().count("cast") - h.act().countOk("cast")));
+        assertTrue(h.act().countOk("cast") > 20, "casts " + h.act().countOk("cast"));
+        assertTrue(w.level() >= 4, "level " + w.level());
+    }
+
+    @Test
     void noKillSteal() {
         final FakeWorld w = new FakeWorld(3, TOWN, false);
         for (int i = 0; i < 8; i++) {
