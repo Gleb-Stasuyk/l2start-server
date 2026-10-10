@@ -402,7 +402,11 @@ public final class BotsCoreModule implements GameModule {
     private void scheduleReturn(BotRecord r) {
         final long min = ctx.config().getDuration("DeathReturnMin").toMillis();
         final long max = Math.max(min, ctx.config().getDuration("DeathReturnMax").toMillis());
-        final long delay = min + (max > min ? ThreadLocalRandom.current().nextLong(max - min + 1) : 0);
+        long delay = min + (max > min ? ThreadLocalRandom.current().nextLong(max - min + 1) : 0);
+        final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
+        if ((p != null) && (p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.TOWN) || p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.PEACE))) {
+            delay = 1500 + ThreadLocalRandom.current().nextLong(1500); // no corpses lying in towns
+        }
         ctx.scheduler().schedule("return " + r.name(), Duration.ofMillis(delay), () -> world.returnToTown(r));
     }
 

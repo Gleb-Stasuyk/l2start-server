@@ -23,6 +23,10 @@ final class Materializer {
     /** Arrows by grade (NONE, D, C, B, A, S): a bow needs them. */
     private static final int[] ARROWS = { 17, 1341, 1342, 1343, 1344, 1345 };
 
+    /** Soulshots and blessed spiritshots by grade (NONE, D, C, B, A, S). */
+    private static final int[] SOULSHOTS = { 1835, 1463, 1464, 1465, 1466, 1467 };
+    private static final int[] SPIRITSHOTS = { 3947, 3948, 3949, 3950, 3951, 3952 };
+
     private final GearTable gear;
 
     Materializer(GearTable gear) {
@@ -62,6 +66,11 @@ final class Materializer {
             sb.append(", ").append(plan.grade()).append(" gear ").append(n).append(" new");
         }
         cleanup(p);
+        sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
+        if (p.isDead()) { // logged out dead (left unseen before "To village"): never arrive as a corpse
+            p.setDead(false);
+            p.setIsPendingRevive(false);
+        }
         p.setCurrentHpMp(p.getMaxHp(), p.getMaxMp());
         p.setCurrentCp(p.getMaxCp());
         return sb.toString();
@@ -98,6 +107,18 @@ final class Materializer {
             }
         }
         return added;
+    }
+
+    /** Shots of the weapon's grade on auto-use, like every player farming (they vanish with the rest on logout). */
+    private static String shots(Player p, int grade) {
+        final int g = Math.max(0, Math.min(SOULSHOTS.length - 1, grade));
+        final int id = p.isMageClass() ? SPIRITSHOTS[g] : SOULSHOTS[g];
+        p.getInventory().addItem(ItemProcessType.REWARD, id, p.isMageClass() ? 800 : 2000, p, null);
+        for (Integer old : new ArrayList<>(p.getAutoSoulShot())) {
+            p.removeAutoSoulShot(old);
+        }
+        p.addAutoSoulShot(id);
+        return "shots " + id;
     }
 
     private static boolean jewel(Item it) {
