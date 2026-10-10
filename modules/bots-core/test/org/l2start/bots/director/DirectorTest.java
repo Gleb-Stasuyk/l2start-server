@@ -1,5 +1,6 @@
 package org.l2start.bots.director;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -150,6 +151,16 @@ class DirectorTest {
                 assertTrue((m.level() >= 34) && (m.level() <= 38), "level a bit above the ground (30-34): " + m.level());
             }
         }
+    }
+
+    @Test
+    void aggressiveGroundsGetHigherHunters() {
+        final WorldCatalog.Ground calm = new WorldCatalog.Ground("a", "t", FIELD, 3000, 36, 40, 40, 0, false, List.of());
+        final WorldCatalog.Ground half = new WorldCatalog.Ground("b", "t", FIELD, 3000, 36, 40, 40, 0.5, false, List.of());
+        final WorldCatalog.Ground aggro = new WorldCatalog.Ground("c", "t", FIELD, 3000, 36, 40, 40, 1.0, false, List.of());
+        assertArrayEquals(new int[] { 40, 44 }, Director.huntLevels(calm));
+        assertArrayEquals(new int[] { 42, 46 }, Director.huntLevels(half));
+        assertArrayEquals(new int[] { 44, 48 }, Director.huntLevels(aggro));
     }
 
     @Test

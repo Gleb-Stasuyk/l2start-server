@@ -324,6 +324,18 @@ public final class Director {
 
     // ------------------------------------------------------------------ in
 
+    /**
+     * Levels of hunters for a ground: a bit above the monsters (0-4), like players without top gear, soulshots and buffs
+     * (phase 4) hunt; on aggressive grounds up to 4 more (all monsters aggressive = +4), because there several monsters
+     * attack at once and bots have no potions yet.
+     */
+    static int[] huntLevels(WorldCatalog.Ground g) {
+        final int extra = (int) Math.round(4 * Math.max(0, Math.min(1, g.aggressive())));
+        final int lo = Math.max(1, Math.min(PaperLevel.MAX, g.maxLevel() + extra));
+        final int hi = Math.min(PaperLevel.MAX, g.maxLevel() + 4 + extra);
+        return new int[] { lo, hi };
+    }
+
     private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
         final int lo;
         final int hi;
@@ -331,9 +343,9 @@ public final class Director {
             lo = d.townRef().minLevel();
             hi = d.townRef().maxLevel();
         } else {
-            // a bit above the monsters, like players without top gear, soulshots and buffs (phase 4) hunt
-            lo = Math.max(1, d.groundRef().maxLevel());
-            hi = Math.min(PaperLevel.MAX, d.groundRef().maxLevel() + 4);
+            final int[] band = huntLevels(d.groundRef());
+            lo = band[0];
+            hi = band[1];
         }
         final Pos at = d.town() ? townPoint(d.townRef(), live, terrain) : hiddenPoint(c, d.groundRef(), live, terrain);
         if (at == null) {
