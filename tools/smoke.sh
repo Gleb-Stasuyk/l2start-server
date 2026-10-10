@@ -109,9 +109,11 @@ check "fx-npc-collision FAILED" state_is fx-npc-collision FAILED "$L"
 check "fx-invalid INVALID" state_is fx-invalid INVALID "$L"
 check "fx-flaky DEGRADED by circuit breaker" grep -qE 'Platform: module fx-flaky DEGRADED' "$L"
 check "hello enabled log line" grep -qE 'Module\[hello\].*enabled: GreetOnLogin=true' "$L"
-counts "$L" > "$OUT/2-counts.txt"
-sed -E -e 's/^BuyListData: Loaded 616 /BuyListData: Loaded 617 /' -e 's/^MultisellData: Loaded 208 /MultisellData: Loaded 209 /' \
-  -e 's/^SpawnData: 186 spawn/SpawnData: 187 spawn/' -e 's/^SpawnData: 34122 spawns/SpawnData: 34123 spawns/' "$OUT/baseline.txt" > "$OUT/2-expected.txt"
+# Lines that depend on rows the FIRST boot (scenario 1) wrote into the database, not on data files.
+VOLATILE='^(GlobalVariablesManager|ClanHallAuctionManager|MonsterRace):'
+counts "$L" | grep -vE "$VOLATILE" > "$OUT/2-counts.txt"
+grep -vE "$VOLATILE" "$OUT/baseline.txt" | sed -E -e 's/^BuyListData: Loaded 616 /BuyListData: Loaded 617 /' -e 's/^MultisellData: Loaded 208 /MultisellData: Loaded 209 /' \
+  -e 's/^SpawnData: 186 spawn/SpawnData: 187 spawn/' -e 's/^SpawnData: 34122 spawns/SpawnData: 34123 spawns/' > "$OUT/2-expected.txt"
 if diff "$OUT/2-expected.txt" "$OUT/2-counts.txt" > "$OUT/2-counts.diff"; then ok "counts = stock + hello/fx-ok-dep data (buylist, multisell, spawn)"; else ko "counts differ from stock + module data (see 2-counts.diff)"; cat "$OUT/2-counts.diff"; fi
 check "module data folders logged" grep -qE 'Platform: npcs from modules: 1 folder' "$L"
 check "migration table: hello V001 ok" test "$(sql "SELECT success FROM platform_module_migrations WHERE module_id='hello' AND version=1")" = 1
