@@ -31,6 +31,8 @@ public final class BotRecord {
     private final AtomicInteger whispers = new AtomicInteger();
     private volatile String lastWhisper;
     private final AtomicInteger deaths = new AtomicInteger();
+    private volatile org.l2start.bots.runtime.BotSlot slot;
+    private volatile String trouble;
 
     public BotRecord(int botId, int charId, String accountName, String name, int classId, Status status, long lastLogin, long lastLogout) {
         this.botId = botId;
@@ -63,6 +65,13 @@ public final class BotRecord {
     public int homeZ() { return homeZ; }
     public String goal() { return goal; }
     public boolean restore() { return restore; }
+    /** Runtime state while in the world (null = not ticking). */
+    public org.l2start.bots.runtime.BotSlot slot() { return slot; }
+    /** Why the runtime took it out of the world last time (null = nothing). */
+    public String trouble() { return trouble; }
+
+    void setSlot(org.l2start.bots.runtime.BotSlot s) { slot = s; }
+    void setTrouble(String t) { trouble = t; }
 
     void setPersona(Persona p) { persona = p; }
     void setHome(int x, int y, int z) { homeX = x; homeY = y; homeZ = z; }

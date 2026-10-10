@@ -1,0 +1,11 @@
+{
+  "id": "bots-brain-basic",
+  "name": "Bots: basic brain",
+  "description": "The minimal bot brain of phase 3 (step 3d): bots stroll in their starting village, walk to hunting grounds of their level (data/levelzones.xml, from stock spawns), kill monsters (warriors hit, mystics nuke), pick up their drops, rest, die and come back, learn skills for SP. Registers brain 'basic' with bots-core.",
+  "version": "0.1.0",
+  "kind": "jar",
+  "platform": "^1.2",
+  "entrypoint": "org.l2start.bots.brain.basic.BotsBrainBasicModule",
+  "defaultEnabled": { "solo": true, "online": false },
+  "dependencies": [ { "id": "bots-core", "version": "^0.3" } ]
+}

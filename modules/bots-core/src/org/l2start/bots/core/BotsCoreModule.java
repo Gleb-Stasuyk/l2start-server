@@ -10,10 +10,16 @@ import org.l2jmobius.gameserver.config.GeoEngineConfig;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.mechanics.events.EventType;
+import org.l2jmobius.gameserver.mechanics.events.holders.actor.creature.OnCreatureDamageReceived;
 import org.l2jmobius.gameserver.mechanics.events.holders.actor.creature.OnCreatureDeath;
+import org.l2jmobius.gameserver.mechanics.events.holders.actor.npc.attackable.OnAttackableKill;
 import org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerChat;
+import org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLevelChanged;
 import org.l2jmobius.gameserver.network.enums.ChatType;
 import org.l2start.bots.admin.AdminBots;
+import org.l2start.bots.api.BotEvent;
+import org.l2start.bots.api.BrainRegistry;
+import org.l2start.bots.api.Pos;
 import org.l2start.bots.persona.ClassPicker;
 import org.l2start.bots.persona.NameDictionary;
 import org.l2start.bots.persona.NameGenerator;
@@ -25,7 +31,9 @@ import org.l2start.platform.api.ModuleContext;
 /**
  * bots-core: bot accounts and characters (3a), personas and state restored after a restart (3b), login/logout of
  * bots into the world, bot presence (hooks P3-BOT-CHARINFO / P3-BOT-WHISPER), death -> back to town, //bots.
- * Brains, schedule and LOD come in the next steps of phase 3.
+ * Step 3c: the bot runtime ({@link BrainHost}: shards, mailboxes, LOD ACTIVE/PRESENT) and the brain API
+ * (org.l2start.bots.api, service {@link BrainRegistry}); brains themselves live in other modules (bots-brain-basic).
+ * Schedule and population manager come in 3e.
  */
 public final class BotsCoreModule implements GameModule {
     private ModuleContext ctx;
@@ -33,6 +41,7 @@ public final class BotsCoreModule implements GameModule {
     private BotRepository repo;
     private BotFactory factory;
     private BotWorld world;
+    private BrainHost brains;
     private Random seeds;
     private volatile PersonaGenerator personas;
 
@@ -45,11 +54,35 @@ public final class BotsCoreModule implements GameModule {
         personas = buildPersonas(); // bad dictionary or weights: the module fails to enable with a clear message
         factory = new BotFactory(repo, registry, () -> personas, () -> seeds.nextLong());
         world = new BotWorld(repo, ctx.log());
+        brains = new BrainHost(ctx, registry, world, this::despawn);
+        world.setListener(new BotWorld.Listener() {
+            @Override
+            public void entered(BotRecord r) {
+                brains.entered(r);
+            }
+
+            @Override
+            public void left(BotRecord r) {
+                brains.left(r);
+            }
+
+            @Override
+            public void teleported(BotRecord r) {
+                final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
+                if (p != null) {
+                    brains.post(r, new BotEvent.Teleported(new Pos(p.getX(), p.getY(), p.getZ())));
+                }
+            }
+        });
         applyConfig();
+        ctx.services().provide(BrainRegistry.class, brains);
 
         ctx.botPresence(registry::isBot);
         ctx.events().<OnPlayerChat> onGlobal(EventType.ON_PLAYER_CHAT, this::onChat);
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
+        ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
+        ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
+        ctx.events().<OnAttackableKill> onMonsters(EventType.ON_ATTACKABLE_KILL, this::onKill);
         ctx.handlers().admin(new AdminBots(this));
         // a module that is disabled or degraded must not leave its bots standing in the world
         ctx.cleanup("log out all bots", () -> logoutAll("module stopped", true));
@@ -93,6 +126,7 @@ public final class BotsCoreModule implements GameModule {
                 ctx.metrics().counter("teleports").add(n);
             }
         });
+        brains.start();
         ctx.scheduler().schedule("startup", Duration.ofSeconds(1), this::startup);
     }
 
@@ -182,6 +216,7 @@ public final class BotsCoreModule implements GameModule {
 
     private void applyConfig() {
         world.setRequireGeodata(ctx.config().getBoolean("RequireGeodata"));
+        brains.applyConfig();
     }
 
     // ------------------------------------------------------------------ events
@@ -195,6 +230,7 @@ public final class BotsCoreModule implements GameModule {
         if (r != null) {
             r.whisper(e.getPlayer().getName(), e.getText());
             ctx.metrics().counter("whispersReceived").inc();
+            brains.post(r, new BotEvent.Whisper(e.getPlayer().getName(), e.getText()));
         }
     }
 
@@ -209,10 +245,43 @@ public final class BotsCoreModule implements GameModule {
         }
         r.died();
         ctx.metrics().counter("deaths").inc();
+        brains.post(r, new BotEvent.Died(e.getAttacker() == null ? 0 : e.getAttacker().getObjectId()));
+        scheduleReturn(r);
+    }
+
+    /** Lies dead DeathReturnMin..Max, then "To village" (like a player reading the death dialog). */
+    private void scheduleReturn(BotRecord r) {
         final long min = ctx.config().getDuration("DeathReturnMin").toMillis();
         final long max = Math.max(min, ctx.config().getDuration("DeathReturnMax").toMillis());
         final long delay = min + (max > min ? ThreadLocalRandom.current().nextLong(max - min + 1) : 0);
         ctx.scheduler().schedule("return " + r.name(), Duration.ofMillis(delay), () -> world.returnToTown(r));
+    }
+
+    private void onDamage(OnCreatureDamageReceived e) {
+        final Creature target = e.getTarget();
+        if ((target == null) || !target.isPlayer()) {
+            return;
+        }
+        final BotRecord r = registry.byCharId(target.getObjectId());
+        if ((r != null) && r.inWorld() && (e.getAttacker() != null)) {
+            brains.post(r, new BotEvent.Attacked(e.getAttacker().getObjectId(), e.getAttacker().isPlayable(), e.getDamage()));
+        }
+    }
+
+    private void onLevel(OnPlayerLevelChanged e) {
+        final BotRecord r = registry.byCharId(e.getPlayer().getObjectId());
+        if ((r != null) && r.inWorld() && (e.getNewLevel() > e.getOldLevel())) {
+            ctx.metrics().counter("levelUps").inc();
+            brains.post(r, new BotEvent.LevelUp(e.getOldLevel(), e.getNewLevel()));
+        }
+    }
+
+    private void onKill(OnAttackableKill e) {
+        final BotRecord r = e.getAttacker() == null ? null : registry.byCharId(e.getAttacker().getObjectId());
+        if ((r != null) && r.inWorld() && (e.getTarget() != null)) {
+            ctx.metrics().counter("kills").inc();
+            brains.post(r, new BotEvent.Killed(e.getTarget().getObjectId(), e.getTarget().getId()));
+        }
     }
 
     // ------------------------------------------------------------------ operations (admin commands, autostart)
@@ -223,6 +292,10 @@ public final class BotsCoreModule implements GameModule {
 
     public BotWorld world() {
         return world;
+    }
+
+    public BrainHost brains() {
+        return brains;
     }
 
     public ModuleContext ctx() {
@@ -296,6 +369,10 @@ public final class BotsCoreModule implements GameModule {
             return false;
         }
         ctx.metrics().counter("logins").inc();
+        final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
+        if ((p != null) && p.isDead()) {
+            scheduleReturn(r); // logged out dead (stock keeps it dead on login): back to town like after a death
+        }
         return true;
     }
 

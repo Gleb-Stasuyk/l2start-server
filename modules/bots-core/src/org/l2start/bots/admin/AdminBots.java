@@ -104,6 +104,15 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "return":
                     act(gm, sub, st.hasMoreTokens() ? st.nextToken() : "");
                     return true;
+                case "stats":
+                    showStats(gm);
+                    return true;
+                case "pause":
+                case "resume":
+                    core.brains().setPaused("pause".equals(sub));
+                    gm.sendMessage("Bot runtime " + ("pause".equals(sub) ? "paused: bots stand still (stock AI only)." : "resumed."));
+                    core.ctx().log().info("runtime " + sub + "d by " + gm.getName());
+                    return true;
                 case "goto": {
                     final BotRecord r = core.registry().byName(st.hasMoreTokens() ? st.nextToken() : "");
                     if ((r == null) || !r.inWorld()) {
@@ -114,7 +123,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -184,12 +193,13 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("<td><button value=\"Spawn 5 here\" action=\"bypass -h admin_bots spawn 5 here\" width=90 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
         sb.append("<td><button value=\"Despawn all\" action=\"bypass -h admin_bots despawn all\" width=80 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr>");
         sb.append("<tr><td><button value=\"Create 50\" action=\"bypass -h admin_bots create 50\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
-        sb.append("<td><button value=\"Spawn 10\" action=\"bypass -h admin_bots spawn 10\" width=90 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td><td></td></tr></table><br>");
-        sb.append("<table width=280><tr><td width=100>Name</td><td width=25>Lv</td><td width=85>Class</td><td width=25>Sex</td><td width=45>State</td></tr>");
+        sb.append("<td><button value=\"Spawn 10\" action=\"bypass -h admin_bots spawn 10\" width=90 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
+        sb.append("<td><button value=\"Stats\" action=\"bypass -h admin_bots stats\" width=80 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table><br>");
+        sb.append("<table width=280><tr><td width=95>Name</td><td width=22>Lv</td><td width=75>Class</td><td width=20>Sex</td><td width=68>State</td></tr>");
         for (int i = (pg - 1) * PAGE; i < Math.min(all.size(), pg * PAGE); i++) {
             final BotRecord r = all.get(i);
             final Player p = r.player();
-            final String state = r.status() == BotRecord.Status.RETIRED ? "<font color=\"808080\">retired</font>" : p != null ? (p.isDead() ? "<font color=\"FF6666\">dead</font>" : "<font color=\"66FF66\">world</font>") : "offline";
+            final String state = r.status() == BotRecord.Status.RETIRED ? "<font color=\"808080\">retired</font>" : p != null ? (p.isDead() ? "<font color=\"FF6666\">dead</font>" : "<font color=\"66FF66\">" + shortGoal(r.goal()) + "</font>") : "offline";
             sb.append("<tr><td><a action=\"bypass -h admin_bots info ").append(r.name()).append("\">").append(r.name()).append("</a></td><td>").append(p != null ? p.getLevel() : "-").append("</td><td>")
                 .append(className(r.classId())).append("</td><td>").append(r.persona() == null ? "-" : r.persona().female() ? "F" : "M").append("</td><td>").append(state).append("</td></tr>");
         }
@@ -230,6 +240,22 @@ public final class AdminBots implements IAdminCommandHandler {
         }
         sb.append("Home ").append(r.homeX()).append(", ").append(r.homeY()).append(", ").append(r.homeZ()).append(", goal ").append(r.goal()).append(r.restore() ? ", back after restart" : "").append("<br><br>");
         sb.append("Deaths: ").append(r.deaths()).append(", whispers received: ").append(r.whispers()).append("<br>");
+        if (r.trouble() != null) {
+            sb.append("<font color=\"FF6666\">Last trouble: ").append(escape(r.trouble())).append("</font><br>");
+        }
+        final org.l2start.bots.runtime.BotSlot slot = r.slot();
+        if (slot != null) {
+            final long now = System.currentTimeMillis();
+            final double live = core.brains().nearestLive(r);
+            sb.append("<br><font color=\"LEVEL\">Brain</font> ").append(slot.brain() == null ? "none" : escape(slot.brain().state())).append(", LOD ").append(slot.lod().level())
+                .append(Double.isInfinite(live) ? "" : " (live player " + (int) live + ")").append("<br>");
+            sb.append(String.format(java.util.Locale.ROOT, "Ticks %d, last tick %.2f ms, next in %d ms, mailbox %d", slot.ticks(), slot.lastTickNanos() / 1e6, Math.max(0, slot.nextTickAt() - now), slot.mailbox().size())).append("<br>");
+            sb.append("Errors ").append(slot.totalErrors()).append(slot.safeIdle(now) ? " <font color=\"FF6666\">SAFE_IDLE</font>" : "").append(slot.lastError() == null ? "" : ", last: " + escape(slot.lastError())).append("<br>");
+            final SimpleDateFormat hm = new SimpleDateFormat("HH:mm:ss");
+            for (org.l2start.bots.runtime.ActionLog.Entry e : slot.log().entries()) {
+                sb.append("<font color=\"808080\">").append(hm.format(new Date(e.at()))).append("</font> ").append(escape(e.text())).append("<br>");
+            }
+        }
         if (r.lastWhisper() != null) {
             sb.append("Last whisper: ").append(escape(r.lastWhisper())).append("<br>");
         }
@@ -239,6 +265,54 @@ public final class AdminBots implements IAdminCommandHandler {
         button(sb, "Sit/Stand", (p != null) && p.isSitting() ? "stand " + r.name() : "sit " + r.name());
         button(sb, "Weapon", "gear " + r.name());
         sb.append("</tr></table><br><a action=\"bypass -h admin_bots list\">Back</a></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    private static String shortGoal(String g) {
+        if ((g == null) || g.isEmpty()) {
+            return "world";
+        }
+        return g.length() > 12 ? g.substring(0, 12) : g;
+    }
+
+    private void showStats(Player gm) {
+        final org.l2start.bots.runtime.Ticker t = core.brains().ticker();
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: runtime</title><body>");
+        sb.append("<font color=\"LEVEL\">Runtime</font>").append(t != null && t.paused() ? " <font color=\"FF6666\">PAUSED</font>" : "").append("<br>");
+        sb.append("Brain: ").append(core.brains().brainId()).append(core.brains().brainRegistered() ? "" : " <font color=\"FF6666\">(not registered: bots stand)</font>").append("<br>");
+        if (t != null) {
+            int active = 0;
+            int present = 0;
+            final java.util.Map<String, Integer> goals = new java.util.TreeMap<>();
+            for (org.l2start.bots.runtime.BotSlot s : t.slots()) {
+                if (s.lod().level() == org.l2start.bots.runtime.Lod.Level.ACTIVE) {
+                    active++;
+                } else {
+                    present++;
+                }
+                final Object o = s.brain() == null ? "-" : s.brain().state();
+                final String g = String.valueOf(o);
+                final int cut = g.indexOf('/');
+                goals.merge(cut > 0 ? g.substring(0, cut) : g, 1, Integer::sum);
+            }
+            sb.append("Ticking ").append(t.size()).append(": ACTIVE ").append(active).append(", PRESENT ").append(present).append("<br>");
+            sb.append("States: ").append(goals).append("<br>");
+            sb.append("Shards ").append(t.shardCount()).append(", ticks ").append(t.ticks()).append(", overruns ").append(t.overruns()).append(", errors ").append(t.errors()).append("<br>");
+            sb.append(String.format(java.util.Locale.ROOT, "Tick p50 %.2f ms, p99 %.2f ms, max %.2f ms<br>", t.percentileNanos(50) / 1e6, t.percentileNanos(99) / 1e6, t.percentileNanos(100) / 1e6));
+            for (int i = 0; i < t.shardCount(); i++) {
+                final org.l2start.bots.runtime.Shard s = t.shard(i);
+                sb.append(String.format(java.util.Locale.ROOT, "&nbsp;shard %d: %d bots, waves %d, overrun %d, p99 %.2f ms<br>", i, s.size(), s.waves(), s.overruns(), s.stats().percentile(99) / 1e6));
+            }
+        }
+        final Map<String, Long> m = core.ctx().metrics().snapshot();
+        sb.append("<br>Actions ").append(m.getOrDefault("actions", 0L)).append(" (rejected ").append(m.getOrDefault("actionsRejected", 0L)).append("), moves ").append(m.getOrDefault("moves", 0L)).append(", attacks ").append(m.getOrDefault("attacks", 0L)).append("<br>");
+        sb.append("Kills ").append(m.getOrDefault("kills", 0L)).append(", deaths ").append(m.getOrDefault("deaths", 0L)).append(", level-ups ").append(m.getOrDefault("levelUps", 0L)).append(", brain errors ").append(m.getOrDefault("brainErrors", 0L)).append("<br>");
+        sb.append("<br><table width=280><tr>");
+        sb.append("<td><button value=\"Refresh\" action=\"bypass -h admin_bots stats\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
+        final boolean paused = (t != null) && t.paused();
+        sb.append("<td><button value=\"").append(paused ? "Resume" : "Pause").append("\" action=\"bypass -h admin_bots ").append(paused ? "resume" : "pause").append("\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
+        sb.append("<td><button value=\"List\" action=\"bypass -h admin_bots list\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table>");
+        sb.append("</body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 

@@ -1,0 +1,18 @@
+package org.l2start.bots.api;
+
+import java.util.Optional;
+import java.util.Random;
+
+/** Geodata questions (stock GeoEngine). */
+public interface Geo {
+    /** Can one walk straight from a to b. */
+    boolean canMoveTo(Pos a, Pos b);
+
+    boolean canSee(Pos a, Pos b);
+
+    /** Ground height near p. */
+    int height(Pos p);
+
+    /** A random point within radius of center that can be reached in a straight line from center. */
+    Optional<Pos> randomReachablePoint(Pos center, int radius, Random rnd);
+}

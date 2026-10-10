@@ -19,6 +19,24 @@ public final class BotWorld {
     private final BotRepository repo;
     private final ModuleLog log;
     private volatile boolean requireGeodata = true;
+    private volatile Listener listener;
+
+    /** Told about bots entering and leaving the world (the brain runtime). */
+    public interface Listener {
+        void entered(BotRecord r);
+
+        void left(BotRecord r);
+
+        void teleported(BotRecord r);
+    }
+
+    void setListener(Listener l) {
+        listener = l;
+    }
+
+    public boolean requireGeodata() {
+        return requireGeodata;
+    }
 
     public BotWorld(BotRepository repo, ModuleLog log) {
         this.repo = repo;
@@ -82,6 +100,11 @@ public final class BotWorld {
             repo.login(r.botId(), now);
             repo.setInWorld(r.botId(), true);
             r.setRestore(true);
+            r.setTrouble(null);
+            final Listener l = listener;
+            if (l != null) {
+                l.entered(r);
+            }
             return null;
         } catch (Exception e) {
             log.warn("cannot log in " + r, e);
@@ -101,6 +124,10 @@ public final class BotWorld {
         final Player p = r.player();
         if (p == null) {
             return false;
+        }
+        final Listener l = listener;
+        if (l != null) {
+            l.left(r); // the brain stops before the body leaves
         }
         try {
             if (p.isSitting()) {
@@ -157,6 +184,10 @@ public final class BotWorld {
                     p.onTeleported();
                     p.updateUserInfo();
                     n++;
+                    final Listener l = listener;
+                    if (l != null) {
+                        l.teleported(r);
+                    }
                 } catch (Exception e) {
                     log.warn("cannot finish teleport of " + r, e);
                 }
