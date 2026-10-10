@@ -25,4 +25,9 @@ public interface BrainContext {
 
     /** Note a decision in the bot's action log (//bots info shows the last 10). */
     void note(String text);
+
+    /** The presence director's current order for this bot (null = no director: manual mode). */
+    default Assignment assignment() {
+        return null;
+    }
 }

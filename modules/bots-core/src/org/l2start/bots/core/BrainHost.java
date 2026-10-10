@@ -77,6 +77,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         @Override public Random rnd() { return rnd; }
         @Override public long now() { return clock.now(); }
         @Override public Map<String, Object> blackboard() { return blackboard; }
+        @Override public org.l2start.bots.api.Assignment assignment() { return m.r.assignment(); }
 
         @Override
         public long reactionDelay() {
@@ -96,6 +97,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     private final BotClock clock = BotClock.SYSTEM;
     private final Map<String, BrainFactory> factories = new ConcurrentHashMap<>();
     private final Map<Integer, Mind> minds = new ConcurrentHashMap<>();
+    private volatile java.util.function.Supplier<java.util.List<Pos>> anchors = java.util.List::of;
     private volatile Ticker ticker;
     private volatile String brainId = "basic";
     private volatile int viewRadius = 1500;
@@ -241,6 +243,26 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         }
     }
 
+    void setAnchors(java.util.function.Supplier<java.util.List<Pos>> a) {
+        anchors = a;
+    }
+
+    /** Tick the bot soon (a new director assignment). */
+    void wake(BotRecord r) {
+        final Mind m = r == null ? null : minds.get(r.charId());
+        if (m != null) {
+            m.slot.wake(clock.now() + m.ctx.reactionDelay());
+        }
+    }
+
+    /** A line in the bot's own log (//bots info). */
+    void noteFor(BotRecord r, String text) {
+        final Mind m = r == null ? null : minds.get(r.charId());
+        if (m != null) {
+            m.slot.log().add(clock.now(), text);
+        }
+    }
+
     /** An event for a bot from a stock thread: into its mailbox, and tick it after its reaction time. */
     void post(BotRecord r, BotEvent e) {
         final Mind m = r == null ? null : minds.get(r.charId());
@@ -295,6 +317,9 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             if (!registry.isBot(o) && (o.isOnlineInt() != 0)) {
                 best = Math.min(best, p.calculateDistance2D(o));
             }
+        }
+        for (Pos a : anchors.get()) { // test players of the director (smoke, load test) count as live players
+            best = Math.min(best, Math.hypot(a.x() - p.getX(), a.y() - p.getY()));
         }
         return best;
     }

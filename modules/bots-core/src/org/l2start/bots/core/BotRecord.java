@@ -33,6 +33,11 @@ public final class BotRecord {
     private final AtomicInteger deaths = new AtomicInteger();
     private volatile org.l2start.bots.runtime.BotSlot slot;
     private volatile String trouble;
+    // presence director (step 3e)
+    private volatile org.l2start.bots.api.Assignment assignment;
+    private volatile int levelBase = 1;
+    private volatile long baseAt;
+    private volatile int realLevel = 1;
 
     public BotRecord(int botId, int charId, String accountName, String name, int classId, Status status, long lastLogin, long lastLogout) {
         this.botId = botId;
@@ -69,6 +74,22 @@ public final class BotRecord {
     public org.l2start.bots.runtime.BotSlot slot() { return slot; }
     /** Why the runtime took it out of the world last time (null = nothing). */
     public String trouble() { return trouble; }
+
+    /** The presence director's order (null = none: manual mode). */
+    public org.l2start.bots.api.Assignment assignment() { return assignment; }
+    public int levelBase() { return levelBase; }
+    public long baseAt() { return baseAt; }
+    public int realLevel() { return realLevel; }
+
+    /** Level now: the real one, or the one "on paper" when it grew while the bot was away (whichever is higher). */
+    public int paperLevel(long now) {
+        final long seed = persona == null ? charId : persona.seed();
+        return Math.max(realLevel, org.l2start.bots.director.PaperLevel.at(levelBase, baseAt, org.l2start.bots.director.PaperLevel.pace(seed), now));
+    }
+
+    void setAssignment(org.l2start.bots.api.Assignment a) { assignment = a; }
+    void setProgress(int base, long at, int real) { levelBase = base; baseAt = at; realLevel = real; }
+    void setRealLevel(int level) { realLevel = level; }
 
     void setSlot(org.l2start.bots.runtime.BotSlot s) { slot = s; }
     void setTrouble(String t) { trouble = t; }

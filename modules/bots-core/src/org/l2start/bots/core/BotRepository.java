@@ -14,6 +14,7 @@ public final class BotRepository {
     private final String identity;
     private final String persona;
     private final String state;
+    private final String progress;
 
     public BotRepository(ModuleDatabase db) {
         this.db = db;
@@ -21,14 +22,16 @@ public final class BotRepository {
         this.identity = db.table("identity");
         this.persona = db.table("persona");
         this.state = db.table("state");
+        this.progress = db.table("progress");
     }
 
     /** Every bot with its persona and state (a broken persona row is logged by the caller and regenerated). */
     public List<BotRecord> loadAll(java.util.function.BiConsumer<BotRecord, Exception> badPersona) throws SQLException {
         return db.query("SELECT i.bot_id, i.char_id, i.account_name, COALESCE(c.char_name, i.char_name), i.class_id, i.status, i.last_login, i.last_logout, c.charId IS NULL,"
-            + " p.data, s.in_world, s.goal, s.home_x, s.home_y, s.home_z"
+            + " p.data, s.in_world, s.goal, s.home_x, s.home_y, s.home_z, COALESCE(c.level, 1), g.level_base, g.base_at"
             + " FROM " + identity + " i LEFT JOIN characters c ON c.charId = i.char_id"
-            + " LEFT JOIN " + persona + " p ON p.bot_id = i.bot_id LEFT JOIN " + state + " s ON s.bot_id = i.bot_id ORDER BY i.bot_id", rs -> {
+            + " LEFT JOIN " + persona + " p ON p.bot_id = i.bot_id LEFT JOIN " + state + " s ON s.bot_id = i.bot_id"
+            + " LEFT JOIN " + progress + " g ON g.bot_id = i.bot_id ORDER BY i.bot_id", rs -> {
                 BotRecord.Status st = BotRecord.Status.valueOf(rs.getString(6));
                 if (rs.getBoolean(9)) {
                     st = BotRecord.Status.RETIRED; // character was deleted outside of bots-core
@@ -47,8 +50,25 @@ public final class BotRepository {
                     r.setGoal(rs.getString(12));
                     r.setHome(rs.getInt(13), rs.getInt(14), rs.getInt(15));
                 }
+                final int real = rs.getInt(16);
+                if (rs.getObject(17) != null) {
+                    r.setProgress(rs.getInt(17), rs.getLong(18), real);
+                } else {
+                    r.setProgress(real, System.currentTimeMillis(), real); // no paper level yet: it starts now
+                }
                 return r;
             });
+    }
+
+    /** Paper level base of a bot (presence director). */
+    public void saveProgress(int botId, int levelBase, long baseAt) throws SQLException {
+        db.update("INSERT INTO " + progress + " (bot_id, level_base, base_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE level_base = VALUES(level_base), base_at = VALUES(base_at)",
+            botId, levelBase, baseAt);
+    }
+
+    /** Every bot marked "in the world" is not any more (director mode: nobody comes back by itself after a restart). */
+    public int clearInWorld() throws SQLException {
+        return db.update("UPDATE " + state + " SET in_world = 0 WHERE in_world <> 0");
     }
 
     /** sex, face, hairStyle, hairColor of a bot character (for personas of bots made before step 3b). */

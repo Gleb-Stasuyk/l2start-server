@@ -20,6 +20,9 @@ import org.l2start.bots.admin.AdminBots;
 import org.l2start.bots.api.BotEvent;
 import org.l2start.bots.api.BrainRegistry;
 import org.l2start.bots.api.Pos;
+import org.l2start.bots.director.DirectorConfig;
+import org.l2start.bots.director.GearTable;
+import org.l2start.bots.director.WorldCatalog;
 import org.l2start.bots.persona.ClassPicker;
 import org.l2start.bots.persona.NameDictionary;
 import org.l2start.bots.persona.NameGenerator;
@@ -33,7 +36,7 @@ import org.l2start.platform.api.ModuleContext;
  * bots into the world, bot presence (hooks P3-BOT-CHARINFO / P3-BOT-WHISPER), death -> back to town, //bots.
  * Step 3c: the bot runtime ({@link BrainHost}: shards, mailboxes, LOD ACTIVE/PRESENT) and the brain API
  * (org.l2start.bots.api, service {@link BrainRegistry}); brains themselves live in other modules (bots-brain-basic).
- * Schedule and population manager come in 3e.
+ * Step 3e: the presence director ({@link DirectorRunner}, Presence = director): bots exist only around real players.
  */
 public final class BotsCoreModule implements GameModule {
     private ModuleContext ctx;
@@ -44,6 +47,7 @@ public final class BotsCoreModule implements GameModule {
     private BrainHost brains;
     private Random seeds;
     private volatile PersonaGenerator personas;
+    private DirectorRunner director;
 
     @Override
     public void onEnable(ModuleContext context) throws Exception {
@@ -74,6 +78,14 @@ public final class BotsCoreModule implements GameModule {
                 }
             }
         });
+        if ("director".equals(ctx.config().getString("Presence"))) {
+            // bad catalogue or gear table: the module fails to enable with a clear message
+            final WorldCatalog catalog = WorldCatalog.load(ctx.resources().path("data/world.xml"));
+            final GearTable gear = GearTable.load(ctx.resources().path("data/gear.xml"));
+            director = new DirectorRunner(this, catalog, gear, directorConfig());
+            brains.setAnchors(director::anchors);
+            ctx.log().info("presence director: " + catalog.towns().size() + " towns, " + catalog.grounds().size() + " hunting grounds, " + gear.sets() + " armour sets, " + gear.weapons() + " weapons");
+        }
         applyConfig();
         ctx.services().provide(BrainRegistry.class, brains);
 
@@ -85,7 +97,7 @@ public final class BotsCoreModule implements GameModule {
         ctx.events().<OnAttackableKill> onMonsters(EventType.ON_ATTACKABLE_KILL, this::onKill);
         ctx.handlers().admin(new AdminBots(this));
         // a module that is disabled or degraded must not leave its bots standing in the world
-        ctx.cleanup("log out all bots", () -> logoutAll("module stopped", true));
+        ctx.cleanup("log out all bots", () -> stopAll("module stopped"));
     }
 
     private PersonaGenerator buildPersonas() throws Exception {
@@ -127,7 +139,37 @@ public final class BotsCoreModule implements GameModule {
             }
         });
         brains.start();
-        ctx.scheduler().schedule("startup", Duration.ofSeconds(1), this::startup);
+        if (director != null) {
+            int cleared = 0;
+            try {
+                cleared = repo.clearInWorld(); // director mode: nobody comes back by itself, the director decides
+            } catch (Exception e) {
+                ctx.log().warn("cannot clear in-world marks", e);
+            }
+            for (BotRecord r : registry.all()) {
+                r.setRestore(false);
+            }
+            director.start(ctx.config().getInt("DirectorTickMs"));
+            final Duration every = ctx.config().getDuration("StatsLogInterval");
+            if (!every.isZero()) {
+                ctx.scheduler().fixedRate("director stats", every, every, () -> {
+                    if ((director.director().pendingCount() > 0) || (registry.inWorld() > 0) || !director.live().isEmpty()) {
+                        ctx.log().info(director.statsLine());
+                    }
+                });
+            }
+            ctx.log().info("presence: director (" + cleared + " old in-world marks cleared, anchors " + director.anchors().size() + ")");
+            final int autoCreate = ctx.config().getInt("AutoCreate");
+            if (autoCreate > 0) {
+                ctx.scheduler().schedule("startup", Duration.ofSeconds(1), () -> {
+                    final List<String> errors = new ArrayList<>();
+                    final int created = create(Math.max(0, autoCreate - active().size()), -1, errors);
+                    ctx.log().info("autostart: created " + created + problems(errors));
+                });
+            }
+        } else {
+            ctx.scheduler().schedule("startup", Duration.ofSeconds(1), this::startup);
+        }
     }
 
     /** Bots that were in the world at the last stop come back first (same places), then the autostart numbers. */
@@ -211,12 +253,89 @@ public final class BotsCoreModule implements GameModule {
 
     @Override
     public void onShutdown(ModuleContext context) {
-        logoutAll("server shutdown", true);
+        stopAll("server shutdown");
+    }
+
+    /** Manual mode: bots come back after the restart. Director mode: loot vanishes, levels saved, nobody comes back. */
+    private void stopAll(String why) {
+        if (director != null) {
+            director.setPaused(true);
+            director.cleanupAll();
+            logoutAll(why, false);
+        } else {
+            logoutAll(why, true);
+        }
     }
 
     private void applyConfig() {
         world.setRequireGeodata(ctx.config().getBoolean("RequireGeodata"));
         brains.applyConfig();
+        if (director != null) {
+            director.setConfig(directorConfig());
+            director.setAnchors(anchors(ctx.config().getList("Anchors")));
+        }
+    }
+
+    private DirectorConfig directorConfig() {
+        final DirectorConfig d = DirectorConfig.defaults();
+        final int[] hunt = ints(ctx.config().getList("DirectorHuntPerCluster"), 2, "DirectorHuntPerCluster");
+        final int[] ground = ints(ctx.config().getList("DirectorGround"), 2, "DirectorGround");
+        final int[] hidden = ints(ctx.config().getList("DirectorHidden"), 2, "DirectorHidden");
+        final List<String> linger = ctx.config().getList("DirectorLinger");
+        if (linger.size() != 2) {
+            throw new IllegalArgumentException("DirectorLinger: min,max expected");
+        }
+        final List<String> curveList = ctx.config().getList("OnlineCurve");
+        if (curveList.size() != 24) {
+            throw new IllegalArgumentException("OnlineCurve: 24 values expected, got " + curveList.size());
+        }
+        final double[] curve = new double[24];
+        for (int i = 0; i < 24; i++) {
+            curve[i] = Math.max(0, Math.min(1, Double.parseDouble(curveList.get(i))));
+        }
+        final int unseen = ctx.config().getInt("DirectorUnseenRadius");
+        return new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), hidden[0], Math.max(hidden[0], hidden[1]), Math.min(d.seenRadius(), unseen - 500), unseen,
+            ctx.config().getDuration("DirectorUnseenLogout").toMillis(), millis(linger.get(0)),
+            millis(linger.get(1)), ints(ctx.config().getList("DirectorTownNight"), 2, "DirectorTownNight"),
+            ints(ctx.config().getList("DirectorTownDay"), 2, "DirectorTownDay"), ints(ctx.config().getList("DirectorTownEvening"), 2, "DirectorTownEvening"), ground[0],
+            Math.max(ground[0], ground[1]), d.indoorFactor(), hunt[0], hunt[1], ctx.config().getInt("DirectorMaxPerCluster"), ctx.config().getInt("DirectorMaxInWorld"),
+            d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), ctx.config().getDuration("DirectorReturnCooldown").toMillis(), d.pendingTimeoutMs(), curve);
+    }
+
+    /** "90s", "20m", "2h". */
+    static long millis(String t) {
+        final String v = t.trim().toLowerCase(java.util.Locale.ROOT);
+        final long n = Long.parseLong(v.substring(0, v.length() - 1).trim());
+        return switch (v.charAt(v.length() - 1)) {
+            case 's' -> n * 1000;
+            case 'm' -> n * 60_000;
+            case 'h' -> n * 3_600_000;
+            default -> throw new IllegalArgumentException("duration like 20m expected, got " + t);
+        };
+    }
+
+    private static int[] ints(List<String> l, int n, String key) {
+        if (l.size() != n) {
+            throw new IllegalArgumentException(key + ": " + n + " numbers expected");
+        }
+        final int[] a = new int[n];
+        for (int i = 0; i < n; i++) {
+            a[i] = Integer.parseInt(l.get(i).trim());
+        }
+        return a;
+    }
+
+    /** "x;y;z" points. */
+    static List<Pos> anchors(List<String> l) {
+        final List<Pos> out = new ArrayList<>();
+        for (String s : l) {
+            final String[] p = s.trim().split(";");
+            if (p.length != 3) {
+                throw new IllegalArgumentException("Anchors: x;y;z expected, got " + s);
+            }
+            out.add(new Pos(Integer.parseInt(p[0].trim()), Integer.parseInt(p[1].trim()), Integer.parseInt(p[2].trim())));
+        }
+        return out;
     }
 
     // ------------------------------------------------------------------ events
@@ -300,6 +419,24 @@ public final class BotsCoreModule implements GameModule {
 
     public ModuleContext ctx() {
         return ctx;
+    }
+
+    BotRepository repo() {
+        return repo;
+    }
+
+    /** null in manual presence mode. */
+    public DirectorRunner director() {
+        return director;
+    }
+
+    /** One new persona with its account and character (director: when no existing persona fits). */
+    BotRecord createOne(int classId) throws Exception {
+        final BotRecord r = factory.create(classId);
+        final Persona p = r.persona();
+        ctx.log().info("created " + r.name() + " (class " + r.classId() + ", " + p.nameStyle() + ", " + (p.female() ? "female" : "male") + ", " + p.chronotype() + ", " + p.timezone() + ", account " + r.accountName() + ")");
+        ctx.metrics().counter("created").inc();
+        return r;
     }
 
     public List<BotRecord> active() {

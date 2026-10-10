@@ -63,6 +63,19 @@ public final class BotWorld {
      * @return null on success, otherwise why not
      */
     public synchronized String enter(BotRecord r, Location near) {
+        return enter(r, near, null, null);
+    }
+
+    /**
+     * Log a bot in exactly at {@code at} after {@code prepare} changed the loaded character (level, class, skills,
+     * gear) while nobody can see it (presence director).
+     * @return null on success, otherwise why not
+     */
+    public synchronized String enterPrepared(BotRecord r, Location at, java.util.function.Consumer<Player> prepare) {
+        return enter(r, null, at, prepare);
+    }
+
+    private String enter(BotRecord r, Location near, Location exact, java.util.function.Consumer<Player> prepare) {
         if (r.status() != BotRecord.Status.ACTIVE) {
             return r.name() + " is retired";
         }
@@ -84,9 +97,26 @@ public final class BotWorld {
             x = spot.getX();
             y = spot.getY();
             z = spot.getZ();
+        } else if (exact != null) {
+            x = exact.getX();
+            y = exact.getY();
+            z = exact.getZ();
         }
         if (requireGeodata && !GeoEngine.getInstance().hasGeo(x, y)) {
             return r.name() + ": no geodata at " + x + "," + y + " (RequireGeodata)";
+        }
+        if (prepare != null) {
+            try {
+                prepare.accept(p); // not in the world yet: nobody sees level, class or gear change
+            } catch (Exception e) {
+                log.warn("cannot prepare " + r, e);
+                try {
+                    Disconnection.of(p).storeAndDelete();
+                } catch (Exception ignored) {
+                    // best effort
+                }
+                return r.name() + ": prepare failed: " + e;
+            }
         }
         final long now = System.currentTimeMillis();
         r.enteredWorld(p, now); // registered before it becomes visible: hooks see a bot from the first packet

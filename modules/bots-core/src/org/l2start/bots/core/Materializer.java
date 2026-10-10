@@ -1,0 +1,122 @@
+package org.l2start.bots.core;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import org.l2jmobius.gameserver.data.xml.ExperienceData;
+import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2jmobius.gameserver.entity.item.enums.ItemProcessType;
+import org.l2jmobius.gameserver.entity.item.instance.Item;
+import org.l2jmobius.gameserver.entity.item.type.EtcItemType;
+import org.l2start.bots.director.GearTable;
+import org.l2start.bots.persona.Persona;
+
+/**
+ * Makes a bot fit the place it is going to (plan 20.4), BEFORE it becomes visible: level and experience, profession,
+ * the skills of its class up to the level (for free: it learned them while nobody watched), equipment by grade and
+ * profession. And keeps the economy clean: loot, adena and old gear vanish on the way in and out.
+ * Runs on a stock pool thread (database writes), never on a shard.
+ */
+final class Materializer {
+    /** Arrows by grade (NONE, D, C, B, A, S): a bow needs them. */
+    private static final int[] ARROWS = { 17, 1341, 1342, 1343, 1344, 1345 };
+
+    private final GearTable gear;
+
+    Materializer(GearTable gear) {
+        this.gear = gear;
+    }
+
+    /** @return what was done, for the log ("lv 41, class 2, 6 items") */
+    String prepare(Player p, BotRecord r, int level) {
+        final Persona persona = r.persona();
+        final long seed = persona == null ? r.charId() : persona.seed();
+        final int start = persona == null ? r.classId() : persona.classId();
+        final int future = persona == null ? r.classId() : persona.futureClassId();
+        final StringBuilder sb = new StringBuilder();
+        // level: never down (real experience counts)
+        final int target = Math.max(p.getLevel(), Math.min(level, ExperienceData.getInstance().getMaxLevel() - 1));
+        if (target > p.getLevel()) {
+            p.getStat().setLevel((byte) target);
+            p.getStat().setExp(ExperienceData.getInstance().getExpForLevel(target));
+        }
+        sb.append("lv ").append(target);
+        // profession (forward only), before it is visible: nobody sees the class change effect
+        final int wanted = ClassPath.at(start, future, target);
+        if ((wanted != p.getPlayerClass().getId()) && ClassPath.forward(p.getPlayerClass().getId(), wanted)) {
+            p.setBaseClass(wanted);
+            p.setPlayerClass(wanted);
+            sb.append(", class ").append(wanted);
+        }
+        // skills of the class up to the level (one batch of database writes)
+        final int skills = p.giveAvailableSkills(false, true, true);
+        if (skills > 0) {
+            sb.append(", ").append(skills).append(" skills");
+        }
+        // equipment
+        final GearTable.Plan plan = gear.plan(future, target, seed);
+        if (!plan.items().isEmpty()) {
+            final int n = equip(p, plan);
+            sb.append(", ").append(plan.grade()).append(" gear ").append(n).append(" new");
+        }
+        cleanup(p);
+        p.setCurrentHpMp(p.getMaxHp(), p.getMaxMp());
+        p.setCurrentCp(p.getMaxCp());
+        return sb.toString();
+    }
+
+    private int equip(Player p, GearTable.Plan plan) {
+        final Set<Integer> want = new HashSet<>(plan.items());
+        // old weapons and armour that are not in the plan go away (jewels stay)
+        for (Item it : new ArrayList<>(p.getInventory().getItems())) {
+            if ((it.isWeapon() || it.isArmor()) && !want.contains(it.getId()) && !jewel(it)) {
+                if (it.isEquipped()) {
+                    p.getInventory().unEquipItemInSlot(it.getLocationSlot());
+                }
+                p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
+            }
+        }
+        int added = 0;
+        for (int id : plan.items()) {
+            Item it = p.getInventory().getItemByItemId(id);
+            if (it == null) {
+                it = p.getInventory().addItem(ItemProcessType.REWARD, id, 1, p, null);
+                added++;
+            }
+            if ((it != null) && !it.isEquipped()) {
+                p.getInventory().equipItem(it);
+            }
+        }
+        if ("BOW".equals(plan.weaponKind())) {
+            final int arrow = ARROWS[plan.grade().ordinal()];
+            final Item have = p.getInventory().getItemByItemId(arrow);
+            final long count = have == null ? 0 : have.getCount();
+            if (count < 1000) {
+                p.getInventory().addItem(ItemProcessType.REWARD, arrow, (int) (2000 - count), p, null);
+            }
+        }
+        return added;
+    }
+
+    private static boolean jewel(Item it) {
+        final String bp = String.valueOf(it.getTemplate().getBodyPart());
+        return bp.contains("EAR") || bp.contains("FINGER") || bp.contains("NECK");
+    }
+
+    /** Everything that is not worn (and not arrows) vanishes: loot and adena never reach the economy. */
+    int cleanup(Player p) {
+        final List<Item> junk = new ArrayList<>();
+        for (Item it : p.getInventory().getItems()) {
+            if (it.isEquipped() || (it.isEtcItem() && (it.getItemType() == EtcItemType.ARROW))) {
+                continue;
+            }
+            junk.add(it);
+        }
+        for (Item it : junk) {
+            p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
+        }
+        return junk.size();
+    }
+}

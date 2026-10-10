@@ -1,8 +1,8 @@
 {
   "id": "bots-core",
   "name": "Bots: core",
-  "description": "Bot framework core: bots are stock Player objects without a client on their own banned accounts. Phase 3a-3c: bot accounts and characters with personas (names, looks, traits, play times), login/logout into the world, restore after a restart, bot presence for hooks P3-BOT-*, the bot runtime (shards, mailboxes, LOD) and the brain API (service org.l2start.bots.api.BrainRegistry), //bots admin commands.",
-  "version": "0.3.1",
+  "description": "Bot framework core: bots are stock Player objects without a client on their own banned accounts. Phase 3a-3c: bot accounts and characters with personas (names, looks, traits, play times), login/logout into the world, restore after a restart, bot presence for hooks P3-BOT-*, the bot runtime (shards, mailboxes, LOD) and the brain API (service org.l2start.bots.api.BrainRegistry), //bots admin commands. Phase 3e: the presence director: bots appear only around real players, out of their sight, with level, class, skills and gear of the zone, and leave unseen.",
+  "version": "0.4.0",
   "kind": "jar",
   "platform": "^1.2",
   "entrypoint": "org.l2start.bots.core.BotsCoreModule",
@@ -34,6 +34,22 @@
     "PromoteRadius": { "type": "int", "default": 3000, "min": 0, "max": 20000, "reloadable": true, "description": "A live player this close makes a bot ACTIVE (ticks 0.3-1 s instead of 3-5 s)." },
     "DemoteRadius": { "type": "int", "default": 4500, "min": 0, "max": 20000, "reloadable": true, "description": "An ACTIVE bot goes back to PRESENT when no live player is this close ..." },
     "DemoteDelay": { "type": "duration", "default": "45s", "min": "0s", "reloadable": true, "description": "... for this long (no blinking)." },
+    "Presence": { "type": "enum", "values": ["director", "manual"], "default": "director", "description": "director = bots exist only around real players (presence director, step 3e; no restore/autospawn); manual = //bots spawn, AutoSpawn and restore as in 3a-3d." },
+    "DirectorTickMs": { "type": "int", "default": 2000, "min": 500, "max": 30000, "description": "The director looks at players and bots this often." },
+    "DirectorMaxInWorld": { "type": "int", "default": 150, "min": 0, "max": 2000, "reloadable": true, "description": "Global budget: director bots in the world at the same time (MaxInWorld still applies)." },
+    "DirectorMaxPerCluster": { "type": "int", "default": 30, "min": 0, "max": 500, "reloadable": true, "description": "At most this many bots around one group of players (town + hunting grounds)." },
+    "DirectorHuntPerCluster": { "type": "list", "default": "6,3", "reloadable": true, "description": "Hunting bots around a group of players: base, plus this many per extra player." },
+    "DirectorTownNight": { "type": "list", "default": "2,4", "reloadable": true, "description": "Bots in a town with a player in it at night (min,max)." },
+    "DirectorTownDay": { "type": "list", "default": "5,10", "reloadable": true, "description": "... in the day (min,max)." },
+    "DirectorTownEvening": { "type": "list", "default": "10,20", "reloadable": true, "description": "... in the evening peak (min,max)." },
+    "DirectorGround": { "type": "list", "default": "2,5", "reloadable": true, "description": "Bots on one hunting ground (min,max; by its size; indoor grounds get half)." },
+    "DirectorHidden": { "type": "list", "default": "3200,4200", "reloadable": true, "description": "Bots appear this far from every player (min,max) and run in." },
+    "DirectorUnseenRadius": { "type": "int", "default": 4500, "min": 1000, "max": 20000, "reloadable": true, "description": "No player within this distance = the bot is unseen." },
+    "DirectorUnseenLogout": { "type": "duration", "default": "90s", "min": "5s", "reloadable": true, "description": "An unseen bot logs out after this long." },
+    "DirectorLinger": { "type": "list", "default": "20m,45m", "reloadable": true, "description": "A bot that a player has seen this long (min,max by persona) goes away." },
+    "DirectorReturnCooldown": { "type": "duration", "default": "10m", "min": "0s", "reloadable": true, "description": "A persona that logged out is not brought back sooner." },
+    "OnlineCurve": { "type": "list", "default": "0.55,0.4,0.3,0.2,0.1,0.1,0.15,0.25,0.35,0.45,0.5,0.5,0.55,0.55,0.55,0.55,0.6,0.7,0.8,0.9,1,1,0.9,0.75", "reloadable": true, "description": "24 values 0..1 by server hour: 0 = night minimum, 0.5 = day, 1 = evening peak (town density, ground density)." },
+    "Anchors": { "type": "list", "default": "", "reloadable": true, "description": "Test players for the director: x;y;z points treated as live players (smoke, load tests). Empty in real use." },
     "StatsLogInterval": { "type": "duration", "default": "60s", "min": "0s", "description": "Runtime line 'BOTS world=... p99=... overrun=...' in the log this often while bots are in the world (0 = never)." }
   }
 }
