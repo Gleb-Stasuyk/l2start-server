@@ -43,3 +43,12 @@ docker compose --env-file profiles\solo.env ps
 Docker Desktop сейчас ~3,8 ГБ. Профиль `solo` держит игровой сервер в 2 ГБ heap.
 Если будет мало, увеличь память WSL в `%USERPROFILE%\.wslconfig` (`[wsl2]`, `memory=5GB`) и выполни `wsl --shutdown`
 (остановит все контейнеры).
+
+## Модули (фаза 1)
+
+- Образ содержит модули из `modules/` (`/opt/l2/game/modules`) и `game/config/{platform.ini,modules.ini}`.
+- Профиль платформы = `L2S_PROFILE` (`solo` / `online`), передаётся в контейнер как `L2_PROFILE`.
+- Переключатели без правки файлов: скопируй `modules.env.example` в `modules.env` (`L2_MODULE_<ID>=on|off`, `L2_MOD_<ID>__<KEY>=...`, `L2_PLATFORM__<KEY>=...`), затем `start.bat solo`.
+- Файлы: `overrides/<profile>/game/config/platform.local.ini`, `modules.local.ini`, `modules/<id>.ini` (см. `docs/MODULES.md`).
+- Smoke-тест: `"C:\Program Files\Git\bin\bash.exe" tools/smoke.sh --build` (из корня репо). Работает на своей БД `l2s-smoke-db-data`
+  (удаляется в конце), основную БД не трогает, но заменяет запущенные контейнеры `l2s-*`; после него снова `start.bat solo`.

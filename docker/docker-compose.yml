@@ -1,4 +1,4 @@
-# l2start-server in Docker (stock L2J Mobius CT_0 Interlude, phase 0).
+# l2start-server in Docker (L2J Mobius CT_0 Interlude + l2start platform and modules).
 # Project "l2s": containers l2s-*, volumes l2s-*, network l2s-net -> no clash with l2-*, lw-*, site-*.
 # Ports 2106 (login) and 7777 (game) are the same as the old servers -> run one server at a time.
 #
@@ -11,12 +11,20 @@ x-server: &server
   build:
     context: ..
     dockerfile: docker/Dockerfile
+    target: runtime
   restart: "${L2S_RESTART:-no}"
   environment: &server-env
     DB_HOST: db
     DB_NAME: "${L2S_DB_NAME:-l2start}"
     DB_USER: root
     DB_PASSWORD: "${L2S_DB_PASSWORD:?set L2S_DB_PASSWORD in the profile or docker/.env}"
+    # Platform profile (solo|online): platform.ini / modules.ini sections and module config [solo]/[online]
+    L2_PROFILE: "${L2S_PROFILE:-solo}"
+  # Optional module switches / settings without editing files: L2_MODULE_<ID>=on|off, L2_MOD_<ID>__<KEY>=value,
+  # L2_PLATFORM__<KEY>=value (see docs/MODULES.md). Copy modules.env.example to modules.env.
+  env_file:
+    - path: ./modules.env
+      required: false
   volumes: &server-volumes
     - "./overrides/${L2S_PROFILE:-solo}:/opt/l2/overrides:ro"
   networks: [l2s-net]

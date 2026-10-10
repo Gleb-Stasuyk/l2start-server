@@ -1,0 +1,35 @@
+# Smoke test overlay (used by tools/smoke.sh only):
+#   docker compose --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml ...
+# The game runs the "smoke" image (runtime + test modules from platform/test/fixtures) on its OWN database
+# volume, so the normal l2s-db-data (accounts, characters) is never touched. Same container names and ports
+# as the normal stack: the smoke run replaces the running l2s-* containers.
+services:
+  db:
+    volumes:
+      - l2s-smoke-db-data:/var/lib/mysql
+  game:
+    image: l2start-server:smoke
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: smoke
+    environment:
+      L2_PROFILE: "${SMOKE_PROFILE:-solo}"
+      L2_PLATFORM__DISABLEALL: "${SMOKE_DISABLE_ALL:-false}"
+      L2_PLATFORM__BREAKERERRORS: "5"
+      L2_MODULE_FX_OK_DEP: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_MISSING_DEP: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_BROKEN_ENABLE: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_DEPENDS_ON_BROKEN: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_BAD_MIGRATION: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_NPC_COLLISION: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_FLAKY: "${SMOKE_FIXTURES:-on}"
+      L2_MODULE_FX_INVALID: "${SMOKE_FIXTURES:-on}"
+    volumes:
+      - l2s-smoke-game-logs:/opt/l2/game/log
+
+volumes:
+  l2s-smoke-db-data:
+    name: l2s-smoke-db-data
+  l2s-smoke-game-logs:
+    name: l2s-smoke-game-logs

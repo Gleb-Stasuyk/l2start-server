@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       smoke:
-        description: "Run the docker compose smoke test (starts db, login, game)"
+        description: "Run the docker smoke test (tools/smoke.sh: stock baseline, fixtures, restart, online abort)"
         type: boolean
         default: true
 
@@ -19,7 +19,7 @@ env:
 
 jobs:
   build:
-    name: Ant build (JDK 27)
+    name: Ant build (core + platform + modules, JDK 27)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -39,22 +39,49 @@ jobs:
           curl -fsSL -o /tmp/ant.tgz "https://archive.apache.org/dist/ant/binaries/apache-ant-${ANT_VERSION}-bin.tar.gz"
           echo "${ANT_SHA512}  /tmp/ant.tgz" | sha512sum -c -
           mkdir -p ~/ant && tar xzf /tmp/ant.tgz -C ~/ant --strip-components=1
-      - name: Build jars
+      - name: Build jars, modules, fixtures
         run: |
           java -version
-          ~/ant/bin/ant -version
-          ~/ant/bin/ant -noinput -f core/build.xml jar
-          ls -l build/dist/libs/
+          ~/ant/bin/ant -noinput dist fixtures
+          ls -l build/dist/libs/ build/dist/game/modules/ build/fixtures/
       - uses: actions/upload-artifact@v4
         with:
-          name: server-jars
-          path: |
-            build/dist/libs/LoginServer.jar
-            build/dist/libs/GameServer.jar
+          name: server-dist
+          path: build/dist/
+          retention-days: 7
+
+  test:
+    name: Unit tests (JUnit 5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "27"
+      - name: Cache Ant
+        id: ant-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/ant
+          key: ant-${{ env.ANT_VERSION }}
+      - name: Install Ant
+        if: steps.ant-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/ant.tgz "https://archive.apache.org/dist/ant/binaries/apache-ant-${ANT_VERSION}-bin.tar.gz"
+          echo "${ANT_SHA512}  /tmp/ant.tgz" | sha512sum -c -
+          mkdir -p ~/ant && tar xzf /tmp/ant.tgz -C ~/ant --strip-components=1
+      - name: ant test
+        run: ~/ant/bin/ant -noinput test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: build/test-reports/
           retention-days: 7
 
   verify-core:
-    name: core/ = upstream Mobius
+    name: core/ = upstream Mobius + marked hooks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -62,28 +89,41 @@ jobs:
           fetch-depth: 0
       - name: Vendor import is byte-identical to upstream.lock
         run: bash tools/verify-upstream.sh
-      - name: core/ changes are only marked platform hooks
+      - name: check-hooks self-test
+        run: bash tools/test-check-hooks.sh
+      - name: core/ changes are only marked, listed platform hooks
         run: bash tools/check-hooks.sh
+      - name: Hook report
+        run: bash tools/hook-report.sh
 
   docker:
     name: Docker image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Build image
-        run: docker build -f docker/Dockerfile -t l2start-server:dev .
-      - name: Smoke test (manual run only)
-        if: github.event_name == 'workflow_dispatch' && inputs.smoke
+      - name: Build runtime image
+        run: docker build -f docker/Dockerfile --target runtime -t l2start-server:dev .
+
+  smoke:
+    name: Docker smoke test
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && inputs.smoke)
+    needs: [build, test, verify-core]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Smoke test
+        run: bash tools/smoke.sh --build
+      - name: Smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs
+          path: build/smoke/
+          retention-days: 7
+      - name: Cleanup
+        if: always()
         working-directory: docker
         run: |
-          docker compose --env-file profiles/solo.env up -d --no-build || true
-          for i in $(seq 1 90); do
-            st=$(docker inspect -f '{{.State.Health.Status}}' l2s-game 2>/dev/null || echo none)
-            echo "game: $st"; [ "$st" = healthy ] && break; sleep 10
-          done
-          docker logs --tail 40 l2s-login; docker logs --tail 60 l2s-game
-          [ "$(docker inspect -f '{{.State.Health.Status}}' l2s-game)" = healthy ]
-      - name: Smoke cleanup
-        if: always() && github.event_name == 'workflow_dispatch' && inputs.smoke
-        working-directory: docker
-        run: docker compose --env-file profiles/solo.env down -v || true
+          docker compose --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml down --remove-orphans || true
+          docker volume rm -f l2s-smoke-db-data l2s-smoke-game-logs || true

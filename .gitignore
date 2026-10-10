@@ -5,6 +5,7 @@
 
 # Local secrets / runtime
 /docker/.env
+/docker/modules.env
 /docker/data/
 *.log
 core/dist/game/log/
