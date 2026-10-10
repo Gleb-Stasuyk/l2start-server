@@ -21,59 +21,49 @@ public final class NameGenerator {
     private static final Pattern ALNUM = Pattern.compile("[A-Za-z0-9]+");
     private static final Pattern TRIPLE = Pattern.compile("(?i)([a-z0-9])\\1\\1");
 
-    // ---- word pools
-    private static final List<String> RU_NAMES = List.of("Vasya", "Vasyan", "Dimon", "Dima", "Serega", "Sergo", "Lexa", "Lesha", "Kolyan", "Kolya", "Petya", "Vovan", "Vova", "Sanya", "Sanek", "Tolik", "Zhenya", "Maks", "Andrey", "Artem", "Artemka", "Igor", "Oleg", "Pasha", "Pashok", "Roma", "Romka", "Slava", "Stas", "Tema", "Yura", "Vitek", "Vitalik", "Denis", "Kirill", "Ilya", "Egor", "Nikita", "Misha", "Mishka", "Grisha", "Fedya", "Anya", "Katya", "Lena", "Masha", "Natasha", "Olya", "Sveta", "Yulya", "Dasha", "Ksyusha", "Nastya", "Lera", "Alena", "Marina", "Ira", "Vika", "Tanya", "Zhora", "Gosha", "Lyoha", "Seva", "Borya");
-    private static final List<String> RU_WORDS = List.of("Kotik", "Kotyara", "Zlobnyi", "Bratok", "Shustryi", "Volk", "Medved", "Lis", "Yozh", "Tank", "Hilka", "Lekar", "Ohotnik", "Strelok", "Koldun", "Vedma", "Molot", "Topor", "Kulak", "Bes", "Demon", "Angel", "Ten", "Mrak", "Grom", "Veter", "Ogon", "Sneg", "Zver", "Bogatyr", "Vityaz", "Knyaz", "Batya", "Dedok", "Malysh", "Barsik", "Pirozhok", "Babai", "Leshii", "Sokol", "Berkut", "Kabanchik", "Shaman", "Dobryak", "Zloi", "Tihii", "Hitryi");
-    private static final List<String> RU_SUFFIX = List.of("4ik", "ok", "chik", "ka", "on", "ych");
-    private static final List<String> EN_FIRST = List.of("Iron", "Shadow", "Night", "Dark", "Storm", "Blood", "Silver", "Frost", "Fire", "Stone", "Wild", "Grim", "Swift", "Black", "Red", "Star", "Moon", "Sun", "Steel", "Ghost", "Raven", "Wolf", "Bear", "Hawk", "Thunder", "Rage", "Soul", "Dream", "Blade", "Ash", "Ember", "Mist", "Doom", "Holy", "Gold");
-    private static final List<String> EN_SECOND = List.of("wolf", "step", "fall", "blade", "heart", "fang", "claw", "bane", "walker", "rider", "hunter", "slayer", "born", "shade", "song", "strike", "fire", "storm", "wind", "shield", "arrow", "mind", "eye", "hand", "guard", "light", "thorn", "crow", "spark");
-    private static final List<String> EN_NAMES = List.of("Kira", "Alex", "Mike", "Jack", "Tom", "Nick", "Leon", "Max", "Kate", "Lisa", "Emma", "Mia", "Zoe", "Ryan", "Chris", "Dan", "Sam", "Ben", "Luke", "Mark", "Neo", "Ash", "Jade", "Ruby", "Luna", "Nova", "Ace", "Rex", "Kai", "Finn", "Eva", "Lily", "Jake", "Oscar", "Viktor", "Hugo", "Iris", "Nina");
-    private static final List<String> FANTASY_START = List.of("Ae", "Al", "Ar", "Bel", "Cal", "Dar", "El", "Eld", "Fae", "Gal", "Gor", "Hal", "Il", "Kal", "Lor", "Mal", "Mor", "Nar", "Or", "Rag", "Sar", "Tal", "Thal", "Thar", "Ul", "Val", "Vor", "Xan", "Zar", "Ky", "Ny", "Syl", "Drak", "Fen", "Gil", "Is", "Jor", "Ler");
-    private static final List<String> FANTASY_MID = List.of("a", "e", "i", "o", "u", "ae", "ia", "ra", "ri", "ro", "la", "li", "an", "en", "or", "ar", "ath", "el", "ys");
-    private static final List<String> FANTASY_END = List.of("n", "r", "s", "th", "l", "rin", "ra", "ion", "wen", "dor", "gar", "mir", "nas", "ros", "thas", "vin", "wyn", "rok", "gul", "mar", "iel", "ia", "us");
-    private static final List<String> GAMER_ROLES = List.of("Healer", "Tank", "Archer", "Mage", "Killer", "Nuker", "Spoiler", "Buffer", "Dagger", "Pvper", "Farmer", "Sniper");
-    private static final List<String> GAMER_NUMBERS = List.of("777", "666", "1337", "228", "99", "007", "13", "69", "88", "2005", "1999");
-    private static final List<String> STOP = List.of("admin", "moder", "support", "bot", "server", "gamemaster", "fuck", "shit", "bitch", "cunt", "nigg", "pidor", "pidar", "huy", "xyu", "blya", "suka", "pizd", "ebat", "eban", "mudak", "gandon", "dick", "porn", "hitler", "nazi");
+    /** Approved default mix: RU 35, EN 30, FANTASY 20, GAMER 15 (config key NameStyles). */
+    public static final List<String> DEFAULT_STYLES = List.of("ru:35", "en:30", "fantasy:20", "gamer:15");
 
     private final Random rnd;
-    private final int[] weights;
+    private boolean female;
+    private final NameDictionary dict;
+    private final Weights<Style> styles;
+    private final List<String> ruMale, ruFemale, enMale, enFemale, ruWords, ruSuffixes, enFirst, enSecond, fantasyStart, fantasyMid, fantasyEnd, gamerRoles, gamerNumbers, stopWords;
 
-    /** @param weights shares of RU, EN, FANTASY, GAMER (any non-negative numbers, at least one positive) */
-    public NameGenerator(Random rnd, int... weights) {
-        if (weights.length != Style.values().length) {
-            throw new IllegalArgumentException("need " + Style.values().length + " weights");
-        }
-        int sum = 0;
-        for (int w : weights) {
-            if (w < 0) {
-                throw new IllegalArgumentException("negative weight");
-            }
-            sum += w;
-        }
-        if (sum == 0) {
-            throw new IllegalArgumentException("all weights are 0");
-        }
+    public NameGenerator(Random rnd, NameDictionary dict, Weights<Style> styles) {
         this.rnd = rnd;
-        this.weights = weights.clone();
+        this.dict = dict;
+        this.styles = styles;
+        ruMale = dict.get("ru_names_male");
+        ruFemale = dict.get("ru_names_female");
+        enMale = dict.get("en_names_male");
+        enFemale = dict.get("en_names_female");
+        ruWords = dict.get("ru_words");
+        ruSuffixes = dict.get("ru_suffixes");
+        enFirst = dict.get("en_first");
+        enSecond = dict.get("en_second");
+        fantasyStart = dict.get("fantasy_start");
+        fantasyMid = dict.get("fantasy_mid");
+        fantasyEnd = dict.get("fantasy_end");
+        gamerRoles = dict.get("gamer_roles");
+        gamerNumbers = dict.get("gamer_numbers");
+        stopWords = dict.get("stop_words");
     }
 
-    public NameGenerator(Random rnd) {
-        this(rnd, 35, 30, 20, 15);
+    public NameGenerator(Random rnd, NameDictionary dict) {
+        this(rnd, dict, parseStyles(DEFAULT_STYLES));
+    }
+
+    public static Weights<Style> parseStyles(List<String> entries) {
+        return Weights.parse(entries, k -> Style.valueOf(k.toUpperCase(Locale.ROOT)));
     }
 
     public Style pickStyle() {
-        int sum = 0;
-        for (int w : weights) {
-            sum += w;
-        }
-        int r = rnd.nextInt(sum);
-        for (Style s : Style.values()) {
-            r -= weights[s.ordinal()];
-            if (r < 0) {
-                return s;
-            }
-        }
-        return Style.EN;
+        return styles.pick(rnd);
+    }
+
+    public NameDictionary dictionary() {
+        return dict;
     }
 
     /**
@@ -81,6 +71,12 @@ public final class NameGenerator {
      * @throws IllegalStateException when no free name was found in 200 tries
      */
     public Named next(Predicate<String> taken) {
+        return next(taken, false);
+    }
+
+    /** Same, for a character of this sex: first names follow it (a female character has a male nickname in ~15 % of cases, like players). */
+    public Named next(Predicate<String> taken, boolean female) {
+        this.female = female;
         // keep the drawn style while retrying, so taken names do not shift the style mix
         for (int i = 0; i < 5; i++) {
             final Style style = pickStyle();
@@ -109,65 +105,80 @@ public final class NameGenerator {
     private String ru() {
         switch (rnd.nextInt(7)) {
             case 0:
-                return pick(RU_NAMES);
+                return pick(ruNames());
             case 1:
-                return pick(RU_NAMES) + year();
+                return pick(ruNames()) + year();
             case 2:
-                return stem(pick(RU_NAMES)) + pick(RU_SUFFIX);
+                return stem(pick(ruNames())) + pick(ruSuffixes);
             case 3:
-                return pick(RU_WORDS);
+                return pick(ruWords);
             case 4:
-                return pick(RU_WORDS) + pick(RU_NAMES);
+                return pick(ruWords) + pick(ruNames());
             case 5:
-                return "Ne" + pick(RU_WORDS);
+                return "Ne" + pick(ruWords);
             default:
-                return pick(RU_WORDS) + (10 + rnd.nextInt(90));
+                return pick(ruWords) + (10 + rnd.nextInt(90));
         }
+    }
+
+    private List<String> ruNames() {
+        return firstNames(ruMale, ruFemale);
+    }
+
+    private List<String> enNames() {
+        return firstNames(enMale, enFemale);
+    }
+
+    private List<String> firstNames(List<String> male, List<String> fem) {
+        if (female) {
+            return rnd.nextInt(100) < 85 ? fem : male;
+        }
+        return rnd.nextInt(100) < 3 ? fem : male;
     }
 
     private String en() {
         switch (rnd.nextInt(5)) {
             case 0:
             case 1:
-                return pick(EN_FIRST) + pick(EN_SECOND);
+                return pick(enFirst) + pick(enSecond);
             case 2:
-                return pick(EN_NAMES);
+                return pick(enNames());
             case 3:
-                return pick(EN_NAMES) + (rnd.nextBoolean() ? year() : String.valueOf(1 + rnd.nextInt(99)));
+                return pick(enNames()) + (rnd.nextBoolean() ? year() : String.valueOf(1 + rnd.nextInt(99)));
             default:
-                return pick(EN_NAMES) + pick(EN_FIRST);
+                return pick(enNames()) + pick(enFirst);
         }
     }
 
     private String fantasy() {
-        final StringBuilder sb = new StringBuilder(pick(FANTASY_START));
+        final StringBuilder sb = new StringBuilder(pick(fantasyStart));
         if (rnd.nextInt(3) > 0) {
-            sb.append(pick(FANTASY_MID));
+            sb.append(pick(fantasyMid));
         }
-        sb.append(pick(FANTASY_END));
+        sb.append(pick(fantasyEnd));
         return sb.toString();
     }
 
     private String gamer() {
-        final String word = capitalize(pick(EN_SECOND));
+        final String word = capitalize(pick(enSecond));
         switch (rnd.nextInt(6)) {
             case 0:
-                return "xX" + pick(EN_FIRST) + word + "Xx";
+                return "xX" + pick(enFirst) + word + "Xx";
             case 1:
-                return pick(EN_FIRST) + "Lord" + pick(GAMER_NUMBERS);
+                return pick(enFirst) + "Lord" + pick(gamerNumbers);
             case 2:
-                return "Pro" + pick(GAMER_ROLES);
+                return "Pro" + pick(gamerRoles);
             case 3:
-                return alternateCase(pick(GAMER_ROLES));
+                return alternateCase(pick(gamerRoles));
             case 4:
-                return pick(EN_FIRST) + word + pick(GAMER_NUMBERS);
+                return pick(enFirst) + word + pick(gamerNumbers);
             default:
-                return (rnd.nextBoolean() ? "Mr" : "Lord") + pick(EN_FIRST) + (rnd.nextBoolean() ? "" : pick(GAMER_NUMBERS));
+                return (rnd.nextBoolean() ? "Mr" : "Lord") + pick(enFirst) + (rnd.nextBoolean() ? "" : pick(gamerNumbers));
         }
     }
 
     /** Length, characters, no 3 equal characters in a row (except the xX decoration), stop words. */
-    public static boolean isValid(String name) {
+    public boolean isValid(String name) {
         if ((name == null) || (name.length() < MIN_LENGTH) || (name.length() > MAX_LENGTH) || !ALNUM.matcher(name).matches()) {
             return false;
         }
@@ -179,7 +190,7 @@ public final class NameGenerator {
         if (low.startsWith("gm") || low.endsWith("gm")) {
             return false;
         }
-        for (String s : STOP) {
+        for (String s : stopWords) {
             if (low.contains(s)) {
                 return false;
             }

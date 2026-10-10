@@ -3,6 +3,7 @@ package org.l2start.bots.core;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2start.bots.persona.Persona;
 
 /** One bot: its stock character and account (persistent), plus what is going on right now (runtime). */
 public final class BotRecord {
@@ -16,6 +17,11 @@ public final class BotRecord {
     private volatile String name;
     private final int classId;
     private volatile Status status;
+    private volatile Persona persona;
+    private volatile int homeX, homeY, homeZ;
+    private volatile String goal = "IDLE";
+    /** Was in the world when the server (or the module) stopped: brought back on the next start. */
+    private volatile boolean restore;
 
     // runtime
     private volatile Player player;
@@ -51,6 +57,17 @@ public final class BotRecord {
     public int whispers() { return whispers.get(); }
     public String lastWhisper() { return lastWhisper; }
     public int deaths() { return deaths.get(); }
+    public Persona persona() { return persona; }
+    public int homeX() { return homeX; }
+    public int homeY() { return homeY; }
+    public int homeZ() { return homeZ; }
+    public String goal() { return goal; }
+    public boolean restore() { return restore; }
+
+    void setPersona(Persona p) { persona = p; }
+    void setHome(int x, int y, int z) { homeX = x; homeY = y; homeZ = z; }
+    void setGoal(String g) { goal = g; }
+    void setRestore(boolean r) { restore = r; }
 
     void setName(String n) { name = n; }
     void setStatus(Status s) { status = s; }

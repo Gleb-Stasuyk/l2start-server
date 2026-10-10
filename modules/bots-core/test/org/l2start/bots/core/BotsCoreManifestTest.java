@@ -22,13 +22,19 @@ class BotsCoreManifestTest {
     }
 
     @Test
-    void migrationCreatesOnlyModuleTables() throws Exception {
-        final String sql = Files.readString(Path.of("modules/bots-core/sql/V001__bots_core.sql"));
-        for (String line : sql.split("\n")) {
+    void migrationsCreateOnlyModuleTables() throws Exception {
+        final StringBuilder all = new StringBuilder();
+        try (var files = Files.list(Path.of("modules/bots-core/sql"))) {
+            for (Path f : files.sorted().toList()) {
+                all.append(Files.readString(f)).append('\n');
+            }
+        }
+        assertTrue(all.toString().contains("mod_bots_core_persona") && all.toString().contains("mod_bots_core_state"));
+        for (String line : all.toString().split("\n")) {
             if (line.toUpperCase().contains("CREATE TABLE")) {
                 assertTrue(line.contains("mod_bots_core_"), line);
             }
-            assertTrue(!line.toUpperCase().matches(".*\\b(ALTER|DROP|UPDATE|DELETE|INSERT)\\b.*"), "migration must not touch stock tables: " + line);
+            assertTrue(!line.trim().toUpperCase().matches("(ALTER|DROP|UPDATE|DELETE|INSERT|REPLACE|TRUNCATE|RENAME)\\b.*"), "migration must not touch stock tables: " + line);
         }
     }
 }

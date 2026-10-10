@@ -21,7 +21,8 @@
 #   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes + bots-core RUNNING, counts == stock,
 #                                                      bots-core tables created, no bot enters the world without geodata
 #   7 bots      solo, AutoCreate=20 AutoSpawn=10, RequireGeodata=false -> 20 bot characters (banned accounts, online=0,
-#                                                      starting gear), 10 in the world, logged out on shutdown, nothing created twice
+#                                                      starting gear, personas, state), 10 in the world, logged out on shutdown;
+#                                                      after a restart the SAME 10 come back (restore), nothing created twice
 set -uo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -193,7 +194,7 @@ gamelog > "$OUT/6-solo.log"
 check "summary: 3 running, fixtures disabled" grep -qE 'Platform: profile=solo, 12 discovered: 3 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-core\]: ready: 0 bots known .*geodata in starting villages: NO' "$OUT/6-solo.log"
-check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity "
+check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity mod_bots_core_persona mod_bots_core_state "
 check "bots-core: no bot created by default" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity")" = 0
 real_modules "$OUT/6-solo.log" 6
 check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
@@ -206,7 +207,7 @@ wait_log() { # wait_log REGEX TIMEOUT_S
 }
 start_game solo false off 20 10
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
-check "autostart: 20 created, 10 in the world" wait_log 'Module\[bots-core\]: autostart: created 20, in world 10' 180
+check "autostart: 20 created, 10 in the world" wait_log 'Module\[bots-core\]: autostart: created 20, entered 10, in world 10' 180
 sleep 3
 gamelog > "$OUT/7-bots.log"
 check "no bots-core errors" bash -c "! grep -qE 'Module\[bots-core\]: .*(ERROR|cannot)|Platform: module bots-core ' \"\$0\"" "$OUT/7-bots.log"
@@ -217,15 +218,29 @@ check "bots hidden: characters.online=0" test "$(sql "SELECT COUNT(*) FROM chara
 check "bots level 1, starting classes" test "$(sql "SELECT COUNT(*) FROM characters WHERE level=1 AND classid IN (0,10,18,25,31,38,44,49,53) AND charId IN ($BOTCHARS)")" = 20
 check "bots have their starting gear (starter-kit)" test "$(sql "SELECT COUNT(DISTINCT owner_id) FROM items WHERE loc='PAPERDOLL' AND owner_id IN ($BOTCHARS)")" = 20
 check "10 bots logged in" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_login > 0")" = 10
+check "20 personas, 20 state rows, 10 marked in the world" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_persona"),$(sql "SELECT COUNT(*) FROM mod_bots_core_state"),$(sql "SELECT COUNT(*) FROM mod_bots_core_state WHERE in_world=1")" = "20,20,10"
+check "personas: approved time zones, name = character name" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_persona p JOIN mod_bots_core_identity i ON i.bot_id=p.bot_id WHERE p.data LIKE CONCAT('%\"name\":\"', i.char_name, '\"%') AND (p.data LIKE '%Europe/Moscow%' OR p.data LIKE '%Europe/Kaliningrad%' OR p.data LIKE '%Europe/Samara%' OR p.data LIKE '%Asia/Yekaterinburg%')")" = 20
+check "personas: look = character look" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_persona p JOIN mod_bots_core_identity i ON i.bot_id=p.bot_id JOIN characters c ON c.charId=i.char_id WHERE p.data LIKE CONCAT('%\"face\":', c.face, ',\"hairStyle\":', c.hairStyle, ',\"hairColor\":', c.hairColor, ',%') AND p.data LIKE CONCAT('%\"female\":', IF(c.sex=1,'true','false'), '%')")" = 20
+INWORLD="SELECT i.char_name FROM mod_bots_core_identity i JOIN mod_bots_core_state s ON s.bot_id=i.bot_id WHERE s.in_world=1 ORDER BY 1"
+sql "$INWORLD" > "$OUT/7-inworld-before.txt"
 sql "SELECT i.char_name, i.class_id, c.x, c.y, c.z, c.online, a.accessLevel FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN accounts a ON a.login=i.account_name ORDER BY i.bot_id" > "$OUT/7-bots.txt"
-docker restart -t 120 l2s-game >/dev/null
+POS="SELECT i.char_name, c.x, c.y, c.z FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN mod_bots_core_state s ON s.bot_id=i.bot_id WHERE s.in_world=1 ORDER BY 1"
+docker stop -t 120 l2s-game >/dev/null
+sql "$POS" > "$OUT/7-pos-before.txt"
+docker start l2s-game >/dev/null
 sleep 10
 if wait_game healthy 900; then ok "game healthy after restart"; else ko "game healthy after restart"; fi
-check "after restart: none created, 10 in the world again" wait_log 'Module\[bots-core\]: autostart: created 0, in world 10' 180
+check "after restart: the 10 bots come back (restore)" wait_log 'Module\[bots-core\]: restore: 10 of 10 bots back in the world' 180
+check "after restart: none created, none extra" wait_log 'Module\[bots-core\]: autostart: created 0, entered 0, in world 10' 60
 gamelog > "$OUT/7-bots-restart.log"
 check "bots logged out on shutdown (10)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_logout > 0")" = 10
 check "still 20 bots, 20 accounts" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity"),$(sql "SELECT COUNT(*) FROM mod_bots_core_account")" = "20,20"
-check "ready line sees 20 bots" grep -qE 'Module\[bots-core\]: ready: 20 bots known \(0 retired\)' "$OUT/7-bots-restart.log"
+check "ready line sees 20 bots, 10 to restore" grep -qE 'Module\[bots-core\]: ready: 20 bots known \(0 retired, 0 given a persona\), to restore 10' "$OUT/7-bots-restart.log"
+sql "$INWORLD" > "$OUT/7-inworld-after.txt"
+check "the same 10 bots are in the world after the restart" diff -q "$OUT/7-inworld-before.txt" "$OUT/7-inworld-after.txt"
+docker stop -t 120 l2s-game >/dev/null
+sql "$POS" > "$OUT/7-pos-after.txt"
+check "same places: positions saved at the 2nd stop == positions at the 1st stop (10 bots)" bash -c "diff -q \"\$0\" \"\$1\" && test \$(wc -l < \"\$0\") = 10" "$OUT/7-pos-before.txt" "$OUT/7-pos-after.txt"
 
 say "-- cleanup"
 cleanup

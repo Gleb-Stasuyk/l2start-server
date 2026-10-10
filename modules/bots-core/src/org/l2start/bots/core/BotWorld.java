@@ -80,6 +80,8 @@ public final class BotWorld {
             p.setOnlineStatus(true, true); // online=0 in the database anyway: no client (hidden from site counters)
             p.broadcastUserInfo();
             repo.login(r.botId(), now);
+            repo.setInWorld(r.botId(), true);
+            r.setRestore(true);
             return null;
         } catch (Exception e) {
             log.warn("cannot log in " + r, e);
@@ -94,7 +96,8 @@ public final class BotWorld {
     }
 
     /** Log a bot out (saved like a player who logs out). */
-    public synchronized boolean leave(BotRecord r) {
+    /** @param comeBack keep it marked "in the world" so the next start brings it back (shutdown, module stop) */
+    public synchronized boolean leave(BotRecord r, boolean comeBack) {
         final Player p = r.player();
         if (p == null) {
             return false;
@@ -111,6 +114,10 @@ public final class BotWorld {
             r.leftWorld(now);
             try {
                 repo.logout(r.botId(), now);
+                if (!comeBack) {
+                    repo.setInWorld(r.botId(), false);
+                    r.setRestore(false);
+                }
             } catch (Exception e) {
                 log.warn("cannot store logout time of " + r, e);
             }

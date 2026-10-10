@@ -1,0 +1,21 @@
+# fantasy names: optional middle syllable
+# One entry per line; lines starting with # are comments. Read on server start and on //module reload bots-core.
+a
+e
+i
+o
+u
+ae
+ia
+ra
+ri
+ro
+la
+li
+an
+en
+or
+ar
+ath
+el
+ys

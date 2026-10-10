@@ -1,0 +1,27 @@
+# Russian female first names, transliterated (RU style)
+# One entry per line; lines starting with # are comments. Read on server start and on //module reload bots-core.
+Anya
+Katya
+Lena
+Masha
+Natasha
+Olya
+Sveta
+Yulya
+Dasha
+Ksyusha
+Nastya
+Lera
+Alena
+Marina
+Ira
+Vika
+Tanya
+Zhenya
+Sasha
+Kristina
+Polina
+Alina
+Yana
+Mila
+Liza

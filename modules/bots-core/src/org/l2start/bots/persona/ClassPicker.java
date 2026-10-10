@@ -1,78 +1,90 @@
 package org.l2start.bots.persona;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.TreeMap;
+import java.util.Set;
 
 /**
  * Starting class, sex and look of a new bot. Phase 3 bots start at level 1 like players, so only the 9 starting
- * classes. Shares from the approved plan (many dwarves/spoilers, fewer orc mystics), editable later via config.
+ * classes. Shares from the approved plan (many dwarves/spoilers, fewer orc mystics); config key ClassWeights.
+ * Looks stay inside the stock creation limits; config keys FaceWeights, HairColorWeights, HairStyleWeightsMale/Female.
  */
 public final class ClassPicker {
-    /** classId -> share in percent. */
-    public static final Map<Integer, Integer> DEFAULT_WEIGHTS;
-    static {
-        final Map<Integer, Integer> m = new TreeMap<>();
-        m.put(0, 15); // Human Fighter
-        m.put(10, 12); // Human Mystic
-        m.put(18, 9); // Elven Fighter
-        m.put(25, 10); // Elven Mystic
-        m.put(31, 11); // Dark Fighter
-        m.put(38, 10); // Dark Mystic
-        m.put(44, 9); // Orc Fighter
-        m.put(49, 6); // Orc Mystic
-        m.put(53, 18); // Dwarven Fighter
-        DEFAULT_WEIGHTS = Map.copyOf(m);
-    }
+    public static final List<String> DEFAULT_CLASSES = List.of("0:15", "10:12", "18:9", "25:10", "31:11", "38:10", "44:9", "49:6", "53:18");
+    public static final List<String> DEFAULT_FACE = List.of("4", "3", "3");
+    public static final List<String> DEFAULT_HAIR_COLOR = List.of("4", "3", "2", "2");
+    public static final List<String> DEFAULT_HAIR_MALE = List.of("3", "3", "2", "2", "1");
+    public static final List<String> DEFAULT_HAIR_FEMALE = List.of("3", "3", "2", "2", "2", "1", "1");
 
-    private static final java.util.Set<Integer> MYSTICS = java.util.Set.of(10, 25, 38, 49);
+    /** classId -> share in percent (the approved defaults). */
+    public static final Map<Integer, Integer> DEFAULT_WEIGHTS = Map.of(0, 15, 10, 12, 18, 9, 25, 10, 31, 11, 38, 10, 44, 9, 49, 6, 53, 18);
+    private static final Set<Integer> MYSTICS = Set.of(10, 25, 38, 49);
+
+    /** Second profession a starting class can reach (stored in the persona now, used from phase 4). */
+    public static final Map<Integer, List<Integer>> FUTURE = Map.of(
+        0, List.of(2, 3, 5, 6, 8, 9), // Gladiator, Warlord, Paladin, Dark Avenger, Treasure Hunter, Hawkeye
+        10, List.of(12, 13, 14, 16, 17), // Sorcerer, Necromancer, Warlock, Bishop, Prophet
+        18, List.of(20, 21, 23, 24), // Temple Knight, Swordsinger, Plainswalker, Silver Ranger
+        25, List.of(27, 28, 30), // Spellsinger, Elemental Summoner, Elder
+        31, List.of(33, 34, 36, 37), // Shillien Knight, Bladedancer, Abyss Walker, Phantom Ranger
+        38, List.of(40, 41, 43), // Spellhowler, Phantom Summoner, Shillien Elder
+        44, List.of(46, 48), // Destroyer, Tyrant
+        49, List.of(51, 52), // Overlord, Warcryer
+        53, List.of(55, 57)); // Bounty Hunter, Warsmith
 
     public record Look(int classId, boolean female, byte face, byte hairStyle, byte hairColor) {
     }
 
-    private final Random rnd;
-    private final int[] ids;
-    private final int[] cumulative;
+    private final Weights<Integer> classes;
+    private final Weights<Integer> face;
+    private final Weights<Integer> hairColor;
+    private final Weights<Integer> hairMale;
+    private final Weights<Integer> hairFemale;
 
-    public ClassPicker(Random rnd, Map<Integer, Integer> weights) {
-        this.rnd = rnd;
-        final TreeMap<Integer, Integer> sorted = new TreeMap<>(weights);
-        ids = new int[sorted.size()];
-        cumulative = new int[sorted.size()];
-        int i = 0;
-        int sum = 0;
-        for (Map.Entry<Integer, Integer> e : sorted.entrySet()) {
-            if (!DEFAULT_WEIGHTS.containsKey(e.getKey())) {
-                throw new IllegalArgumentException("class " + e.getKey() + " is not a starting class");
+    public ClassPicker(List<String> classWeights, List<String> faceWeights, List<String> hairColorWeights, List<String> hairMaleWeights, List<String> hairFemaleWeights) {
+        classes = Weights.parse(classWeights, k -> {
+            final int id = Integer.parseInt(k);
+            if (!isStartingClass(id)) {
+                throw new IllegalArgumentException("class " + id + " is not a starting class");
             }
-            sum += Math.max(0, e.getValue());
-            ids[i] = e.getKey();
-            cumulative[i++] = sum;
-        }
-        if (sum == 0) {
-            throw new IllegalArgumentException("all class weights are 0");
-        }
+            return id;
+        });
+        face = limited(faceWeights, 3, "FaceWeights");
+        hairColor = limited(hairColorWeights, 4, "HairColorWeights");
+        hairMale = limited(hairMaleWeights, 5, "HairStyleWeightsMale");
+        hairFemale = limited(hairFemaleWeights, 7, "HairStyleWeightsFemale");
     }
 
-    public ClassPicker(Random rnd) {
-        this(rnd, DEFAULT_WEIGHTS);
+    public ClassPicker() {
+        this(DEFAULT_CLASSES, DEFAULT_FACE, DEFAULT_HAIR_COLOR, DEFAULT_HAIR_MALE, DEFAULT_HAIR_FEMALE);
     }
 
-    public int pickClass() {
-        final int r = rnd.nextInt(cumulative[cumulative.length - 1]);
-        for (int i = 0; i < ids.length; i++) {
-            if (r < cumulative[i]) {
-                return ids[i];
-            }
+    private static Weights<Integer> limited(List<String> w, int max, String key) {
+        if (w.isEmpty() || (w.size() > max)) {
+            throw new IllegalArgumentException(key + ": 1.." + max + " weights (stock creation limit)");
         }
-        return ids[ids.length - 1];
+        return Weights.indexed(w);
+    }
+
+    public int pickClass(Random rnd) {
+        return classes.pick(rnd);
+    }
+
+    public double share(int classId) {
+        return classes.share(classId);
     }
 
     /** Sex and look within the stock character creation limits (face 0-2, hair color 0-3, hair style 0-4 male / 0-6 female). */
-    public Look look(int classId) {
+    public Look look(int classId, Random rnd) {
         final int femalePercent = classId == 53 ? 30 : MYSTICS.contains(classId) ? 50 : 35;
         final boolean female = rnd.nextInt(100) < femalePercent;
-        return new Look(classId, female, (byte) rnd.nextInt(3), (byte) rnd.nextInt(female ? 7 : 5), (byte) rnd.nextInt(4));
+        return new Look(classId, female, face.pick(rnd).byteValue(), (female ? hairFemale : hairMale).pick(rnd).byteValue(), hairColor.pick(rnd).byteValue());
+    }
+
+    public static int futureClass(int classId, Random rnd) {
+        final List<Integer> l = FUTURE.get(classId);
+        return l == null ? classId : l.get(rnd.nextInt(l.size()));
     }
 
     public static boolean isStartingClass(int classId) {

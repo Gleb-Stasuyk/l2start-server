@@ -6,6 +6,8 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Locale;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 import org.l2jmobius.commons.util.StringUtil;
 import org.l2jmobius.gameserver.config.PlayerConfig;
@@ -36,8 +38,8 @@ import org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerCr
 import org.l2jmobius.gameserver.mechanics.skill.holders.SkillLearn;
 import org.l2jmobius.gameserver.network.Disconnection;
 import org.l2start.bots.persona.ClassPicker;
-import org.l2start.bots.persona.NameGenerator;
-import org.l2start.platform.api.ModuleLog;
+import org.l2start.bots.persona.Persona;
+import org.l2start.bots.persona.PersonaGenerator;
 
 /**
  * Creates a bot exactly like the stock character creation (CharacterCreate.initNewChar) creates a player's
@@ -50,37 +52,36 @@ public final class BotFactory {
     private final SecureRandom secure = new SecureRandom();
     private final BotRepository repo;
     private final BotRegistry registry;
-    private final NameGenerator names;
-    private final ClassPicker classes;
-    private final ModuleLog log;
+    private final Supplier<PersonaGenerator> personas;
+    private final LongSupplier seeds;
 
-    public BotFactory(BotRepository repo, BotRegistry registry, NameGenerator names, ClassPicker classes, ModuleLog log) {
+    /** @param personas current generator (replaced on //module reload), @param seeds a new persona seed per bot */
+    public BotFactory(BotRepository repo, BotRegistry registry, Supplier<PersonaGenerator> personas, LongSupplier seeds) {
         this.repo = repo;
         this.registry = registry;
-        this.names = names;
-        this.classes = classes;
-        this.log = log;
+        this.personas = personas;
+        this.seeds = seeds;
     }
 
     /** @param classId a starting class, or -1 for the configured distribution */
     public synchronized BotRecord create(int classId) throws Exception {
-        final int cls = classId < 0 ? classes.pickClass() : classId;
-        if (!ClassPicker.isStartingClass(cls)) {
-            throw new IllegalArgumentException("class " + cls + " is not a starting class");
+        if ((classId >= 0) && !ClassPicker.isStartingClass(classId)) {
+            throw new IllegalArgumentException("class " + classId + " is not a starting class");
         }
-        final PlayerTemplate template = PlayerTemplateData.getInstance().getTemplate(cls);
-        if (template == null) {
-            throw new IllegalStateException("no player template for class " + cls);
-        }
-        final ClassPicker.Look look = classes.look(cls);
         final String login = newAccountName();
         repo.createAccount(login, unusablePasswordHash());
         Player player = null;
         String name = null;
+        Persona persona = null;
         try {
             synchronized (CharInfoTable.getInstance()) {
-                name = names.next(BotFactory::nameTaken).name();
-                player = Player.create(template, login, name, new PlayerAppearance(look.face(), look.hairColor(), look.hairStyle(), look.female()));
+                persona = personas.get().generate(seeds.getAsLong(), classId, BotFactory::nameTaken);
+                name = persona.name();
+                final PlayerTemplate template = PlayerTemplateData.getInstance().getTemplate(persona.classId());
+                if (template == null) {
+                    throw new IllegalStateException("no player template for class " + persona.classId());
+                }
+                player = Player.create(template, login, name, new PlayerAppearance((byte) persona.face(), (byte) persona.hairColor(), (byte) persona.hairStyle(), persona.female()));
             }
             if (player == null) {
                 throw new IllegalStateException("Player.create returned null for " + name);
@@ -88,8 +89,12 @@ public final class BotFactory {
             player.setCurrentHp(player.getMaxHp());
             player.setCurrentMp(player.getMaxMp());
             initNewChar(player);
-            final int botId = repo.insertIdentity(player.getObjectId(), login, name, cls);
-            final BotRecord r = new BotRecord(botId, player.getObjectId(), login, name, cls, BotRecord.Status.ACTIVE, 0, 0);
+            final int botId = repo.insertIdentity(player.getObjectId(), login, name, persona.classId());
+            repo.savePersona(botId, persona);
+            repo.ensureState(botId, player.getX(), player.getY(), player.getZ()); // home = where it was created
+            final BotRecord r = new BotRecord(botId, player.getObjectId(), login, name, persona.classId(), BotRecord.Status.ACTIVE, 0, 0);
+            r.setPersona(persona);
+            r.setHome(player.getX(), player.getY(), player.getZ());
             registry.add(r);
             return r;
         } catch (Exception e) {
@@ -183,9 +188,5 @@ public final class BotFactory {
         secure.nextBytes(raw);
         final String secret = Base64.getEncoder().encodeToString(raw);
         return Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA").digest(secret.getBytes(StandardCharsets.UTF_8)));
-    }
-
-    ModuleLog log() {
-        return log;
     }
 }

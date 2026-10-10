@@ -1,6 +1,8 @@
 package org.l2start.bots.admin;
 
 import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -14,6 +16,8 @@ import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.handler.IAdminCommandHandler;
 import org.l2jmobius.gameserver.network.serverpackets.NpcHtmlMessage;
 import org.l2start.bots.core.BotRecord;
+import org.l2start.bots.persona.Persona;
+import org.l2start.bots.persona.Traits;
 import org.l2start.bots.core.BotsCoreModule;
 import org.l2start.bots.persona.ClassPicker;
 
@@ -78,7 +82,7 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "despawn": {
                     final String what = st.hasMoreTokens() ? st.nextToken() : "";
                     if ("all".equalsIgnoreCase(what)) {
-                        gm.sendMessage("Logged out " + core.logoutAll("//bots despawn all by " + gm.getName()) + " bot(s).");
+                        gm.sendMessage("Logged out " + core.logoutAll("//bots despawn all by " + gm.getName(), false) + " bot(s).");
                     } else {
                         final BotRecord r = core.registry().byName(what);
                         gm.sendMessage(r == null ? "No bot named " + what + "." : core.despawn(r) ? r.name() + " logged out." : r.name() + " is not in the world.");
@@ -178,14 +182,16 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("<font color=\"808080\">created ").append(m.getOrDefault("created", 0L)).append(", logins ").append(m.getOrDefault("logins", 0L)).append(", deaths ").append(m.getOrDefault("deaths", 0L)).append(", whispers ").append(m.getOrDefault("whispersReceived", 0L)).append("</font><br>");
         sb.append("<table width=280><tr><td><button value=\"Create 5\" action=\"bypass -h admin_bots create 5\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
         sb.append("<td><button value=\"Spawn 5 here\" action=\"bypass -h admin_bots spawn 5 here\" width=90 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
-        sb.append("<td><button value=\"Despawn all\" action=\"bypass -h admin_bots despawn all\" width=80 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table><br>");
-        sb.append("<table width=280><tr><td width=110>Name</td><td width=40>Lv</td><td width=80>Class</td><td width=50>State</td></tr>");
+        sb.append("<td><button value=\"Despawn all\" action=\"bypass -h admin_bots despawn all\" width=80 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr>");
+        sb.append("<tr><td><button value=\"Create 50\" action=\"bypass -h admin_bots create 50\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
+        sb.append("<td><button value=\"Spawn 10\" action=\"bypass -h admin_bots spawn 10\" width=90 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td><td></td></tr></table><br>");
+        sb.append("<table width=280><tr><td width=100>Name</td><td width=25>Lv</td><td width=85>Class</td><td width=25>Sex</td><td width=45>State</td></tr>");
         for (int i = (pg - 1) * PAGE; i < Math.min(all.size(), pg * PAGE); i++) {
             final BotRecord r = all.get(i);
             final Player p = r.player();
             final String state = r.status() == BotRecord.Status.RETIRED ? "<font color=\"808080\">retired</font>" : p != null ? (p.isDead() ? "<font color=\"FF6666\">dead</font>" : "<font color=\"66FF66\">world</font>") : "offline";
             sb.append("<tr><td><a action=\"bypass -h admin_bots info ").append(r.name()).append("\">").append(r.name()).append("</a></td><td>").append(p != null ? p.getLevel() : "-").append("</td><td>")
-                .append(className(r.classId())).append("</td><td>").append(state).append("</td></tr>");
+                .append(className(r.classId())).append("</td><td>").append(r.persona() == null ? "-" : r.persona().female() ? "F" : "M").append("</td><td>").append(state).append("</td></tr>");
         }
         sb.append("</table><br>");
         if (pages > 1) {
@@ -211,6 +217,18 @@ public final class AdminBots implements IAdminCommandHandler {
             final Item w = p.getActiveWeaponInstance();
             sb.append("Weapon: ").append(w == null ? "-" : w.getName()).append("<br>");
         }
+        final Persona ps = r.persona();
+        if (ps != null) {
+            sb.append("<br><font color=\"LEVEL\">Persona</font> (seed ").append(ps.seed()).append(")<br>");
+            sb.append("Name style ").append(ps.nameStyle()).append(", chat ").append(ps.lang()).append(", ").append(ps.female() ? "female" : "male").append(", face ").append(ps.face()).append(", hair ").append(ps.hairStyle()).append("/").append(ps.hairColor()).append("<br>");
+            sb.append("Future class: ").append(className(ps.futureClassId())).append("<br>");
+            final ZonedDateTime local = ZonedDateTime.now(ZoneId.of(ps.timezone()));
+            sb.append("Plays: ").append(ps.chronotype()).append(", ").append(ps.timezone()).append(" (now ").append(String.format("%02d:%02d", local.getHour(), local.getMinute())).append(")<br>");
+            final Traits t = ps.traits();
+            sb.append("Traits: aggr ").append(t.aggression()).append(", social ").append(t.sociability()).append(", greed ").append(t.greed()).append("<br>");
+            sb.append("patience ").append(t.patience()).append(", skill ").append(t.skill()).append(" (reaction ").append(t.reactionMs()).append(" ms), chat ").append(t.chattiness()).append("<br>");
+        }
+        sb.append("Home ").append(r.homeX()).append(", ").append(r.homeY()).append(", ").append(r.homeZ()).append(", goal ").append(r.goal()).append(r.restore() ? ", back after restart" : "").append("<br><br>");
         sb.append("Deaths: ").append(r.deaths()).append(", whispers received: ").append(r.whispers()).append("<br>");
         if (r.lastWhisper() != null) {
             sb.append("Last whisper: ").append(escape(r.lastWhisper())).append("<br>");
