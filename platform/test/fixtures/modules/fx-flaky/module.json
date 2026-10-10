@@ -1,0 +1,1 @@
+{"id":"fx-flaky","name":"Fixture: keeps throwing, breaker must degrade it","version":"1.0.0","kind":"jar","platform":"^1.0","defaultEnabled":{"solo":true,"online":true},"entrypoint":"org.l2start.fixtures.flaky.Flaky"}

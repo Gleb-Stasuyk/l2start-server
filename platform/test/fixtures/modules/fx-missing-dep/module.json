@@ -1,0 +1,1 @@
+{"id":"fx-missing-dep","name":"Fixture: missing dependency","version":"1.0.0","kind":"data","platform":"^1.0","defaultEnabled":{"solo":true,"online":true},"dependencies":[{"id":"no-such-module","version":"^1.0"}]}

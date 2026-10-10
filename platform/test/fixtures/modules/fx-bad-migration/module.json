@@ -1,0 +1,1 @@
+{"id":"fx-bad-migration","name":"Fixture: SQL migration fails","version":"1.0.0","kind":"data","platform":"^1.0","defaultEnabled":{"solo":true,"online":true},"migrations":"sql"}

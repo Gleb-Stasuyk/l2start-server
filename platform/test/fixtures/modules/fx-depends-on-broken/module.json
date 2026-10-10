@@ -1,0 +1,1 @@
+{"id":"fx-depends-on-broken","name":"Fixture: depends on a broken module","version":"1.0.0","kind":"data","platform":"^1.0","defaultEnabled":{"solo":true,"online":true},"dependencies":[{"id":"fx-broken-enable","version":"^1.0"}]}
