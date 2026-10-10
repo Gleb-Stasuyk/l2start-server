@@ -182,6 +182,7 @@ public class HtmCache
 			}
 		}
 		
+		if ((content == null) && path.startsWith("data/html/modules/")) content = org.l2start.platform.hooks.CoreHooks.moduleHtml(prefix, path); // [HOOK:P1-HTML]
 		// In case localisation does not exist try the default path.
 		if ((content == null) && !prefix.contentEquals(""))
 		{

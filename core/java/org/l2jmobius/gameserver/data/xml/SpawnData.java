@@ -109,6 +109,7 @@ public class SpawnData implements IXmlReader
 			LOGGER.info(getClass().getSimpleName() + ": Initializing spawns...");
 			parseDatapackDirectory("data/spawns", true);
 			checkMissingFiles(new File(".", "data/spawns"));
+			for (File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("spawns", null)) parseDirectory(dir, true); // [HOOK:P1-DATA-SPAWN]
 			for (SpawnGroup group : SpawnGroupTable.getInstance().getGroups())
 			{
 				_spawnCount += group.initialSpawn();

@@ -1,0 +1,1 @@
+{"id":"fx-npc-collision","name":"Fixture: NPC id collides with stock","version":"1.0.0","kind":"data","platform":"^1.0","defaultEnabled":{"solo":true,"online":true},"data":{"npcs":"data/npcs"},"reserves":{"npcs":[[30115,30115]]}}

@@ -1,4 +1,6 @@
 # modules/
 
-Фаза 1+: каждый модуль — папка `modules/<id>/` с `module.json`, `src/` или `scripts/`, `config/`, `data/`,
-`sql/V001__*.sql`, `i18n/`. См. `docs/ARCHITECTURE.md`, раздел 7. В фазе 0 пусто.
+Модули сервера: одна папка `modules/<id>/` на модуль (см. `docs/MODULES.md`, минимальный пример там же).
+Сейчас модулей нет: сервер работает как сток Mobius + платформа (`Platform: ... 0 discovered`).
+Тестовые модули для проверки платформы лежат отдельно в `platform/test/fixtures/modules/` и попадают
+только в smoke-образ (`docker build --target smoke`), никогда в настоящий сервер.

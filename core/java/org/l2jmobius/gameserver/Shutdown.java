@@ -343,6 +343,7 @@ public class Shutdown extends Thread
 		}
 		
 		_countdownFinished = true;
+		org.l2start.platform.hooks.CoreHooks.shutdown(); // [HOOK:P1-SHUTDOWN]
 		
 		final TimeCounter tc = new TimeCounter();
 		final TimeCounter tc1 = new TimeCounter();

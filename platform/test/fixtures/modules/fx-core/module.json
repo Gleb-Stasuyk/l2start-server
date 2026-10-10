@@ -1,0 +1,18 @@
+{
+  "id": "fx-core",
+  "name": "Fixture: every platform mechanism (smoke tests only)",
+  "description": "NPC/spawn/multisell/html data, SQL migration, events, voiced/admin/bypass commands, scheduler, config layers + reload, i18n, services, shutdown.",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.0",
+  "entrypoint": "org.l2start.fixtures.core.FxCore",
+  "defaultEnabled": { "solo": true, "online": true },
+  "data": { "npcs": "data/npcs", "spawns": "data/spawns", "multisell": "data/multisell", "html": "data/html" },
+  "reserves": { "npcs": [[95000, 95009]], "multisell": [[95000, 95009]] },
+  "migrations": "sql",
+  "config": {
+    "Label": { "type": "string", "default": "json-default" },
+    "Limit": { "type": "int", "default": 1, "min": 0, "max": 100, "reloadable": true },
+    "TickPeriod": { "type": "duration", "default": "1s", "min": "100ms" }
+  }
+}

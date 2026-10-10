@@ -207,6 +207,7 @@ public class GameServer
 		printSection("Scripting Engine");
 		EventDispatcher.getInstance();
 		ScriptEngine.getInstance();
+		org.l2start.platform.hooks.CoreHooks.bootstrap(); // [HOOK:P1-BOOT]
 		
 		printSection("World");
 		InstanceManager.getInstance();
@@ -336,6 +337,7 @@ public class GameServer
 			LOGGER.log(Level.WARNING, "Failed to execute script list!", e);
 		}
 		
+		org.l2start.platform.hooks.CoreHooks.enableModules(); // [HOOK:P1-ENABLE]
 		SpawnData.getInstance();
 		DayNightSpawnManager.getInstance().trim().notifyChangeMode();
 		DimensionalRiftManager.getInstance();
@@ -440,6 +442,7 @@ public class GameServer
 		LOGGER.info(StringUtil.concat(getClass().getSimpleName(), ": Maximum number of connected players is ", ServerConfig.MAXIMUM_ONLINE_USERS, "."));
 		LOGGER.info(StringUtil.concat(getClass().getSimpleName(), ": Server loaded in ", ((System.currentTimeMillis() - START_TIME) / 1000), " seconds."));
 		
+		org.l2start.platform.hooks.CoreHooks.serverReady(); // [HOOK:P1-READY]
 		new ConnectionManager<>(new InetSocketAddress(ServerConfig.PORT_GAME), GameClient::new, new GamePacketHandler());
 		
 		LoginServerThread.getInstance().start();

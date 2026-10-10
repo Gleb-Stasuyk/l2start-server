@@ -1,0 +1,1 @@
+{"id":"fx-ok-dep","name":"Fixture: healthy, depends on fx-core","version":"1.0.0","kind":"jar","platform":"^1.0","defaultEnabled":{"solo":true,"online":true},"entrypoint":"org.l2start.fixtures.okdep.OkDep","dependencies":[{"id":"fx-core","version":"^1.0"}],"data":{"buylists":"data/buylists"},"reserves":{"buylists":[[95010,95019]]}}

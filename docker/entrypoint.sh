@@ -64,6 +64,7 @@ apply_overrides() {
   [ -d "$dir" ] || return 0
   for of in "$dir"/*.ini; do
     [ -f "$of" ] || continue
+    case "$(basename "$of")" in platform.local.ini|modules.local.ini) continue ;; esac  # see apply_platform_overrides
     target="$L2/$1/config/$(basename "$of")"
     [ -f "$target" ] || { log "override $(basename "$of"): no such stock file, skipped"; continue; }
     tr -d '\r' < "$of" | grep -E '^[[:space:]]*[A-Za-z0-9_.]+[[:space:]]*=' | while IFS= read -r line; do
@@ -73,6 +74,27 @@ apply_overrides() {
       log "override $1/$(basename "$of"): $key = $val"
     done
   done
+}
+
+# Platform files are COPIED, not merged: $OVERRIDES/game/config/{platform.local.ini,modules.local.ini}
+# and $OVERRIDES/game/config/modules/<id>.ini (module settings, see docs/MODULES.md).
+apply_platform_overrides() {
+  src="$OVERRIDES/game/config"
+  dst="$L2/game/config"
+  for f in platform.local.ini modules.local.ini; do
+    if [ -f "$src/$f" ]; then
+      tr -d '\r' < "$src/$f" > "$dst/$f"
+      log "platform override: config/$f"
+    fi
+  done
+  if [ -d "$src/modules" ]; then
+    mkdir -p "$dst/modules"
+    for f in "$src/modules"/*.ini; do
+      [ -f "$f" ] || continue
+      tr -d '\r' < "$f" > "$dst/modules/$(basename "$f")"
+      log "platform override: config/modules/$(basename "$f")"
+    done
+  fi
 }
 
 patch_common() { # $1 = login|game
@@ -113,6 +135,8 @@ case "$ROLE" in
     set_ini "$S" LoginHost "$LOGIN_HOST"
     set_ini "$S" GameserverHostname 0.0.0.0
     apply_overrides game
+    apply_platform_overrides
+    log "platform profile: ${L2_PROFILE:-solo}"
     # The login server hands this address to the client. Docker Desktop NATs the client
     # (it appears from a 172.x / 192.168.65.x address), so everything maps to PUBLIC_HOST.
     cat > "$L2/game/config/ipconfig.xml" <<XML
