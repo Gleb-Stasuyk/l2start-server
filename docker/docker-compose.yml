@@ -1,0 +1,116 @@
+# l2start-server in Docker (stock L2J Mobius CT_0 Interlude, phase 0).
+# Project "l2s": containers l2s-*, volumes l2s-*, network l2s-net -> no clash with l2-*, lw-*, site-*.
+# Ports 2106 (login) and 7777 (game) are the same as the old servers -> run one server at a time.
+#
+#   start.bat solo            (or: docker compose --env-file profiles/solo.env up -d)
+#   stop.bat
+name: l2s
+
+x-server: &server
+  image: l2start-server:dev
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  restart: "${L2S_RESTART:-no}"
+  environment: &server-env
+    DB_HOST: db
+    DB_NAME: "${L2S_DB_NAME:-l2start}"
+    DB_USER: root
+    DB_PASSWORD: "${L2S_DB_PASSWORD:?set L2S_DB_PASSWORD in the profile or docker/.env}"
+  volumes: &server-volumes
+    - "./overrides/${L2S_PROFILE:-solo}:/opt/l2/overrides:ro"
+  networks: [l2s-net]
+
+services:
+  db:
+    image: mariadb:11.4
+    container_name: l2s-db
+    restart: "${L2S_RESTART:-no}"
+    environment:
+      MARIADB_ROOT_PASSWORD: "${L2S_DB_PASSWORD:?set L2S_DB_PASSWORD}"
+      MARIADB_DATABASE: "${L2S_DB_NAME:-l2start}"
+      MARIADB_AUTO_UPGRADE: "1"
+    command: ["--character-set-server=utf8mb3", "--collation-server=utf8mb3_unicode_ci", "--skip-name-resolve"]
+    volumes:
+      - l2s-db-data:/var/lib/mysql
+    # No host port by default (avoids clashes with other MariaDB/MySQL). For HeidiSQL add: ports: ["127.0.0.1:3307:3306"]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [l2s-net]
+
+  db-init:
+    <<: *server
+    container_name: l2s-db-init
+    restart: "no"
+    command: ["db-init"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  login:
+    <<: *server
+    container_name: l2s-login
+    command: ["login"]
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *server-env
+      LOGIN_XMS: "${L2S_LOGIN_XMS:-128m}"
+      LOGIN_XMX: "${L2S_LOGIN_XMX:-256m}"
+    ports:
+      - "${L2S_BIND:-127.0.0.1}:2106:2106"
+    volumes:
+      - "./overrides/${L2S_PROFILE:-solo}:/opt/l2/overrides:ro"
+      - l2s-login-logs:/opt/l2/login/log
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2106 && nc -z 127.0.0.1 9014"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    stop_grace_period: 20s
+
+  game:
+    <<: *server
+    container_name: l2s-game
+    command: ["game"]
+    depends_on:
+      login:
+        condition: service_healthy
+    environment:
+      <<: *server-env
+      LOGIN_HOST: login
+      PUBLIC_HOST: "${L2S_PUBLIC_HOST:-127.0.0.1}"
+      GAME_XMS: "${L2S_GAME_XMS:-512m}"
+      GAME_XMX: "${L2S_GAME_XMX:-2g}"
+    ports:
+      - "${L2S_BIND:-127.0.0.1}:7777:7777"
+    volumes:
+      - "./overrides/${L2S_PROFILE:-solo}:/opt/l2/overrides:ro"
+      - l2s-game-logs:/opt/l2/game/log
+      # Geodata lives outside git. Point L2S_GEODATA_DIR to a folder with *.l2j files (empty = no geodata).
+      - "${L2S_GEODATA_DIR:-./geodata.empty}:/opt/l2/game/data/geodata:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7777"]
+      interval: 10s
+      timeout: 3s
+      retries: 60
+      start_period: 600s
+    stop_grace_period: 120s
+
+volumes:
+  l2s-db-data:
+    name: l2s-db-data
+  l2s-login-logs:
+    name: l2s-login-logs
+  l2s-game-logs:
+    name: l2s-game-logs
+
+networks:
+  l2s-net:
+    name: l2s-net

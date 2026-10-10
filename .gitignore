@@ -1,0 +1,24 @@
+# Ant output (core/build.xml writes to ../build)
+/build/
+**/bin/
+*.class
+
+# Local secrets / runtime
+/docker/.env
+/docker/data/
+*.log
+core/dist/game/log/
+core/dist/login/log/
+core/dist/backup/*.sql
+core/dist/backup/*.zip
+
+# Geodata is NOT kept in git (mounted from a folder outside the repo, see docker/README_DOCKER.md)
+core/dist/game/data/geodata/*.l2j
+core/dist/game/data/geodata/*.dat
+docker/geodata.empty/*
+!docker/geodata.empty/README.md
+
+# IDE
+.idea/
+*.iml
+.vscode/

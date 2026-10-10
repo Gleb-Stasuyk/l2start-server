@@ -1,0 +1,13 @@
+.git
+.github
+build
+**/bin
+docs
+platform
+modules
+docker/.env
+docker/data
+docker/geodata.empty
+core/dist/game/log
+core/dist/login/log
+core/dist/game/data/geodata/*.l2j
