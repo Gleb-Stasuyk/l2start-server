@@ -1,0 +1,2 @@
+# Never convert line endings: core/ must stay byte-identical to upstream Mobius.
+* -text
