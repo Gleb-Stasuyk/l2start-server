@@ -40,7 +40,7 @@ class ManifestReaderTest {
             {
               "id": "bots-core", "name": "Bots", "description": "d", "version": "1.2.0", "kind": "jar", "platform": "^1.0",
               "entrypoint": "org.l2start.modules.bots.BotsModule", "authors": ["a", "b"],
-              "dependencies": [ {"id": "hello", "version": "^1.0"}, {"id": "market", "version": "~2.1", "optional": true} ],
+              "dependencies": [ {"id": "alpha", "version": "^1.0"}, {"id": "market", "version": "~2.1", "optional": true} ],
               "conflicts": [ {"id": "old-bots", "version": "*"} ],
               "defaultEnabled": {"solo": true, "online": false},
               "data": {"npcs": "data/npcs", "html": "data/html"},
@@ -157,9 +157,24 @@ class ManifestReaderTest {
     }
 
     @Test
-    void realHelloManifestIsValid() throws Exception {
-        final ModuleManifest m = ManifestReader.read(Path.of("modules/hello"));
-        assertEquals("hello", m.id());
-        assertTrue(m.warnings().isEmpty(), m.warnings().toString());
+    void fixtureManifestsAreValidExceptTheInvalidOne() throws Exception {
+        final Path fixtures = Path.of("platform/test/fixtures/modules");
+        int valid = 0;
+        try (java.util.stream.Stream<Path> dirs = java.nio.file.Files.list(fixtures)) {
+            for (Path dir : (Iterable<Path>) dirs.sorted()::iterator) {
+                if (dir.getFileName().toString().equals("fx-invalid")) {
+                    assertThrows(ManifestException.class, () -> ManifestReader.read(dir));
+                    continue;
+                }
+                final ModuleManifest m = ManifestReader.read(dir);
+                assertEquals(dir.getFileName().toString(), m.id());
+                assertTrue(m.warnings().isEmpty(), m.id() + ": " + m.warnings());
+                valid++;
+            }
+        }
+        assertEquals(8, valid);
+        final ModuleManifest core = ManifestReader.read(fixtures.resolve("fx-core"));
+        assertEquals(4, core.data().size());
+        assertEquals(3, core.config().size());
     }
 }

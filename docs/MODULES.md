@@ -5,7 +5,8 @@
 Сломанный модуль никогда не роняет сервер молча: его состояние и причина видны в логе и в `//modules`.
 
 API для кода модулей: `docs/PLATFORM_API.md`. Диапазоны id: `docs/ID_RANGES.md`. Хуки в `core/`: `docs/PLATFORM_HOOKS.md`.
-Пример со всеми механизмами: `modules/hello/` (`MODULE.md` внутри).
+С сервером не поставляется ни одного модуля: минимальный пример ниже, раздел «Минимальный модуль».
+Все механизмы платформы проверяются тестовым модулем `platform/test/fixtures/modules/fx-core` (только в smoke-тестах).
 
 ## Виды модулей
 
@@ -34,20 +35,20 @@ modules/<id>/
 
 ```json
 {
-  "id": "hello",                      // ^[a-z][a-z0-9-]{1,31}$, совпадает с именем папки
-  "name": "Hello (platform demo)",
+  "id": "greeter",                    // ^[a-z][a-z0-9-]{1,31}$, совпадает с именем папки
+  "name": "Greeter",
   "version": "1.0.0",                 // semver
   "kind": "jar",
   "platform": "^1.0",                 // версия API платформы (сейчас 1.0.0)
-  "entrypoint": "org.l2start.modules.hello.HelloModule",
+  "entrypoint": "org.l2start.modules.greeter.GreeterModule",
   "dependencies": [ {"id": "other", "version": "^1.2", "optional": false} ],
-  "conflicts":    [ {"id": "old-hello", "version": "*"} ],
+  "conflicts":    [ {"id": "old-greeter", "version": "*"} ],
   "defaultEnabled": { "solo": true, "online": false },
   "data": { "npcs": "data/npcs", "spawns": "data/spawns", "multisell": "data/multisell", "buylists": "data/buylists", "html": "data/html" },
-  "reserves": { "npcs": [[95000, 95009]], "multisell": [[95000, 95009]] },
+  "reserves": { "npcs": [[95100, 95199]], "multisell": [[95100, 95199]] },
   "migrations": "sql",
   "config": {
-    "MaxHelloPerDay": { "type": "int", "default": 5, "min": 0, "max": 1000, "reloadable": true, "description": "..." }
+    "Message": { "type": "string", "default": "Welcome!", "reloadable": true, "description": "..." }
   }
 }
 ```
@@ -127,7 +128,7 @@ modules/<id>/
 Сводка в логе:
 ```
 Platform: profile=solo, 1 discovered: 1 running, 0 failed, 0 refused, 0 invalid, 0 disabled (bootstrap 120 ms)
-Platform:   hello 1.0.0 RUNNING
+Platform:   greeter 1.0.0 RUNNING
 ```
 
 ## SQL-миграции
@@ -136,7 +137,7 @@ Platform:   hello 1.0.0 RUNNING
 - Изменять уже накатанный файл нельзя: контрольная сумма не совпадёт и модуль получит FAILED. Нужна новая миграция.
 - Упавшая миграция записывается (`success = 0`), модуль FAILED. После исправления удали эту строку из `platform_module_migrations` (и частично созданные таблицы).
 - Даунгрейд модуля (версия ниже записанной в `platform_modules`) запрещён: REFUSED.
-- Таблицы модуля называй `mod_<id>_...` (`ctx.db().table("counter")` вернёт `mod_hello_counter`).
+- Таблицы модуля называй `mod_<id>_...` (`ctx.db().table("counter")` у модуля `greeter` вернёт `mod_greeter_counter`).
 
 ## Админ-команды
 
@@ -150,11 +151,62 @@ Platform:   hello 1.0.0 RUNNING
 
 Доступ: команды не прописаны в `AdminCommands.xml`, поэтому Mobius даёт их высшему уровню доступа (GM).
 
+## Минимальный модуль
+
+Модуль, который приветствует игрока при входе (текст берётся из настроек и меняется через `//module reload greeter`).
+
+```
+modules/greeter/
+  module.json
+  src/org/l2start/modules/greeter/GreeterModule.java
+```
+
+`module.json`:
+```json
+{
+  "id": "greeter",
+  "name": "Greeter",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.0",
+  "entrypoint": "org.l2start.modules.greeter.GreeterModule",
+  "defaultEnabled": { "solo": true, "online": false },
+  "config": {
+    "Message": { "type": "string", "default": "Welcome!", "reloadable": true }
+  }
+}
+```
+
+`GreeterModule.java`:
+```java
+package org.l2start.modules.greeter;
+
+import org.l2jmobius.gameserver.mechanics.events.EventType;
+import org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLogin;
+import org.l2start.platform.api.GameModule;
+import org.l2start.platform.api.ModuleContext;
+
+public final class GreeterModule implements GameModule {
+    @Override
+    public void onEnable(ModuleContext ctx) {
+        // registered through ctx -> removed automatically on errors, //module disable and shutdown
+        ctx.events().<OnPlayerLogin> onPlayers(EventType.ON_PLAYER_LOGIN,
+            e -> e.getPlayer().sendMessage(ctx.config().getString("Message")));
+        ctx.log().info("enabled, message: " + ctx.config().getString("Message"));
+    }
+}
+```
+
+`ant dist` соберёт `build/dist/game/modules/greeter/`, Docker-образ возьмёт его оттуда. Переопределить текст:
+`docker/overrides/solo/game/config/modules/greeter.ini` со строкой `Message = Привет!` или `L2_MOD_GREETER__MESSAGE=...`.
+Данные (NPC, спавны, мультиселлы, байлисты, HTML), SQL, i18n, команды, задачи и сервисы подключаются так же;
+рабочий пример каждого механизма: `platform/test/fixtures/modules/fx-core` (+ `fx-ok-dep` для зависимостей и сервисов).
+
 ## Сборка и тесты
 
 ```
 ant dist       # GameServer.jar/LoginServer.jar (core + платформа), модули → build/dist/game/modules
 ant test       # JUnit 5: платформа + test/ каждого модуля
-ant fixtures   # тестовые модули для smoke-теста → build/fixtures
+ant fixtures   # тестовые модули для smoke-теста → build/fixtures (в настоящий сервер не попадают)
 bash tools/smoke.sh --build   # Docker smoke-тест (см. комментарий в начале скрипта)
 ```

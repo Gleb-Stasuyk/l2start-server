@@ -660,7 +660,7 @@ gitGraph
 | Фаза | Результат | Объём |
 |---|---|---|
 | **0. Репозиторий, Docker, CI** | Репо с вендор-веткой (`55787efe66`, затем `aef47e5c4c`), сборка Ant в CI, Docker (`solo`/`online`, 2106/7777), README. Сервер стартует стоковым. | **S** |
-| **1. Platform hooks + загрузчик модулей** | Хуки H1–H5, H22, H23; ModuleManager (manifest, semver, топосорт, миграции, профили, ownership, circuit breaker); `ModuleContext`; `//modules`; hello-модуль; тест «всё выключено = сток»; `PLATFORM_HOOKS.md` | **M** |
+| **1. Platform hooks + загрузчик модулей** | Хуки H1–H5, H22, H23; ModuleManager (manifest, semver, топосорт, миграции, профили, ownership, circuit breaker); `ModuleContext`; `//modules`; демо-модуль (в итоге убран: механизмы проверяются тестовыми модулями smoke-теста); тест «всё выключено = сток»; `PLATFORM_HOOKS.md` | **M** |
 | **2. Простые кастомы как модули и профили** | Профили конфигов (чемпионы, автолут, x10 адена, вес, профы, катакомбы, rebirth); модули `content-buffer`, `content-gmshop`, стартовая экипировка, `qol-autolearn` (H19), `qol-sevensigns-solo` (H20), `balance-bufflimits` (H18), `admin-rates`; core fixes стражи. Рабочая замена текущего VPS без ботов. | **M** |
 | **3. Ядро ботов** | `bots-core`: персоны, бот-аккаунты, таблицы, embodiment OFFLINE/SIMULATED/PRESENT/ACTIVE, шардированный тикер с бюджетом, Population Manager, mailbox, Actuators/WorldView, хуки H6, H10–H11, H14–H17, H21; `//bots`; метрики; headless-стенд | **L** |
 | **4. Поведение I: жизнь и охота** | Utility-цели, BT-занятия (охота по спотам с резервом, restock, AFK, logout); боевые FSM ролей (перенос из `virtualplayer`, playstyles и skill fallback LW); расписания; SIMULATED-прогресс | **L** |

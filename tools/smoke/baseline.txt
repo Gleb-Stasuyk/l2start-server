@@ -1,6 +1,6 @@
 # Stock L2J Mobius CT_0 startup counts (phase 0 run, fresh database). Generated from the game log:
 #   strip '[date time] ', keep lines with 'loaded' (any case) or the SpawnData totals, drop 'Server loaded in'.
-# tools/smoke.sh: DisableAll=true must reproduce this exactly; with hello + fx-ok-dep the expected deltas are
+# tools/smoke.sh: DisableAll=true must reproduce this exactly; with fixtures fx-core + fx-ok-dep the expected deltas are
 # buylists +1, multisell +1, spawn files +1, spawns +1 (module NPCs are loaded after the NpcData count lines).
 Loaded 6 Filter Words.
 Loaded 383 files to exclude.

@@ -84,24 +84,24 @@ class ConfigTest {
 
     @Test
     void switchesPrecedence() {
-        final IniFile main = IniFile.parse("hello = on\nbots-core = off\n[online]\nhello = off\n");
+        final IniFile main = IniFile.parse("alpha = on\nbots-core = off\n[online]\nalpha = off\n");
         final IniFile local = IniFile.parse("[online]\nbots-core = on\n");
         ModuleSwitches s = new ModuleSwitches("solo", main, local, Map.of());
-        assertTrue(s.resolve("hello", false).enabled());
-        assertEquals("modules.ini", s.resolve("hello", false).source());
+        assertTrue(s.resolve("alpha", false).enabled());
+        assertEquals("modules.ini", s.resolve("alpha", false).source());
         assertFalse(s.resolve("bots-core", true).enabled());
         assertTrue(s.resolve("other", true).enabled());
         assertTrue(s.resolve("other", true).source().startsWith("defaultEnabled"));
         assertFalse(s.isExplicit("other"));
 
-        s = new ModuleSwitches("online", main, local, Map.of("L2_MODULE_HELLO", "on"));
-        assertTrue(s.resolve("hello", false).enabled());
-        assertEquals("env L2_MODULE_HELLO", s.resolve("hello", false).source());
+        s = new ModuleSwitches("online", main, local, Map.of("L2_MODULE_ALPHA", "on"));
+        assertTrue(s.resolve("alpha", false).enabled());
+        assertEquals("env L2_MODULE_ALPHA", s.resolve("alpha", false).source());
         assertTrue(s.resolve("bots-core", false).enabled());
         assertEquals("modules.local.ini [online]", s.resolve("bots-core", false).source());
         s = new ModuleSwitches("online", main, local, Map.of());
-        assertFalse(s.resolve("hello", true).enabled());
-        assertEquals("modules.ini [online]", s.resolve("hello", true).source());
+        assertFalse(s.resolve("alpha", true).enabled());
+        assertEquals("modules.ini [online]", s.resolve("alpha", true).source());
     }
 
     @Test
@@ -143,8 +143,10 @@ class ConfigTest {
         assertEquals(FailurePolicy.ABORT, PlatformSettings.load(dir, Map.of("L2_PROFILE", "online")).failurePolicy());
         assertEquals(FailurePolicy.CONTINUE, PlatformSettings.load(dir, Map.of("L2_PROFILE", "solo")).failurePolicy());
         assertFalse(PlatformSettings.load(dir, Map.of()).disableAll());
+        // No module ships with the server: modules.ini switches nothing, defaults from module.json apply.
         final ModuleSwitches s = ModuleSwitches.load(dir, "online", Map.of());
-        assertFalse(s.resolve("hello", true).enabled());
-        assertTrue(ModuleSwitches.load(dir, "solo", Map.of()).resolve("hello", false).enabled());
+        assertFalse(s.isExplicit("anything"));
+        assertTrue(s.resolve("anything", true).enabled());
+        assertFalse(ModuleSwitches.load(dir, "solo", Map.of()).resolve("anything", false).enabled());
     }
 }

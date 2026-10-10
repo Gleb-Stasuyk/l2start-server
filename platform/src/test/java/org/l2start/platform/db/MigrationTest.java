@@ -104,9 +104,9 @@ class MigrationTest {
     }
 
     @Test
-    void helloMigrationIsSplittable() throws Exception {
+    void fixtureMigrationIsSplittable() throws Exception {
         final List<String> errors = new ArrayList<>();
-        final List<Migration> m = MigrationScanner.scan(Path.of("modules/hello/sql"), errors);
+        final List<Migration> m = MigrationScanner.scan(Path.of("platform/test/fixtures/modules/fx-core/sql"), errors);
         assertTrue(errors.isEmpty());
         assertEquals(1, m.size());
         assertEquals(1, SqlSplitter.split(m.get(0).sql()).size());

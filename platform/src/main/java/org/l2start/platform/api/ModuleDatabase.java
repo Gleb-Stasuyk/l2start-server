@@ -10,7 +10,7 @@ import java.util.Optional;
 public interface ModuleDatabase {
     Connection connection() throws SQLException;
 
-    /** table("counter") for module "hello" = "mod_hello_counter". */
+    /** table("counter") for module "bots-core" = "mod_bots_core_counter". */
     String table(String name);
 
     int update(String sql, Object... params) throws SQLException;

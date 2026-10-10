@@ -17,6 +17,9 @@ services:
       L2_PROFILE: "${SMOKE_PROFILE:-solo}"
       L2_PLATFORM__DISABLEALL: "${SMOKE_DISABLE_ALL:-false}"
       L2_PLATFORM__BREAKERERRORS: "5"
+      # env layer of module config: must win over module.json and defaults.ini
+      L2_MOD_FX_CORE__LIMIT: "7"
+      L2_MODULE_FX_CORE: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_OK_DEP: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_MISSING_DEP: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_BROKEN_ENABLE: "${SMOKE_FIXTURES:-on}"

@@ -97,6 +97,9 @@
 	</target>
 
 	<target name="modules" depends="compile" description="Build every modules/ID into build/dist/game/modules/ID.">
+		<!-- the folders exist even with no module at all (Docker copies them, tests scan them) -->
+		<mkdir dir="${dist.modules}" />
+		<mkdir dir="${build}/module-classes" />
 		<subant genericantfile="modules/module-build.xml" inheritall="false" failonerror="true">
 			<property name="classes" value="${classes}" />
 			<property name="libs" value="${libs}" />
@@ -107,15 +110,24 @@
 		</subant>
 	</target>
 
-	<target name="fixtures" depends="compile" description="Build smoke-test modules into build/fixtures.">
+	<target name="fixtures" depends="modules" description="Build smoke-test modules into build/fixtures.">
+		<!-- fx-core first: fx-ok-dep compiles against its jar -->
 		<subant genericantfile="modules/module-build.xml" inheritall="false" failonerror="true">
 			<property name="classes" value="${classes}" />
 			<property name="libs" value="${libs}" />
 			<property name="java.release" value="${java.release}" />
 			<property name="out.root" value="${build}/fixtures" />
 			<property name="module.classes.root" value="${build}/fixture-classes" />
-			<property name="extra.classpath" value="${dist.modules}/hello/hello.jar" />
-			<dirset dir="platform/test/fixtures/modules" includes="*" />
+			<dirset dir="platform/test/fixtures/modules" includes="fx-core" />
+		</subant>
+		<subant genericantfile="modules/module-build.xml" inheritall="false" failonerror="true">
+			<property name="classes" value="${classes}" />
+			<property name="libs" value="${libs}" />
+			<property name="java.release" value="${java.release}" />
+			<property name="out.root" value="${build}/fixtures" />
+			<property name="module.classes.root" value="${build}/fixture-classes" />
+			<property name="extra.classpath" value="${build}/fixtures/fx-core/fx-core.jar" />
+			<dirset dir="platform/test/fixtures/modules" includes="*" excludes="fx-core" />
 		</subant>
 	</target>
 

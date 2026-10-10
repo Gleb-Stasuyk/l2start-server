@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../data/xsd/npcs.xsd">
-	<npc id="95000" displayId="30115" type="Folk" name="Hello Guide" usingServerSideName="true" title="l2start platform" usingServerSideTitle="true">
+	<npc id="95000" displayId="30115" type="Folk" name="Fixture NPC" usingServerSideName="true" title="fx-core" usingServerSideTitle="true">
 		<race>HUMAN</race>
 		<sex>MALE</sex>
 		<stats str="40" int="21" dex="30" wit="20" con="43" men="20">
