@@ -9,7 +9,7 @@ import java.util.logging.Logger;
 import org.l2start.platform.Platform;
 
 /**
- * The only entry points used by core/ (lines marked [HOOK:P1-*] and [HOOK:P2-*], see docs/PLATFORM_HOOKS.md).
+ * The only entry points used by core/ (lines marked [HOOK:P1-*], [HOOK:P2-*] and [HOOK:P3-*], see docs/PLATFORM_HOOKS.md).
  * Every method is safe: an unexpected platform error is logged and the stock server continues.
  */
 public final class CoreHooks {
@@ -75,6 +75,19 @@ public final class CoreHooks {
         } catch (Throwable t) {
             LOGGER.log(Level.WARNING, "Platform: module html " + path + " failed", t);
             return null;
+        }
+    }
+
+    /**
+     * [HOOK:P3-BOT-CHARINFO] [HOOK:P3-BOT-WHISPER] Is this player a bot (a stock Player without a client,
+     * managed by the module that provides the bot presence)? Always false without such a module.
+     */
+    public static boolean isBot(org.l2jmobius.gameserver.entity.actor.Player player) {
+        try {
+            return BotHooks.isBot(player);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot presence failed", t);
+            return false;
         }
     }
 }

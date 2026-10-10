@@ -19,6 +19,11 @@ services:
       L2_PLATFORM__BREAKERERRORS: "5"
       # env layer of module config: must win over module.json and defaults.ini
       L2_MOD_FX_CORE__LIMIT: "7"
+      # bots-core (scenario 7): the smoke image has no geodata
+      L2_MOD_BOTS_CORE__REQUIREGEODATA: "${SMOKE_BOTS_GEO:-true}"
+      L2_MOD_BOTS_CORE__AUTOCREATE: "${SMOKE_BOTS_CREATE:-0}"
+      L2_MOD_BOTS_CORE__AUTOSPAWN: "${SMOKE_BOTS_SPAWN:-0}"
+      L2_MOD_BOTS_CORE__SEED: "${SMOKE_BOTS_SEED:-0}"
       L2_MODULE_FX_CORE: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_OK_DEP: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_MISSING_DEP: "${SMOKE_FIXTURES:-on}"

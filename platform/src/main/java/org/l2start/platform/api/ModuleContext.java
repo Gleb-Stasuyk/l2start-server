@@ -23,4 +23,18 @@ public interface ModuleContext {
     ServiceRegistry services();
 
     ModuleMetrics metrics();
+
+    /**
+     * Since API 1.2. Declares which players are bots (see {@link BotPresence}); one provider per server.
+     * Removed automatically when the module is disabled, degraded or stopped.
+     * @throws IllegalStateException when another module already provides it
+     */
+    void botPresence(BotPresence presence);
+
+    /**
+     * Since API 1.2. An action run when the module is disabled, degraded, rolled back or stopped
+     * (after onShutdown), newest first, like every other registration. For state the module put into
+     * the world itself (e.g. bots logged in by the module).
+     */
+    void cleanup(String name, Runnable action);
 }

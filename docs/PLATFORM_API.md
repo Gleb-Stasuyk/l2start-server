@@ -1,4 +1,4 @@
-# API платформы для модулей (версия 1.1.0)
+# API платформы для модулей (версия 1.2.0)
 
 Пакет `org.l2start.platform.api`. Модуль kind `jar` реализует `GameModule`; всё остальное приходит через `ModuleContext`.
 Правило: **регистрируй всё только через контекст** — тогда платформа знает, что принадлежит модулю, и снимает это
@@ -26,12 +26,16 @@ public interface GameModule {
 | `resources()` | `path("data/...")`, `html("95000.htm")` → путь для `NpcHtmlMessage.setFile` (`data/html/modules/<id>/95000.htm`) |
 | `i18n()` | `get(player, key, args...)`, `get(lang, key, args...)`, `lang(player)`; файлы `i18n/messages_<lang>.properties`, формат `MessageFormat` |
 | `services()` | `provide(Type.class, impl)`, `find/require(Type.class)`; видны только модулям, которые объявили зависимость |
+| `botPresence(BotPresence)` | сообщить ядру, какие `Player` — боты (`player -> boolean`): хуки `P3-BOT-CHARINFO`/`P3-BOT-WHISPER` ведут себя с ботом как с игроком. Только один модуль; снимается при выключении |
+| `cleanup(name, Runnable)` | действие при выключении модуля (disable, circuit breaker, остановка сервера), в обратном порядке регистраций — например вывести ботов из мира |
 | `metrics()` | `counter(name).inc()/add()/get()`, `snapshot()`; видны в `//module info` |
 
 Классы модуля грузит отдельный class loader: сначала ядро и платформа, потом свой jar, потом jar'ы объявленных зависимостей.
 Другие модули невидимы.
 
-История: **1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);
+История: **1.2.0** (фаза 3) — `botPresence` и `cleanup` (модуль `bots-core`, хуки `P3-BOT-CHARINFO`, `P3-BOT-WHISPER`);
+модули с `^1.0`/`^1.1` работают как раньше.
+**1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);
 Java-API не менялся, модули с `^1.0` работают как раньше.
 
 Совместимость: модуль указывает `"platform": "^1.0"`. Изменения API, ломающие модули, поднимают major-версию платформы.

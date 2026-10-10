@@ -106,6 +106,19 @@ public final class ModuleRuntime implements ModuleContext {
     @Override public ServiceRegistry services() { return serviceRegistry; }
     @Override public ModuleMetrics metrics() { return metrics; }
 
+    @Override
+    public void botPresence(org.l2start.platform.api.BotPresence presence) {
+        java.util.Objects.requireNonNull(presence, "presence");
+        org.l2start.platform.hooks.BotHooks.install(entry.id(), presence);
+        ownership.add("botPresence", entry.id(), () -> org.l2start.platform.hooks.BotHooks.uninstall(entry.id()));
+    }
+
+    @Override
+    public void cleanup(String name, Runnable action) {
+        java.util.Objects.requireNonNull(action, "action");
+        ownership.add("cleanup", name, action);
+    }
+
     private String prefix() {
         return "Module[" + entry.id() + "]: ";
     }

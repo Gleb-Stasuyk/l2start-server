@@ -1,0 +1,21 @@
+{
+  "id": "bots-core",
+  "name": "Bots: core",
+  "description": "Bot framework core: bots are stock Player objects without a client on their own banned accounts. Phase 3a: bot accounts and characters, login/logout into the world, bot presence for hooks P3-BOT-*, //bots admin commands.",
+  "version": "0.1.0",
+  "kind": "jar",
+  "platform": "^1.2",
+  "entrypoint": "org.l2start.bots.core.BotsCoreModule",
+  "defaultEnabled": { "solo": true, "online": false },
+  "migrations": "sql",
+  "config": {
+    "RequireGeodata": { "type": "bool", "default": true, "reloadable": true, "description": "Bots enter the world only where geodata is loaded (GeoEngine.hasGeo)." },
+    "MaxBots": { "type": "int", "default": 1000, "min": 0, "max": 5000, "reloadable": true, "description": "Upper limit of bot characters that //bots create may make." },
+    "MaxInWorld": { "type": "int", "default": 300, "min": 0, "max": 2000, "reloadable": true, "description": "Upper limit of bots in the world at the same time." },
+    "AutoCreate": { "type": "int", "default": 0, "min": 0, "max": 5000, "description": "On server start, create bots until at least this many exist (0 = only //bots create)." },
+    "AutoSpawn": { "type": "int", "default": 0, "min": 0, "max": 2000, "description": "On server start, log this many bots into the world (0 = only //bots spawn)." },
+    "DeathReturnMin": { "type": "duration", "default": "5s", "min": "0s", "reloadable": true, "description": "A dead bot waits at least this long before it returns to the nearest town." },
+    "DeathReturnMax": { "type": "duration", "default": "40s", "min": "0s", "reloadable": true, "description": "... and at most this long." },
+    "Seed": { "type": "long", "default": 0, "description": "Random seed for names and classes (0 = random). Fixed seeds are for tests." }
+  }
+}

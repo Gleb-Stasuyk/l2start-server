@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docker smoke test of the module platform and the real modules (phases 1-2). Runs on Linux (CI) and in Git Bash on Windows.
+# Docker smoke test of the module platform and the real modules (phases 1-3). Runs on Linux (CI) and in Git Bash on Windows.
 #
 #   bash tools/smoke.sh [--build]
 #
@@ -8,7 +8,7 @@
 # It REPLACES the running l2s-* containers (same names/ports). Start the normal stack afterwards (start.bat solo).
 #
 # Scenarios:
-# The image always contains the real modules of modules/ (starter-kit, lw-fixes, on in both profiles);
+# The image always contains the real modules of modules/ (starter-kit, lw-fixes: on in both profiles; bots-core: solo only);
 # the smoke image adds 9 test modules (platform/test/fixtures), switched by SMOKE_FIXTURES.
 #   1 stock     DisableAll=true                     -> healthy, startup counts == tools/smoke/baseline.txt, no module data
 #   2 fixtures  profile solo + 9 fixtures           -> healthy, each module in its expected state, counts = baseline + module data,
@@ -17,8 +17,11 @@
 #                                                      breaker degrades fx-flaky, DB tables/migrations written
 #   3 restart   same as 2, game restarted           -> healthy, no migration applied again, shutdown hook ran, module data kept
 #   4 abort     profile online + fixtures            -> game exits with code 1, "FailurePolicy=abort"
-#   5 online    profile online, fixtures off        -> healthy, all 9 fixtures DISABLED, starter-kit + lw-fixes RUNNING, counts == stock
-#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes RUNNING, counts == stock
+#   5 online    profile online, fixtures off        -> healthy, all 9 fixtures + bots-core DISABLED, starter-kit + lw-fixes RUNNING, counts == stock
+#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes + bots-core RUNNING, counts == stock,
+#                                                      bots-core tables created, no bot enters the world without geodata
+#   7 bots      solo, AutoCreate=20 AutoSpawn=10, RequireGeodata=false -> 20 bot characters (banned accounts, online=0,
+#                                                      starting gear), 10 in the world, logged out on shutdown, nothing created twice
 set -uo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -60,8 +63,9 @@ wait_game() { # wait_game healthy|exited TIMEOUT_S
   echo "timeout waiting for game ($want), last state $st"; return 1
 }
 
-start_game() { # start_game PROFILE DISABLE_ALL FIXTURES(on|off)
-  export SMOKE_PROFILE=$1 SMOKE_DISABLE_ALL=$2 SMOKE_FIXTURES=$3
+start_game() { # start_game PROFILE DISABLE_ALL FIXTURES(on|off) [BOTS_CREATE BOTS_SPAWN]
+  export SMOKE_PROFILE=$1 SMOKE_DISABLE_ALL=$2 SMOKE_FIXTURES=$3 SMOKE_BOTS_CREATE=${4:-0} SMOKE_BOTS_SPAWN=${5:-0}
+  if [ "${4:-0}" != 0 ]; then export SMOKE_BOTS_GEO=false SMOKE_BOTS_SEED=12345; else export SMOKE_BOTS_GEO=true SMOKE_BOTS_SEED=0; fi
   "${C[@]}" up -d --no-build --force-recreate --no-deps game >/dev/null 2>&1 || "${C[@]}" up -d --no-build --force-recreate game
 }
 
@@ -102,7 +106,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 11 discovered: 5 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 12 discovered: 6 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -116,6 +120,7 @@ check "fx-ok-dep: sees fx-core classes + service" has "service answer=42" "$L"
 check "fx-ok-dep: its buylist 95010 loaded" has "FIXTURE fx-ok-dep ready, buylist 95010 loaded" "$L"
 check "starter-kit RUNNING" state_is starter-kit RUNNING "$L"
 check "lw-fixes RUNNING" state_is lw-fixes RUNNING "$L"
+check "bots-core RUNNING" state_is bots-core RUNNING "$L"
 check "starter-kit: module starting gear folder read (hook P2-DATA-INITEQUIP)" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$L"
 check "starter-kit: classes 0/10/53 start with Long Sword/Mage Staff/Ubiquitous Axe" has "FIXTURE fx-core initial equipment first items 0=2,10=177,53=4221" "$L"
 check "fx-missing-dep REFUSED" state_is fx-missing-dep REFUSED "$L"
@@ -167,7 +172,8 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures disabled" grep -qE 'Platform: profile=online, 11 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots-core disabled" grep -qE 'Platform: profile=online, 12 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 10 disabled' "$OUT/5-online.log"
+check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
 real_modules() { # real_modules LOG N
   check "$2: starter-kit RUNNING" state_is starter-kit RUNNING "$1"
   check "$2: lw-fixes RUNNING" state_is lw-fixes RUNNING "$1"
@@ -184,9 +190,42 @@ say "-- 6 solo, real modules only"
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/6-solo.log"
-check "summary: 2 running, fixtures disabled" grep -qE 'Platform: profile=solo, 11 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "summary: 3 running, fixtures disabled" grep -qE 'Platform: profile=solo, 12 discovered: 3 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
+check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-core\]: ready: 0 bots known .*geodata in starting villages: NO' "$OUT/6-solo.log"
+check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity "
+check "bots-core: no bot created by default" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity")" = 0
 real_modules "$OUT/6-solo.log" 6
 check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
+
+# ---- 7 bots: create + enter the world without a client (smoke image has no geodata -> RequireGeodata=false)
+say "-- 7 bots (AutoCreate=20, AutoSpawn=10)"
+BOTCHARS="SELECT char_id FROM mod_bots_core_identity"
+wait_log() { # wait_log REGEX TIMEOUT_S
+  local t=0; while [ $t -lt "$2" ]; do gamelog | grep -qE "$1" && return 0; sleep 3; t=$((t + 3)); done; return 1
+}
+start_game solo false off 20 10
+if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
+check "autostart: 20 created, 10 in the world" wait_log 'Module\[bots-core\]: autostart: created 20, in world 10' 180
+sleep 3
+gamelog > "$OUT/7-bots.log"
+check "no bots-core errors" bash -c "! grep -qE 'Module\[bots-core\]: .*(ERROR|cannot)|Platform: module bots-core ' \"\$0\"" "$OUT/7-bots.log"
+check "20 bot identities" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE status='ACTIVE'")" = 20
+check "20 bot characters in characters, one per account" test "$(sql "SELECT COUNT(DISTINCT account_name) FROM characters WHERE charId IN ($BOTCHARS)")" = 20
+check "all bot accounts banned (accessLevel=-1)" test "$(sql "SELECT COUNT(*) FROM accounts a JOIN mod_bots_core_account m ON m.account_name=a.login WHERE a.accessLevel=-1")" = 20
+check "bots hidden: characters.online=0" test "$(sql "SELECT COUNT(*) FROM characters WHERE online<>0 AND charId IN ($BOTCHARS)")" = 0
+check "bots level 1, starting classes" test "$(sql "SELECT COUNT(*) FROM characters WHERE level=1 AND classid IN (0,10,18,25,31,38,44,49,53) AND charId IN ($BOTCHARS)")" = 20
+check "bots have their starting gear (starter-kit)" test "$(sql "SELECT COUNT(DISTINCT owner_id) FROM items WHERE loc='PAPERDOLL' AND owner_id IN ($BOTCHARS)")" = 20
+check "10 bots logged in" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_login IS NOT NULL")" = 10
+sql "SELECT i.char_name, i.class_id, c.x, c.y, c.z, c.online, a.accessLevel FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN accounts a ON a.login=i.account_name ORDER BY i.bot_id" > "$OUT/7-bots.txt"
+docker restart -t 120 l2s-game >/dev/null
+sleep 10
+if wait_game healthy 900; then ok "game healthy after restart"; else ko "game healthy after restart"; fi
+check "after restart: none created, 10 in the world again" wait_log 'Module\[bots-core\]: autostart: created 0, in world 10' 180
+gamelog > "$OUT/7-bots-restart.log"
+check "bots logged out on shutdown (10)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE last_logout IS NOT NULL")" = 10
+check "still 20 bots, 20 accounts" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity"),$(sql "SELECT COUNT(*) FROM mod_bots_core_account")" = "20,20"
+check "ready line sees 20 bots" grep -qE 'Module\[bots-core\]: ready: 20 bots known \(0 retired\)' "$OUT/7-bots-restart.log"
 
 say "-- cleanup"
 cleanup

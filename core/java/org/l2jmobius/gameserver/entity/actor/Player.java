@@ -4194,6 +4194,7 @@ public class Player extends Playable
 	public void broadcastCharInfo()
 	{
 		// Client is disconnected.
+		if (!org.l2start.platform.hooks.CoreHooks.isBot(this)) // [HOOK:P3-BOT-CHARINFO] a bot has no client but must broadcast like a player
 		if (isOnlineInt() == 0)
 		{
 			return;
