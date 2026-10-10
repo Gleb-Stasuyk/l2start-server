@@ -303,4 +303,17 @@ class DirectorTest {
         final Pos open = d.hiddenPoint(c, cave, at(player), p -> p);
         assertTrue((open == null) || (open.distance2d(player) >= c.hiddenMin()), "in sight without walls: " + open);
     }
+
+    @Test
+    void unreachableTownNpcsAreLeftOut() {
+        final List<String> dropped = new ArrayList<>();
+        final WorldCatalog c = catalog().withReachableAnchors((from, to) -> !to.equals(new Pos(0, 800, 0)), dropped);
+        assertEquals(List.of("town shop 0,800,0"), dropped);
+        final WorldCatalog.Town t = c.town("town");
+        assertEquals(2, t.anchors().size());
+        assertTrue(t.anchors("shop").isEmpty());
+        assertEquals(1, t.anchors("gk").size());
+        assertEquals(1, t.anchors("restart").size(), "restart points stay");
+        assertNotNull(c.ground("field"));
+    }
 }

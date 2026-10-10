@@ -80,7 +80,19 @@ public final class BotsCoreModule implements GameModule {
         });
         if ("director".equals(ctx.config().getString("Presence"))) {
             // bad catalogue or gear table: the module fails to enable with a clear message
-            final WorldCatalog catalog = WorldCatalog.load(ctx.resources().path("data/world.xml"));
+            final List<String> unreachable = new ArrayList<>();
+            final int[] checked = new int[2];
+            final WorldCatalog catalog = WorldCatalog.load(ctx.resources().path("data/world.xml")).withReachableAnchors((from, to) -> {
+                checked[0]++;
+                if (AnchorReach.checkable(from, to)) {
+                    checked[1]++;
+                }
+                return AnchorReach.reachable(from, to);
+            }, unreachable);
+            ctx.log().info("town NPCs: " + checked[1] + " of " + checked[0] + " routes checked by geodata pathfinding, " + unreachable.size() + " NPCs unreachable");
+            if (!unreachable.isEmpty()) {
+                ctx.log().warn("town NPCs bots cannot reach, left out of town errands: " + String.join("; ", unreachable));
+            }
             final GearTable gear = GearTable.load(ctx.resources().path("data/gear.xml"));
             director = new DirectorRunner(this, catalog, gear, directorConfig());
             brains.setAnchors(director::anchors);

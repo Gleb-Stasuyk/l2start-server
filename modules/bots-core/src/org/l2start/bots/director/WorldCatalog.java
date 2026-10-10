@@ -81,6 +81,33 @@ public final class WorldCatalog {
         return (((long) cx) << 32) ^ (cy & 0xffffffffL);
     }
 
+    /**
+     * The same catalogue without the town anchors (NPCs) a bot cannot run to: checked from the restart points and the
+     * town centre with {@code reach} (geodata pathfinding in the game). Restart points stay as they are.
+     * @param dropped gets "town kind x,y,z" for every anchor removed
+     */
+    public WorldCatalog withReachableAnchors(java.util.function.BiPredicate<Pos, Pos> reach, List<String> dropped) {
+        final List<Town> out = new ArrayList<>();
+        for (Town t : towns) {
+            final List<Pos> origins = new ArrayList<>(t.anchors("restart"));
+            origins.add(t.center());
+            final List<Assignment.Anchor> keep = new ArrayList<>();
+            for (Assignment.Anchor a : t.anchors()) {
+                boolean ok = a.kind().equals("restart");
+                for (int i = 0; !ok && (i < origins.size()); i++) {
+                    ok = reach.test(origins.get(i), a.pos());
+                }
+                if (ok) {
+                    keep.add(a);
+                } else {
+                    dropped.add(t.id() + " " + a.kind() + " " + a.pos().x() + "," + a.pos().y() + "," + a.pos().z());
+                }
+            }
+            out.add(keep.size() == t.anchors().size() ? t : new Town(t.id(), t.name(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), t.polyX(), t.polyY(), List.copyOf(keep)));
+        }
+        return new WorldCatalog(out, grounds);
+    }
+
     public List<Town> towns() {
         return towns;
     }
