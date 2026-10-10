@@ -3,8 +3,7 @@
 build
 **/bin
 docs
-platform
-modules
+docker/modules.env
 docker/.env
 docker/data
 docker/geodata.empty
