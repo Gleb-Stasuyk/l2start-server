@@ -316,4 +316,33 @@ class DirectorTest {
         assertEquals(1, t.anchors("restart").size(), "restart points stay");
         assertNotNull(c.ground("field"));
     }
+
+    @Test
+    void startingVillagesGetTheirOwnRace() {
+        assertEquals(0, Director.raceOf("talking_island"));
+        assertEquals(1, Director.raceOf("elven_village"));
+        assertEquals(2, Director.raceOf("dark_elven_village"));
+        assertEquals(3, Director.raceOf("orc_village"));
+        assertEquals(4, Director.raceOf("dwarven_village"));
+        assertEquals(-1, Director.raceOf("giran"));
+        final WorldCatalog.Town elf = new WorldCatalog.Town("elven_village", "Elven Village", TOWN, 2000, 1, 10, new int[] { -2000, 2000, 2000, -2000 },
+            new int[] { -2000, -2000, 2000, 2000 }, List.of(new Assignment.Anchor("gk", GK), new Assignment.Anchor("restart", new Pos(-500, 0, 0))));
+        final Director d = new Director(new WorldCatalog(List.of(elf), List.of()), DirectorConfig.defaults(), new Random(5));
+        final List<Director.Candidate> pool = new ArrayList<>();
+        for (int i = 1; i <= 20; i++) {
+            pool.add(new Director.Candidate(i, 5, 0, i <= 10 ? 0 : 1)); // 1-10 humans, 11-20 elves
+        }
+        long now = 1_000_000_000L;
+        int seen = 0;
+        for (int t = 0; t < 120; t++, now += 2000) {
+            for (Director.Command c : d.tick(now, 20, at(new Pos(0, -1500, 0)), List.of(), (lo, hi, x) -> pool, p -> p)) {
+                if (c instanceof Director.Command.Materialize m) {
+                    seen++;
+                    assertEquals(1, m.race(), "race of a bot in the elven village");
+                    assertTrue((m.botId() == 0) || (m.botId() > 10), "a human persona in the elven village: " + m.botId());
+                }
+            }
+        }
+        assertTrue(seen > 0);
+    }
 }
