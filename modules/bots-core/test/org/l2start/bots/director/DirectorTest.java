@@ -147,7 +147,7 @@ class DirectorTest {
         for (Director.Command cmd : s.all) {
             if (cmd instanceof Director.Command.Materialize m) {
                 assertTrue(m.at().distance2d(player) >= c.hiddenMin(), "appeared in sight: " + m.at());
-                assertTrue((m.level() >= 28) && (m.level() <= 36), "level fits the ground: " + m.level());
+                assertTrue((m.level() >= 34) && (m.level() <= 38), "level a bit above the ground (30-34): " + m.level());
             }
         }
     }
@@ -156,7 +156,7 @@ class DirectorTest {
     void poolPersonasAreUsedBeforeNewOnes() {
         final Sim s = new Sim(DirectorConfig.defaults());
         for (int i = 1; i <= 30; i++) {
-            s.pool.put(i, 32);
+            s.pool.put(i, 35);
         }
         s.run(14, at(FIELD), 3 * 60_000);
         assertEquals(0, s.created);

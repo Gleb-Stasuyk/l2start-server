@@ -74,6 +74,9 @@ public final class BasicBrain implements Brain {
     static final int PLAYER_MOB_RADIUS = 700;
     // presence director orders
     private long orderSeq = -1;
+    /** Monster levels it picks: [lvl - mobBelow, lvl + mobAbove] (director bots: a bit below their level). */
+    private int mobBelow = 3;
+    private int mobAbove = 2;
     private Pos errand;
     private String errandWhat = "";
     private long arrivedAt;
@@ -429,7 +432,7 @@ public final class BasicBrain implements Brain {
             if (!n.monster() || n.dead() || !n.attackable() || (n.distance() > SEARCH)) {
                 continue;
             }
-            if ((n.level() < (lvl - 3)) || (n.level() > (lvl + 2))) {
+            if ((n.level() < (lvl - mobBelow)) || (n.level() > (lvl + mobAbove))) {
                 continue;
             }
             if (n.aggressive() && (lvl <= 5)) {
@@ -494,6 +497,8 @@ public final class BasicBrain implements Brain {
             enter(ctx, Phase.LEVEL, a.kind() == Assignment.Kind.LEAVE_GK ? "to the gatekeeper" : "running off");
             leaveAt = 0;
         } else if (a.kind() == Assignment.Kind.HUNT) {
+            mobBelow = 8;
+            mobAbove = 1;
             zone = new LevelZone(a.place(), "", a.center(), a.radius(), a.minLevel(), a.maxLevel(), a.spots().size(), false, java.util.Set.of());
             enter(ctx, Phase.LEVEL, "hunt " + a.place());
         } else {

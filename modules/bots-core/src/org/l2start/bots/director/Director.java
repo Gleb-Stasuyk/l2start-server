@@ -331,8 +331,9 @@ public final class Director {
             lo = d.townRef().minLevel();
             hi = d.townRef().maxLevel();
         } else {
-            lo = Math.max(1, d.groundRef().minLevel() - 2);
-            hi = Math.min(PaperLevel.MAX, d.groundRef().maxLevel() + 2);
+            // a bit above the monsters, like players without top gear, soulshots and buffs (phase 4) hunt
+            lo = Math.max(1, d.groundRef().maxLevel());
+            hi = Math.min(PaperLevel.MAX, d.groundRef().maxLevel() + 4);
         }
         final Pos at = d.town() ? townPoint(d.townRef(), live, terrain) : hiddenPoint(c, d.groundRef(), live, terrain);
         if (at == null) {
