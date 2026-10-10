@@ -482,6 +482,13 @@ public final class FakeWorld {
 
     // ------------------------------------------------------------------ actions
 
+    private boolean walking;
+
+    /** The gait the brain asked for (bots run by default). */
+    public boolean walking() {
+        return walking;
+    }
+
     private final Actuators actuators = new Actuators() {
         @Override
         public ActionResult moveTo(Pos to) {
@@ -605,6 +612,12 @@ public final class FakeWorld {
         @Override
         public int learnSkills() {
             return 0;
+        }
+
+        @Override
+        public ActionResult setWalking(boolean walk) {
+            walking = walk;
+            return dead ? ActionResult.INVALID : ActionResult.OK;
         }
 
         @Override
