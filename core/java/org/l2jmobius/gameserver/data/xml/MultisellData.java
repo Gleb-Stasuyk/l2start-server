@@ -77,6 +77,7 @@ public class MultisellData implements IXmlReader
 			parseDatapackDirectory("data/multisell/custom", false);
 		}
 		
+		for (java.io.File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("multisell", id -> _entries.containsKey(id))) parseDirectory(dir, true); // [HOOK:P1-DATA-MSELL]
 		verify();
 		LOGGER.log(Level.INFO, getClass().getSimpleName() + ": Loaded " + _entries.size() + " multisell lists.");
 	}

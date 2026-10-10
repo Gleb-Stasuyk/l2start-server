@@ -84,6 +84,7 @@ public class NpcData implements IXmlReader
 			LOGGER.info(getClass().getSimpleName() + ": Loaded " + (_npcs.size() - npcCount) + " custom NPCs.");
 		}
 		
+		for (java.io.File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("npcs", id -> _npcs.containsKey(id))) parseDirectory(dir, true); // [HOOK:P1-DATA-NPC]
 		loadNpcsSkillLearn();
 	}
 	

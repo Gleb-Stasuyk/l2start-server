@@ -64,6 +64,7 @@ public class BuyListData implements IXmlReader
 			parseDatapackDirectory("data/buylists/custom", false);
 		}
 		
+		for (java.io.File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("buylists", id -> _buyLists.containsKey(id))) parseDirectory(dir, true); // [HOOK:P1-DATA-BUY]
 		LOGGER.info(getClass().getSimpleName() + ": Loaded " + _buyLists.size() + " buyLists.");
 		
 		try (Connection con = DatabaseFactory.getConnection();
