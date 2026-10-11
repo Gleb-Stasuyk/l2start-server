@@ -18,8 +18,9 @@ import org.w3c.dom.NodeList;
 
 /**
  * Equipment by level and profession (plan 20.4) from data/gear.xml (stock armour sets and weapons, generated).
- * Grade by level: none below 20 (below 10: the starting gear stays), D 20-39, C 40-51, B 52-60, A 61-75, S 76+.
- * Early in a grade's level band the cheaper items, late the dearer ones, spread by the persona's seed.
+ * Grade by level: none below 20 (below 10: the starting gear stays), D 20-39, C 40-51, B 52-60, A 61-75, S 76+, a new
+ * grade 0-5 levels late by persona (phase 4e). One weapon and one set per persona and grade (stable by its seed), now
+ * and then a visible enchant.
  */
 public final class GearTable {
     public enum Grade {
@@ -54,8 +55,23 @@ public final class GearTable {
     public record Weapon(int id, Grade grade, String kind, long price) {
     }
 
-    /** What a bot wears: item ids to equip (weapon first), empty = keep what it has (starting gear). */
-    public record Plan(Grade grade, String weaponKind, Armor armor, List<Integer> items) {
+    /**
+     * What a bot wears: item ids to equip (weapon first), empty = keep what it has (starting gear).
+     * @param weaponId the weapon of the plan (0 = none)
+     * @param weaponEnchant visible enchant of the weapon (+0..+4, phase 4e)
+     * @param armorEnchant visible enchant of the armour parts (+0..+3)
+     */
+    public record Plan(Grade grade, String weaponKind, Armor armor, List<Integer> items, int weaponId, int weaponEnchant, int armorEnchant) {
+        public Plan(Grade grade, String weaponKind, Armor armor, List<Integer> items) {
+            this(grade, weaponKind, armor, items, 0, 0, 0);
+        }
+    }
+
+    /** Highest visible enchant (config EnchantMax of bots-core). */
+    private static volatile int enchantMax = 4;
+
+    public static void setEnchantMax(int max) {
+        enchantMax = Math.max(0, Math.min(16, max));
     }
 
     private static final Set<Integer> MAGES = Set.of(10, 11, 12, 13, 14, 15, 16, 17, 25, 26, 27, 28, 29, 30, 38, 39, 40, 41, 42, 43, 49, 50, 51, 52, 94, 95, 96, 97, 98, 103,
@@ -147,20 +163,70 @@ public final class GearTable {
         return Armor.HEAVY;
     }
 
+    public Plan plan(int profession, int level, long seed) {
+        return plan(profession, level, seed, 0);
+    }
+
+    /**
+     * The grade a bot wears: a new grade comes {@code lag} levels late (saving up for it, phase 4e: D at 20, C at 40, B
+     * at 52, A at 61, S at 76, plus 0-5 by persona).
+     */
+    public static Grade gradeWorn(int level, int lag) {
+        final Grade now = Grade.of(level);
+        final Grade late = Grade.of(Math.max(1, level - Math.max(0, lag)));
+        return late.ordinal() < now.ordinal() ? Grade.values()[now.ordinal() - 1] : now; // at most one grade behind
+    }
+
+    /** Lag of a persona: {@code min..max} by greed (a greedy one saves longer). */
+    public static int lag(double greed, int min, int max) {
+        final int lo = Math.max(0, min);
+        final int hi = Math.max(lo, max);
+        return lo + (int) Math.round(Math.max(0, Math.min(1, greed)) * (hi - lo));
+    }
+
+    /** Stable 0..0.999 for a persona and a grade: the same set and weapon for the whole grade. */
+    static double rank(long seed, Grade grade, int salt) {
+        long h = (seed * 0x9E3779B97F4A7C15L) ^ ((grade.ordinal() + 1) * 0xC2B2AE3D27D4EB4FL) ^ (salt * 0x165667B19E3779F9L);
+        h ^= h >>> 29;
+        h *= 0xBF58476D1CE4E5B9L;
+        h ^= h >>> 32;
+        return Math.floorMod(h, 1000) / 1000.0;
+    }
+
+    /** Visible weapon enchant of a persona in this grade: +0 mostly, now and then +1..+4 (never on no-grade items). */
+    static int weaponEnchant(long seed, Grade grade) {
+        if (grade == Grade.NONE) {
+            return 0;
+        }
+        final double r = rank(seed, grade, 7);
+        final int e = r < 0.55 ? 0 : r < 0.70 ? 1 : r < 0.82 ? 2 : r < 0.92 ? 3 : 4;
+        return Math.min(enchantMax, e);
+    }
+
+    /** Armour enchant: most have none, a third +1..+3 (safe enchant), never above the weapon's or EnchantMax. */
+    static int armorEnchant(long seed, Grade grade) {
+        if (grade == Grade.NONE) {
+            return 0;
+        }
+        final double r = rank(seed, grade, 11);
+        final int e = r < 0.67 ? 0 : r < 0.82 ? 1 : r < 0.93 ? 2 : 3;
+        return Math.min(Math.min(enchantMax, 3), e);
+    }
+
     /**
      * @param profession the class the bot will have (its 2nd profession when known: weapon/armour style)
      * @param level its level now
+     * @param lag levels a new grade comes late (see {@link #gradeWorn})
      */
-    public Plan plan(int profession, int level, long seed) {
-        final Grade grade = Grade.of(level);
+    public Plan plan(int profession, int level, long seed, int lag) {
+        final Grade grade = gradeWorn(level, lag);
         final String kind = weaponKind(profession);
         final Armor armor = armor(profession, seed);
         if (level < 10) {
             return new Plan(grade, kind, armor, List.of());
         }
-        final double inBand = grade.to == grade.from ? 0.5 : (level - grade.from) / (double) (grade.to - grade.from);
-        final double jitter = ((Math.floorMod(seed * 0x9E3779B97F4A7C15L, 1000) / 1000.0) - 0.5) * 0.5;
-        final double rank = Math.max(0, Math.min(0.999, inBand + jitter));
+        // one weapon and one set for the whole grade (the same bot tomorrow wears the same), by persona
+        final double rank = rank(seed, grade, 1);
         final List<Integer> items = new ArrayList<>();
         final Weapon w = weapon(grade, kind, rank);
         if (w != null) {
@@ -179,7 +245,7 @@ public final class GearTable {
                 items.add(shield);
             }
         }
-        return new Plan(grade, kind, armor, List.copyOf(items));
+        return new Plan(grade, kind, armor, List.copyOf(items), w == null ? 0 : w.id(), weaponEnchant(seed, grade), armorEnchant(seed, grade));
     }
 
     private Weapon weapon(Grade grade, String kind, double rank) {

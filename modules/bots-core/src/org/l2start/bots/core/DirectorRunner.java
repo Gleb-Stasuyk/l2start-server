@@ -69,6 +69,10 @@ public final class DirectorRunner {
         director.setConfig(c);
     }
 
+    void setGradeLag(int min, int max) {
+        materializer.setGradeLag(min, max);
+    }
+
     public long lastTickMicros() {
         return tickNanos / 1000;
     }

@@ -31,8 +31,17 @@ final class Materializer {
 
     private final GearTable gear;
 
+    /** Config GradeLag of bots-core: a new grade comes min..max levels late (by greed). */
+    private volatile int lagMin = 0;
+    private volatile int lagMax = 5;
+
     Materializer(GearTable gear) {
         this.gear = gear;
+    }
+
+    void setGradeLag(int min, int max) {
+        lagMin = Math.max(0, Math.min(10, min));
+        lagMax = Math.max(lagMin, Math.min(10, max));
     }
 
     /** @return what was done, for the log ("lv 41, class 2, 6 items") */
@@ -62,10 +71,14 @@ final class Materializer {
             sb.append(", ").append(skills).append(" skills");
         }
         // equipment
-        final GearTable.Plan plan = gear.plan(future, target, seed);
+        final int lag = GearTable.lag(persona == null ? 0.5 : persona.traits().greed(), lagMin, lagMax);
+        final GearTable.Plan plan = gear.plan(future, target, seed, lag);
         if (!plan.items().isEmpty()) {
             final int n = equip(p, plan);
             sb.append(", ").append(plan.grade()).append(" gear ").append(n).append(" new");
+            if (plan.weaponEnchant() > 0) {
+                sb.append(", weapon +").append(plan.weaponEnchant());
+            }
         }
         cleanup(p);
         sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
@@ -104,8 +117,15 @@ final class Materializer {
                 it = p.getInventory().addItem(ItemProcessType.REWARD, id, 1, p, null);
                 added++;
             }
-            if ((it != null) && !it.isEquipped()) {
-                p.getInventory().equipItem(it);
+            if (it != null) {
+                // visible enchant of the persona in this grade (stable: the same bot tomorrow shows the same +N)
+                final int enchant = id == plan.weaponId() ? plan.weaponEnchant() : plan.armorEnchant();
+                if (it.getEnchantLevel() != enchant) {
+                    it.setEnchantLevel(enchant);
+                }
+                if (!it.isEquipped()) {
+                    p.getInventory().equipItem(it);
+                }
             }
         }
         if ("BOW".equals(plan.weaponKind())) {

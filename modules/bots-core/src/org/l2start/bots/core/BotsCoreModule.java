@@ -297,7 +297,10 @@ public final class BotsCoreModule implements GameModule {
         world.setRequireGeodata(ctx.config().getBoolean("RequireGeodata"));
         org.l2start.bots.director.PaperLevel.setGlobalPace(Double.parseDouble(ctx.config().getString("PaperLevelPace").trim()));
         brains.applyConfig();
+        org.l2start.bots.director.GearTable.setEnchantMax(ctx.config().getInt("EnchantMax"));
         if (director != null) {
+            final int[] lag = ints(ctx.config().getList("GradeLag"), 2, "GradeLag");
+            director.setGradeLag(lag[0], lag[1]);
             director.setConfig(directorConfig());
             director.setAnchors(anchors(ctx.config().getList("Anchors")));
         }
