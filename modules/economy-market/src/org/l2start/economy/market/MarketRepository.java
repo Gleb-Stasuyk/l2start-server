@@ -170,6 +170,11 @@ final class MarketRepository {
         return db.update("DELETE FROM items WHERE loc = 'INVENTORY' AND owner_id IN (SELECT char_id FROM mod_bots_core_identity WHERE status = 'TRADER')");
     }
 
+    /** Bag rows of one trader character that is out of the world (worn items stay). */
+    int clearBag(int charId) throws SQLException {
+        return db.update("DELETE FROM items WHERE owner_id = ? AND loc = 'INVENTORY'", charId);
+    }
+
     long seed() throws SQLException {
         return db.queryOne("SELECT COALESCE(MIN(charId), 1) FROM characters", rs -> rs.getLong(1)).orElse(1L);
     }

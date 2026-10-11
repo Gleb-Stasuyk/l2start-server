@@ -59,6 +59,7 @@ final class Traders {
         volatile int charId;
         volatile long soldOutAt;
         long closedAt;
+        int destroyed;
         boolean offlineLook;
         boolean geoLogged;
         final Map<Integer, Long> shown = new ConcurrentHashMap<>(); // pieces put in the stock list at the open
@@ -501,7 +502,7 @@ final class Traders {
             p.setPrivateStoreType(PrivateStoreType.NONE);
             p.getSellList().clear();
             p.getBuyList().clear();
-            emptyBag(p);
+            s.destroyed = emptyBag(p);
             byChar.remove(p.getObjectId());
         }
         s.open = false;
@@ -513,10 +514,13 @@ final class Traders {
         final int botId = s.row.botId();
         s.row = new StoreRow(botId, s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), s.row.title(), s.row.openedAt(), s.closedAt, s.row.linesStart());
         repo.saveStore(s.row, s.lines);
+        int stale = 0;
         if (s.charId != 0) {
             repo.clearBotOfflineTrade(String.valueOf(s.charId));
+            stale = repo.clearBag(s.charId); // out of the world now: nothing of its goods may stay in the database
         }
-        m.ctx().log().info("trader " + pool.name(botId) + " left " + s.spot.id() + " (" + reason + ", " + s.lines.size() + " lines on paper)");
+        m.ctx().log().info("trader " + pool.name(botId) + " left " + s.spot.id() + " (" + reason + ", " + s.lines.size() + " lines on paper, " + s.destroyed + " bag items destroyed"
+            + ((stale > 0) ? ", " + stale + " bag rows still in the database removed" : "") + ")");
     }
 
     /** The lines after the deals: each line loses what left the stock list since the open (lines not shown stay). */
@@ -538,12 +542,14 @@ final class Traders {
     }
 
     /** Everything in the bag that is not worn: goods and adena exist only while the store stands. */
-    private static void emptyBag(Player p) {
+    private static int emptyBag(Player p) {
+        int n = 0;
         for (Item it : new ArrayList<>(p.getInventory().getItems())) {
-            if (!it.isEquipped()) {
-                p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
+            if (!it.isEquipped() && (p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null) != null)) {
+                n++;
             }
         }
+        return n;
     }
 
     // ---- deals (game thread: memory only, the database in flush)
