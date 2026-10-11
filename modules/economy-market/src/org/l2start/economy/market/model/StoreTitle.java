@@ -85,9 +85,9 @@ public final class StoreTitle {
         return (best == MarketItem.Grade.NONE) ? "NG" : best.name();
     }
 
-    /** "Recipe: Blue Wolf Breastplate (60%)" -> "Blue Wolf Breastplate 60%"; at most 18 characters. */
+    /** "Recipe: Blue Wolf Breastplate (60%)" -> "Rec. Blue Wolf Breas"; "Scroll: Enchant Weapon (C)" -> "Enchant Weapon C"; at most 18 characters. */
     static String shortName(String name) {
-        String n = name.replace("Recipe: ", "").replace("(", "").replace(")", "").replace("Scroll: ", "").trim();
+        String n = (name.startsWith("Recipe: ") ? "Rec. " + name.substring(8) : name).replace("(", "").replace(")", "").replace("Scroll: ", "").trim();
         if (n.length() > 18) {
             n = n.substring(0, 18).trim();
         }

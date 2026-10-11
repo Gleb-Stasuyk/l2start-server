@@ -68,4 +68,10 @@ class StoreTitleTest {
             assertTrue((TraderPresence.level(id) >= 40) && (TraderPresence.level(id) <= 64));
         }
     }
+
+    @org.junit.jupiter.api.Test
+    void recipesSayRecipe() {
+        org.junit.jupiter.api.Assertions.assertEquals("Rec. Dirk", StoreTitle.shortName("Recipe: Dirk"));
+        org.junit.jupiter.api.Assertions.assertEquals("Enchant Weapon C", StoreTitle.shortName("Scroll: Enchant Weapon (C)"));
+    }
 }
