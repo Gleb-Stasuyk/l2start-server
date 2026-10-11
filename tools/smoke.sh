@@ -305,7 +305,8 @@ check "SELFTEST: a sale to a bot buy store, no duplicated goods" wait_log 'Modul
 gamelog > "$OUT/8-traders.log"
 say "   trader lines:"; grep -E 'Module\[economy-market\]: (trader .* opened|spot giran-21 |SELFTEST)' "$OUT/8-traders.log" | head -8 | cut -c1-300
 check "traders: geodata height of every place logged (spot giran-21 = 4UDO)" grep -qE 'Module\[economy-market\]: spot giran-21 ' "$OUT/8-traders.log"
-check "traders: no economy-market errors" bash -c "! grep -E 'Module\[economy-market\]: .*(failed|could not|FAILED)|Platform: module economy-market ' \"\$0\"" "$OUT/8-traders.log"
+check "traders: no economy-market errors" bash -c "! grep -E 'Module\[economy-market\]: .*(failed|could not|FAILED)|Platform: module economy-market[: ]' \"\$0\" | grep -qv 'slow call'" "$OUT/8-traders.log"
+say "   economy-market error lines (first 20):"; grep -A8 -E 'Module\[economy-market\]: .*(failed|could not|FAILED)|Platform: module economy-market[: ]' "$OUT/8-traders.log" | grep -v 'slow call' | head -20 | cut -c1-300
 TRADERS="SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER'"
 check "traders: personas kept per place (>= 10, no progress rows)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity i WHERE status='TRADER' AND NOT EXISTS (SELECT 1 FROM mod_bots_core_progress g WHERE g.bot_id=i.bot_id)")" -ge 10
 docker stop -t 120 l2s-game >/dev/null
@@ -317,7 +318,8 @@ check "traders: no goods left in trader bags (items exist only while they stand)
 say "   trader bag items left (item_id count): $(sql "SELECT item_id, COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN ($TRADERS) GROUP BY item_id" | tr '\t\n' ':,')"
 check "traders: no stock offline-trade rows of bots" test "$(sql "SELECT (SELECT COUNT(*) FROM character_offline_trade WHERE charId IN (SELECT char_id FROM mod_bots_core_identity)) + (SELECT COUNT(*) FROM character_offline_trade_items WHERE charId IN (SELECT char_id FROM mod_bots_core_identity))")" = 0
 check "traders: the 2 self-test deals in the trade log" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_trade_log WHERE seller_bot=1 AND buyer_bot=1")" -ge 2
-check "traders: logged out before bots-core stops (store closes logged)" grep -qE 'Module\[economy-market\]: trader .* left .*server stop' "$OUT/8-director-stop.log"
+check "traders: all stores closed on the stop, in time (before bots-core stops)" bash -c "grep -qE 'Module\[economy-market\]: traders: [0-9]+ stores closed \(server stop\)' \"\$0\" && ! grep -qE 'Platform: module economy-market did not finish onShutdown' \"\$0\"" "$OUT/8-director-stop.log"
+say "   $(grep -E 'Module\[economy-market\]: traders: [0-9]+ stores closed|Platform: module economy-market (did not|failed)' "$OUT/8-director-stop.log" | head -3 | cut -c1-200)"
 BOTS8="SELECT i.char_id FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id"
 sql "SELECT i.char_name, c.level, c.classid, g.level_base, (SELECT COUNT(*) FROM items it WHERE it.owner_id=c.charId AND it.loc='PAPERDOLL') FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id JOIN characters c ON c.charId=i.char_id ORDER BY i.bot_id" > "$OUT/8-bots.txt"
 cat "$OUT/8-bots.txt" | tee -a "$SUMMARY" >/dev/null

@@ -153,7 +153,13 @@ final class Traders {
                     wantedSpots.add(spot.id());
                     if (!s.open && (opened < OPEN_PER_TICK)) {
                         opened++;
-                        open(s, now, night);
+                        try {
+                            open(s, now, night);
+                        } catch (Exception e) {
+                            // one bad place must not stop the others (nor trip the module's circuit breaker every tick)
+                            warnOnce("open " + spot.id() + " " + e.getClass().getSimpleName(), "trader store at " + spot.id() + " could not open: " + e);
+                            s.soldOutAt = now; // retried after the rest
+                        }
                     }
                 }
             }
@@ -449,26 +455,48 @@ final class Traders {
 
     // ---- close
 
+    /**
+     * Server stop, market off: first every trader out of the world (store closed, bag emptied, logged out), then the
+     * database, so all of them are out before bots-core stops even on a slow database (the platform gives a module
+     * a few seconds for its stop).
+     */
     void closeAll(String reason) {
+        final long start = System.currentTimeMillis();
+        final List<Store> closed = new ArrayList<>();
         for (Store s : stores.values()) {
             if (s.open) {
                 try {
-                    close(s, reason);
+                    leaveWorld(s);
+                    closed.add(s);
                 } catch (Exception e) {
                     m.ctx().log().warn("closing the store at " + s.spot.id() + " failed: " + e);
                 }
             }
         }
+        for (Store s : closed) {
+            try {
+                saveClosed(s, reason);
+            } catch (Exception e) {
+                m.ctx().log().warn("saving the store at " + s.spot.id() + " failed: " + e);
+            }
+        }
+        if (!closed.isEmpty()) {
+            m.ctx().log().info("traders: " + closed.size() + " stores closed (" + reason + ") in " + (System.currentTimeMillis() - start) + " ms");
+        }
     }
 
     private void close(Store s, String reason) throws Exception {
+        leaveWorld(s);
+        saveClosed(s, reason);
+    }
+
+    /** In the world: the lines after the deals, store closed, goods and adena destroyed, logged out. */
+    private void leaveWorld(Store s) {
         final int botId = s.row.botId();
         final Player p = pool.player(botId);
-        int left = s.lines.size();
         if (p != null) {
             synchronized (s) {
                 s.lines = remaining(s, p);
-                left = s.lines.size();
             }
             p.setPrivateStoreType(PrivateStoreType.NONE);
             p.getSellList().clear();
@@ -478,13 +506,17 @@ final class Traders {
         }
         s.open = false;
         s.closedAt = System.currentTimeMillis();
+        pool.leave(botId);
+    }
+
+    private void saveClosed(Store s, String reason) throws Exception {
+        final int botId = s.row.botId();
         s.row = new StoreRow(botId, s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), s.row.title(), s.row.openedAt(), s.closedAt, s.row.linesStart());
         repo.saveStore(s.row, s.lines);
         if (s.charId != 0) {
             repo.clearBotOfflineTrade(String.valueOf(s.charId));
         }
-        pool.leave(botId);
-        m.ctx().log().info("trader " + pool.name(botId) + " left " + s.spot.id() + " (" + reason + ", " + left + " lines on paper)");
+        m.ctx().log().info("trader " + pool.name(botId) + " left " + s.spot.id() + " (" + reason + ", " + s.lines.size() + " lines on paper)");
     }
 
     /** The lines after the deals: each line loses what left the stock list since the open (lines not shown stay). */
@@ -615,6 +647,14 @@ final class Traders {
             return;
         }
         selfTested = true;
+        try {
+            selfTest(sell, buyS, other);
+        } catch (RuntimeException e) {
+            m.ctx().log().warn("SELFTEST FAILED: " + e, e);
+        }
+    }
+
+    private void selfTest(Store sell, Store buyS, Store other) {
         final Player seller = pool.player(sell.row.botId());
         final Player visitor = pool.player(other.row.botId());
         final Player buyer = pool.player(buyS.row.botId());
@@ -623,7 +663,7 @@ final class Traders {
         final int itemId = ti.getItem().getId();
         final int before = ti.getCount();
         final long visitorHad = count(visitor, itemId);
-        visitor.addAdena(ItemProcessType.REWARD, ti.getPrice(), null, false);
+        visitor.addAdena(ItemProcessType.REWARD, ti.getPrice() + 1000, null, false); // not all of it: the stock code needs the buyer's adena item after paying
         final int res = seller.getSellList().privateStoreBuy(visitor, new HashSet<>(List.of(new RequestTrade(ti.getObjectId(), itemId, 1, ti.getPrice()))));
         final int after = seller.getSellList().getItems().stream().filter(t -> t.getItem().getId() == itemId).mapToInt(TradeItem::getCount).sum();
         final long sellerLeft = count(seller, itemId);
