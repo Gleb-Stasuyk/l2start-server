@@ -90,6 +90,26 @@ public final class Director {
     public record PlaceState(String id, boolean town, int players, int target, int present, int pending) {
     }
 
+    /**
+     * How hunters end a hunt (phase 4d; bots-core keys RestockShare, LogoutStyle, RestockAway).
+     * @param restockShare share of ends that are "went to town and back" (scroll of escape or running off, back on the
+     *     same ground from its edge after {@code awayMinMs..awayMaxMs})
+     * @param soe weight of "scroll of escape and log out in town"
+     * @param spot weight of "log out right here, sitting" (only with no live player within {@link #SPOT_LOGOUT_CLEAR})
+     * @param gk weight of "walk off to the gatekeeper" (out of sight)
+     */
+    public record Life(double restockShare, double soe, double spot, double gk, long awayMinMs, long awayMaxMs) {
+        public static Life defaults() {
+            return new Life(0.4, 5, 3, 2, 4 * 60_000L, 12 * 60_000L);
+        }
+    }
+
+    /** A player closer than this: no logging out on the spot (it would vanish in front of them). */
+    static final int SPOT_LOGOUT_CLEAR = 1200;
+
+    private record Comeback(String place, long due) {
+    }
+
     /** A bot leaving a dungeon farther than this from every player and out of their line of sight is gone from view. */
     static final int INDOOR_OUT_OF_SIGHT = 600;
 
@@ -113,6 +133,8 @@ public final class Director {
     private final Map<Integer, Pending> pending = new HashMap<>();
     private final Map<String, Long> nextSpawn = new HashMap<>();
     private final Map<String, Long> nextLeave = new HashMap<>();
+    private final Map<Integer, Comeback> comebacks = new HashMap<>();
+    private volatile Life life = Life.defaults();
     private final Deque<String> decisions = new ArrayDeque<>();
     private long seq;
     private int newKey;
@@ -129,6 +151,11 @@ public final class Director {
     private long noPersona;
     private long transits;
     private long passers;
+    private long restocks;
+    private long comebacksDone;
+    private long soeLeaves;
+    private long spotLogouts;
+    private long errandsTrips;
     // right now (last tick)
     private volatile int roadNow;
     private volatile int transitNow;
@@ -143,6 +170,14 @@ public final class Director {
 
     public void setConfig(DirectorConfig c) {
         cfg = c;
+    }
+
+    public void setLife(Life l) {
+        life = l;
+    }
+
+    public Life life() {
+        return life;
     }
 
     private volatile double density = 1;
@@ -195,7 +230,7 @@ public final class Director {
                 switch (k.kind()) {
                     case PASS -> road++;
                     case TRANSIT -> transit++;
-                    case LEAVE_RUN, LEAVE_GK -> leavingCount++;
+                    case LEAVE_RUN, LEAVE_GK, LEAVE_SOE, LEAVE_SPOT, ERRANDS -> leavingCount++;
                     default -> {
                         final WorldCatalog.Ground g = catalog.ground(k.place());
                         if ((g != null) && g.indoor()) {
@@ -237,6 +272,25 @@ public final class Director {
                 out.add(new Command.Logout(b.botId(), leaving ? "left unseen" : "nobody around"));
                 unseenLogouts++;
                 tracks.remove(b.botId());
+                continue;
+            }
+            if ((a != null) && (a.kind() == Assignment.Kind.LEAVE_SOE) && !b.dead() && (t.unseenSince == 0)) {
+                // read a scroll of escape and landed in a town in front of a player: errands there, then the gatekeeper
+                final WorldCatalog.Town town = catalog.townAt(b.pos(), c.townMargin());
+                if ((town != null) && (a.center().distance2d(b.pos()) > (a.radius() + 3000))) {
+                    Pos gk = null;
+                    for (Pos g : town.anchors("gk")) {
+                        if ((gk == null) || (g.distance2d(b.pos()) < gk.distance2d(b.pos()))) {
+                            gk = g;
+                        }
+                    }
+                    if (gk != null) {
+                        errandsTrips++;
+                        note(now, "bot " + b.botId() + " back in " + town.id() + " from a hunt: errands, then the gatekeeper");
+                        out.add(new Command.Assign(b.botId(), new Assignment(++seq, Assignment.Kind.ERRANDS, town.id(), town.center(), town.radius(), town.minLevel(),
+                            town.maxLevel(), List.of(), town.anchors(), gk)));
+                    }
+                }
                 continue;
             }
             if ((a == null) || leaving || b.dead()) {
@@ -333,7 +387,7 @@ public final class Director {
                     nextSpawn.put(d.id(), now + c.spawnIntervalMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.spawnIntervalMaxMs() - c.spawnIntervalMinMs())));
                 } else if ((here.size() > want) && (now >= nextLeave.getOrDefault(d.id(), 0L))) {
                     final BotNow b = oldest(here);
-                    final Command l = leave(c, now, b, live, terrain, "more than " + want + " at " + d.id());
+                    final Command l = endOfStay(c, now, b, live, terrain, "more than " + want + " at " + d.id());
                     if (l != null) {
                         out.add(l);
                         nextLeave.put(d.id(), now + c.leaveIntervalMs());
@@ -382,7 +436,7 @@ public final class Director {
             if (now < nextLeave.getOrDefault(place, 0L)) {
                 continue;
             }
-            final Command l = leave(c, now, b, live, terrain, "seen too long");
+            final Command l = endOfStay(c, now, b, live, terrain, "hunt over");
             if (l != null) {
                 out.add(l);
                 lingerLeaves++;
@@ -464,10 +518,27 @@ public final class Director {
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
         final int race = d.town() ? raceOf(d.townRef().id()) : -1;
+        Candidate back = null;
+        if (!d.town()) {
+            // back from town (restock): the same persona on the same ground, from its edge, before anybody else
+            comebacks.values().removeIf(x -> now > (x.due() + 30 * 60_000L));
+            for (Candidate x : cands) {
+                final Comeback cb = comebacks.get(x.botId());
+                if ((cb != null) && cb.place().equals(d.id()) && (now >= cb.due()) && !pending.containsKey(x.botId())) {
+                    back = x;
+                    break;
+                }
+            }
+        }
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         int botId = 0;
         int level;
-        if (!cands.isEmpty()) {
+        if (back != null) {
+            comebacks.remove(back.botId());
+            comebacksDone++;
+            botId = back.botId();
+            level = back.level();
+        } else if (!cands.isEmpty()) {
             final Candidate pick = weighted(cands, now);
             botId = pick.botId();
             level = pick.level();
@@ -491,7 +562,7 @@ public final class Director {
         if (botId == 0) {
             created++;
         }
-        note(now, (botId == 0 ? "new persona" : "bot " + botId) + " lv " + level + " -> " + a.kind() + " " + d.id() + " at " + at);
+        note(now, (botId == 0 ? "new persona" : "bot " + botId) + " lv " + level + " -> " + a.kind() + " " + d.id() + " at " + at + (back != null ? " (back from town)" : ""));
         return new Command.Materialize(botId, level, at, a, race);
     }
 
@@ -692,6 +763,52 @@ public final class Director {
 
     // ------------------------------------------------------------------ out
 
+    /**
+     * The end of a stay (phase 4d). A hunter: "went to town and back" (RestockShare: scroll of escape or running off,
+     * the same persona comes back to the same ground from its edge later), else a human logout by LogoutStyle (scroll of
+     * escape and logout in town, logout on the spot sitting when nobody is near, walking off to the gatekeeper). A town
+     * bot leaves as before (gatekeeper or running off).
+     */
+    Command endOfStay(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain, String why) {
+        final Assignment a = b.assignment();
+        if (a.kind() != Assignment.Kind.HUNT) {
+            return leave(c, now, b, live, terrain, why);
+        }
+        final Life l = life;
+        final boolean restock = rnd.nextDouble() < l.restockShare();
+        String how;
+        if (restock) {
+            how = rnd.nextDouble() < 0.6 ? "soe" : "gk";
+        } else {
+            final double sum = Math.max(1e-9, l.soe() + l.spot() + l.gk());
+            final double x = rnd.nextDouble() * sum;
+            how = x < l.soe() ? "soe" : x < (l.soe() + l.spot()) ? "spot" : "gk";
+        }
+        if (how.equals("spot") && (nearest(live, b.pos()) < SPOT_LOGOUT_CLEAR)) {
+            how = "gk"; // somebody would see it vanish
+        }
+        final Command cmd;
+        if (how.equals("soe")) {
+            leaves++;
+            soeLeaves++;
+            note(now, "bot " + b.botId() + " reads a scroll of escape at " + a.place() + " (" + why + (restock ? ", back later" : ", logs out in town") + ")");
+            cmd = new Command.Assign(b.botId(), a.leave(++seq, Assignment.Kind.LEAVE_SOE, null));
+        } else if (how.equals("spot")) {
+            leaves++;
+            spotLogouts++;
+            note(now, "bot " + b.botId() + " logs out on the spot at " + a.place() + " (" + why + ")");
+            cmd = new Command.Assign(b.botId(), a.leave(++seq, Assignment.Kind.LEAVE_SPOT, b.pos()));
+        } else {
+            cmd = leave(c, now, b, live, terrain, why + (restock ? ", back later" : ""));
+        }
+        if ((cmd != null) && restock) {
+            restocks++;
+            final long span = Math.max(0, l.awayMaxMs() - l.awayMinMs());
+            comebacks.put(b.botId(), new Comeback(a.place(), now + l.awayMinMs() + (long) (rnd.nextDouble() * span)));
+        }
+        return cmd;
+    }
+
     private Command leave(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain, String why) {
         final Assignment a = b.assignment();
         if (a.kind() == Assignment.Kind.TOWN) {
@@ -826,7 +943,9 @@ public final class Director {
     /** Separate lines for //bots director: road, transit, dungeons, leaving - now and since the start. */
     public List<String> kindLines() {
         return List.of("Road (passers-by): " + roadNow + " now, " + passers + " since start", "Transit (gatekeeper): " + transitNow + " now, " + transits + " since start",
-            "Dungeons: " + indoorNow + " bots on indoor grounds now", "Leaving: " + leavingNow + " now, " + leaves + " leave orders since start");
+            "Dungeons: " + indoorNow + " bots on indoor grounds now", "Leaving: " + leavingNow + " now, " + leaves + " leave orders since start",
+            "Ends of hunts: " + soeLeaves + " scroll of escape, " + spotLogouts + " logout on the spot, " + restocks + " went to town (" + errandsTrips + " errands seen, "
+                + comebacksDone + " came back, " + comebacks.size() + " expected)");
     }
 
     public synchronized String statsLine() {
@@ -836,6 +955,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + (density < 1 ? " density=" + density : "");
     }
 }

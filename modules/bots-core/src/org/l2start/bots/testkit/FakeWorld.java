@@ -48,6 +48,11 @@ public final class FakeWorld {
     public static final int BOW_RANGE = 500;
     /** HP potions (Lesser, Healing, Greater): +30 % HP, reuse 10 s, like the stock 10 s reuse. */
     public static final int[] POTIONS = { 1060, 1061, 1539 };
+    /** Scroll of Escape: useItem casts 20 s, then the bot is in town. */
+    public static final int SOE = 736;
+    public int soeUsed;
+    public int logouts;
+    private long escapeAt;
     /** Phase 4c: heals that put 30 % HP back on whoever they are cast on (the bot or its summon). */
     public static final java.util.Set<Integer> HEALS = java.util.Set.of(1011, 1015, 1217, 1218, 1401, 1127);
     public static final int SPOIL_ID = 254;
@@ -368,6 +373,11 @@ public final class FakeWorld {
                 petNextHitAt = now + 1000;
                 hit(t, 4 + level, petId);
             }
+        }
+        if ((escapeAt > 0) && (now >= escapeAt)) {
+            escapeAt = 0;
+            actuators.returnToTown();
+            return;
         }
         if (sitting) {
             return;
@@ -791,6 +801,14 @@ public final class FakeWorld {
 
         @Override
         public ActionResult useItem(int itemId) {
+            if ((itemId == SOE) && !dead && !sitting && (itemCount(SOE) > 0) && (escapeAt == 0)) {
+                items.merge(SOE, -1L, Long::sum);
+                escapeAt = now + 20_000; // the stock cast of a scroll of escape
+                intention = "CAST";
+                moveDest = null;
+                soeUsed++;
+                return ActionResult.OK;
+            }
             if (dead || sitting || (itemCount(itemId) <= 0) || java.util.Arrays.stream(POTIONS).noneMatch(x -> x == itemId)) {
                 return ActionResult.INVALID;
             }
@@ -910,6 +928,7 @@ public final class FakeWorld {
 
         @Override
         public ActionResult logout() {
+            logouts++;
             return ActionResult.OK;
         }
     };

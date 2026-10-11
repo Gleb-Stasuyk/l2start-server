@@ -31,6 +31,7 @@ public final class BotsBrainBasicModule implements GameModule {
         BasicBrain.selfBuffs = ctx.config().getBoolean("SelfBuffs");
         BasicBrain.usePlaystyles = ctx.config().getBoolean("Playstyles");
         BasicBrain.summons = ctx.config().getBoolean("Summons");
+        BasicBrain.afkShare = clamp(num(ctx.config().getString("AfkShare"), 0.15), 0, 1);
     }
 
     /** Parses the brain settings into BasicBrain (bad values: the defaults stay). */

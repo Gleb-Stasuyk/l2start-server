@@ -15,6 +15,7 @@
     "KiteDistance": { "type": "string", "default": "120,400", "reloadable": true, "description": "Archers and mages against melee monsters: close,to. When the monster is within its own reach + close, the bot steps back to 'to' (archers: at most bow range - 50) and shoots or casts again. 0 = no kiting." },
     "SelfBuffs": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4b: bots keep their own class buffs on while hunting (renewed before they run out) and switch stances (Vicious Stance, Accuracy) on in a fight and off before resting." },
     "Playstyles": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4c: bots fight with the skills of their class by data/playstyles.xml (from Living Worlds): panic skills at low HP, openers, stances, control and debuffs on durable targets, the class rotation; area skills only on monsters already on the bot. Off = plain hits and the first nuke." },
+    "AfkShare": { "type": "string", "default": "0.15", "reloadable": true, "description": "Phase 4d: share of hunts with one 'away from the keyboard' of 1-10 min (stands still, never sits); in town half of it at each NPC visit." },
     "Summons": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4c: summoners call their servitor on the hunting ground (crystals come with them), send it at their target, heal it with Servitor Heal and keep their MP while it tanks; the servitor goes when the bot dies or leaves." }
   },
   "dependencies": [ { "id": "bots-core", "version": "^0.5" } ]

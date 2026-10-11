@@ -9,7 +9,11 @@ import java.util.List;
  * @param kind TOWN (live in a town), HUNT (hunt in a ground), LEAVE_RUN (run to {@code exit} and log out),
  *     LEAVE_GK (run to the gatekeeper at {@code exit} and log out there: for a client that is a teleport),
  *     TRANSIT (appeared at a gatekeeper "after a teleport": stand a few seconds, then teleport on = log out),
- *     PASS (a passer-by on a road: run past the player to {@code exit}, vanish out of sight)
+ *     PASS (a passer-by on a road: run past the player to {@code exit}, vanish out of sight),
+ *     LEAVE_SOE (end of a hunt, phase 4d: read a scroll of escape where it stands; in town the director logs it out
+ *     unseen or sends it on ERRANDS), LEAVE_SPOT (log out right here, sitting, as a "restart": only with nobody near),
+ *     ERRANDS (back in town from a hunt in front of a player: 2-3 NPCs - shop, warehouse, trainer - now and then AFK,
+ *     then the gatekeeper at {@code exit} and "teleport" = log out)
  * @param place id of the town or hunting ground (world catalogue)
  * @param center centre of the place
  * @param radius radius of the place
@@ -21,7 +25,7 @@ import java.util.List;
  */
 public record Assignment(long seq, Kind kind, String place, Pos center, int radius, int minLevel, int maxLevel, List<Pos> spots, List<Anchor> anchors, Pos exit) {
     public enum Kind {
-        TOWN, HUNT, LEAVE_RUN, LEAVE_GK, TRANSIT, PASS
+        TOWN, HUNT, LEAVE_RUN, LEAVE_GK, TRANSIT, PASS, LEAVE_SOE, LEAVE_SPOT, ERRANDS
     }
 
     /** A point of interest in a town: kind = gk, shop, wh, trainer, restart. */
@@ -29,12 +33,12 @@ public record Assignment(long seq, Kind kind, String place, Pos center, int radi
     }
 
     public boolean leaving() {
-        return (kind == Kind.LEAVE_RUN) || (kind == Kind.LEAVE_GK) || (kind == Kind.PASS);
+        return (kind == Kind.LEAVE_RUN) || (kind == Kind.LEAVE_GK) || (kind == Kind.PASS) || (kind == Kind.LEAVE_SOE) || (kind == Kind.LEAVE_SPOT);
     }
 
     /** Only passing through (transit at a gatekeeper, passer-by, leaving): not one of the bots that live at a place. */
     public boolean passing() {
-        return leaving() || (kind == Kind.TRANSIT);
+        return leaving() || (kind == Kind.TRANSIT) || (kind == Kind.ERRANDS);
     }
 
     /** The same place, now leaving towards {@code exit}. */

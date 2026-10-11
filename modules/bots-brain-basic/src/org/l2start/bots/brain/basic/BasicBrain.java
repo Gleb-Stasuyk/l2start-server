@@ -721,6 +721,9 @@ public final class BasicBrain implements Brain {
         }
         return switch (a.kind()) {
             case LEAVE_RUN, LEAVE_GK, PASS -> leaving(ctx, w, me, now, a);
+            case LEAVE_SOE -> escapeHome(ctx, w, me, now, a, attacker);
+            case LEAVE_SPOT -> logoutHere(ctx, w, me, now, attacker);
+            case ERRANDS -> errands(ctx, w, me, now, a, attacker);
             case TRANSIT -> transit(ctx, me, now);
             case TOWN -> town(ctx, w, me, now, a, attacker);
             case HUNT -> hunt(ctx, w, me, now, a, attacker);
@@ -734,7 +737,22 @@ public final class BasicBrain implements Brain {
         stuck = 0;
         detourSide = 0;
         nextIdleAction = now + ctx.reactionDelay();
-        if (a.leaving()) {
+        afkUntil = 0;
+        afkAt = 0;
+        soeAt = 0;
+        spotLogoutAt = 0;
+        if ((a.kind() == Assignment.Kind.LEAVE_SOE) || (a.kind() == Assignment.Kind.LEAVE_SPOT)) {
+            // the hunt is over: the monster it fights now is finished first (nobody reads a scroll mid-fight)
+            enter(ctx, Phase.LEVEL, a.kind() == Assignment.Kind.LEAVE_SOE ? "scroll of escape" : "logout here");
+        } else if (a.kind() == Assignment.Kind.ERRANDS) {
+            zone = null;
+            endFight();
+            standIfSitting(ctx, me);
+            errandsLeft = 2 + ctx.rnd().nextInt(2);
+            transitUntil = 0;
+            badAnchors.clear();
+            enter(ctx, Phase.TOWN_IDLE, "errands in " + a.place());
+        } else if (a.leaving()) {
             endFight();
             ctx.act().stop();
             standIfSitting(ctx, me);
@@ -750,6 +768,9 @@ public final class BasicBrain implements Brain {
             mobBelow = 8;
             mobAbove = 1;
             zone = new LevelZone(a.place(), "", a.center(), a.radius(), a.minLevel(), a.maxLevel(), a.spots().size(), false, java.util.Set.of());
+            if (ctx.rnd().nextDouble() < afkShare) { // "went away from the keyboard" once in this hunt, 5-40 min in
+                afkAt = now + 5 * 60_000L + ctx.rnd().nextInt(35 * 60_000);
+            }
             enter(ctx, Phase.LEVEL, "hunt " + a.place());
         } else {
             zone = null;
@@ -872,6 +893,13 @@ public final class BasicBrain implements Brain {
                 return 1000;
             }
             nextIdleAction = now + 5_000 + ctx.rnd().nextInt(25_000);
+            if (!"group".equals(errandWhat) && (ctx.rnd().nextDouble() < (afkShare / 2))) {
+                afkAt = now; // stands at the NPC for a while (away from the keyboard)
+            }
+        }
+        final long afk = afk(ctx, me, now);
+        if (afk > 0) {
+            return afk;
         }
         if (now < nextIdleAction) {
             return Math.max(500, Math.min(5000, nextIdleAction - now));
@@ -961,6 +989,190 @@ public final class BasicBrain implements Brain {
         return c;
     }
 
+    // ------------------------------------------------------------------ life between hunts (phase 4d)
+
+    /** Scroll of Escape. */
+    static final int SOE = 736;
+    /** Its cast takes 20 s; past this it tries again (or a plain return). */
+    static final long SOE_WAIT = 30_000;
+    /** Share of hunts with one AFK of 1-10 min (config AfkShare); half of it per NPC visit in town. */
+    static volatile double afkShare = 0.15;
+    private long afkAt;
+    private long afkUntil;
+    private long soeAt;
+    private long spotLogoutAt;
+    private int errandsLeft;
+
+    /** Away from the keyboard: stands still 1-10 min (never sits, no fights unless something attacks it). */
+    private long afk(BrainContext ctx, SelfView me, long now) {
+        if ((afkAt > 0) && (now >= afkAt) && (fightId == 0)) {
+            afkAt = 0;
+            afkUntil = now + 60_000 + ctx.rnd().nextInt(9 * 60_000);
+            ctx.act().stop();
+            ctx.note("afk for " + ((afkUntil - now) / 60_000) + " min");
+        }
+        if (afkUntil > now) {
+            if (me.sitting()) {
+                ctx.act().stand();
+            }
+            detail = "afk";
+            return Math.min(5000, afkUntil - now);
+        }
+        afkUntil = 0;
+        return 0;
+    }
+
+    /** The hunt is over: the fight on hand first, then a scroll of escape where it stands (20 s cast). */
+    private long escapeHome(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (me.pos().distance2d(a.center()) > (a.radius() + 3000)) {
+            standIfSitting(ctx, me);
+            detail = "in town after the scroll"; // the director logs it out unseen or sends it on errands
+            return 2000;
+        }
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (attacker != null) {
+            soeAt = 0;
+            return startFight(ctx, me, attacker, now);
+        }
+        if ((soeAt > 0) && ((now - soeAt) < SOE_WAIT)) {
+            detail = "scroll of escape";
+            return 1000;
+        }
+        standIfSitting(ctx, me);
+        soeAt = now;
+        if ((w.itemCount(SOE) > 0) && (ctx.act().useItem(SOE) == ActionResult.OK)) {
+            ctx.note("reads a scroll of escape");
+            detail = "scroll of escape";
+            return 2000;
+        }
+        ctx.note("no scroll of escape: back to town");
+        ctx.act().returnToTown();
+        return 3000;
+    }
+
+    /** Logs out right here, sitting (like a restart): the fight on hand first; nobody is near (the director checked). */
+    private long logoutHere(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (attacker != null) {
+            spotLogoutAt = 0;
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, attacker, now);
+        }
+        if (!me.sitting()) {
+            ctx.act().stop();
+            ctx.act().sit();
+            if (spotLogoutAt == 0) {
+                spotLogoutAt = now + 5_000 + ctx.rnd().nextInt(15_000);
+            }
+            detail = "sits down to log out";
+            return 1500;
+        }
+        if (spotLogoutAt == 0) {
+            spotLogoutAt = now + 5_000 + ctx.rnd().nextInt(15_000);
+        }
+        if (now >= spotLogoutAt) {
+            ctx.note("logout on the spot");
+            ctx.act().logout();
+            return 5000;
+        }
+        detail = "logging out";
+        return Math.min(2000, spotLogoutAt - now);
+    }
+
+    private static final String[] ERRAND_KINDS = { "shop", "wh", "trainer" };
+
+    /** Back in town from a hunt: 2-3 of shop, warehouse, trainer (reachable ones), now and then AFK, then the gatekeeper. */
+    private long errands(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (me.sitting()) {
+            ctx.act().stand();
+            return 1500;
+        }
+        final long afk = afk(ctx, me, now);
+        if (afk > 0) {
+            return afk;
+        }
+        if (errand != null) {
+            final double d = me.pos().distance2d(errand);
+            if (d > 120) {
+                if (d < (errandBest - 80)) {
+                    errandBest = d;
+                    errandProgressAt = now;
+                }
+                if ((now - errandProgressAt) > 8000) {
+                    ctx.note("cannot reach " + errandWhat + ": next one");
+                    if (errandAnchor != null) {
+                        badAnchors.add(errandAnchor);
+                    }
+                    if (!"gk".equals(errandWhat)) {
+                        errandsLeft = Math.max(0, errandsLeft - 1);
+                    }
+                    errand = null;
+                    errandAnchor = null;
+                    ctx.act().stop();
+                    return 1000;
+                }
+                detail = "to " + errandWhat;
+                return walk(ctx, w, me, errand, now);
+            }
+            final String at = errandWhat;
+            errand = null;
+            errandAnchor = null;
+            detail = "at " + at;
+            if ("gk".equals(at)) {
+                transitUntil = now + 2000 + ctx.rnd().nextInt(5000);
+            } else {
+                errandsLeft--;
+                nextIdleAction = now + 5_000 + ctx.rnd().nextInt(25_000);
+                if (ctx.rnd().nextDouble() < afkShare) {
+                    afkAt = now + 2000;
+                }
+            }
+        }
+        if (transitUntil > 0) {
+            detail = "at the gatekeeper (teleports)";
+            if (now >= transitUntil) {
+                transitUntil = 0;
+                ctx.note("teleported back to hunt (logout at the gatekeeper)");
+                ctx.act().logout();
+                return 5000;
+            }
+            return 1000;
+        }
+        if (now < nextIdleAction) {
+            return Math.max(500, Math.min(5000, nextIdleAction - now));
+        }
+        if (errandsLeft > 0) {
+            final List<Assignment.Anchor> l = new java.util.ArrayList<>();
+            for (Assignment.Anchor p : a.anchors()) {
+                if (java.util.Arrays.asList(ERRAND_KINDS).contains(p.kind()) && !p.kind().equals(errandWhat) && !badAnchors.contains(p.pos())
+                    && (p.pos().distance2d(me.pos()) < 4000)) {
+                    l.add(p);
+                }
+            }
+            if (!l.isEmpty()) {
+                final Assignment.Anchor p = l.get(ctx.rnd().nextInt(l.size()));
+                return startErrand(ctx, w, me, now, p.pos(), around(ctx, w, p.pos(), 60, 160), p.kind());
+            }
+            errandsLeft = 0;
+        }
+        final Pos gk = a.exit() != null ? a.exit() : (nearest(a, "gk", me.pos()) == null ? null : nearest(a, "gk", me.pos()).pos());
+        if (gk == null) {
+            ctx.act().logout();
+            return 5000;
+        }
+        return startErrand(ctx, w, me, now, gk, around(ctx, w, gk, 60, 140), "gk");
+    }
+
     /** Hunt on the ordered ground: fight, loot, rest, move between its spawns (never next to a real player). */
     private long hunt(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
         if (phase == Phase.REST) {
@@ -1004,6 +1216,10 @@ public final class BasicBrain implements Brain {
             restTo = 80 + (ctx.info().patience() * 15);
             enter(ctx, Phase.REST, String.format(java.util.Locale.ROOT, "hp %.0f%%, mp %.0f%%", me.hpPct(), me.mpPct()));
             return rest(ctx, w, me, now, null);
+        }
+        final long afk = afk(ctx, me, now);
+        if (afk > 0) {
+            return afk;
         }
         final double toZone = me.pos().distance2d(a.center());
         if (toZone < (a.radius() + 1500)) {

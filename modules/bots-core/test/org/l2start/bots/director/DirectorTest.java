@@ -41,6 +41,11 @@ class DirectorTest {
         int nextId = 1000;
         long now = 1_000_000_000L;
         int created;
+        /** Bots do what they were told in one step (4d): a scroll lands in town, runners reach the exit, spot logouts vanish. */
+        boolean obey;
+        final Map<Integer, Integer> levels = new HashMap<>();
+        final Map<Integer, Long> lastLogout = new HashMap<>();
+        final List<Integer> loggedOutOnField = new ArrayList<>();
 
         Sim(DirectorConfig c) {
             d = new Director(catalog(), c, new Random(42));
@@ -51,7 +56,7 @@ class DirectorTest {
                 final List<Director.Candidate> l = new ArrayList<>();
                 pool.forEach((id, lvl) -> {
                     if ((lvl >= lo) && (lvl <= hi)) {
-                        l.add(new Director.Candidate(id, lvl, 0));
+                        l.add(new Director.Candidate(id, lvl, obey ? lastLogout.getOrDefault(id, 0L) : 0));
                     }
                 });
                 return l;
@@ -67,15 +72,42 @@ class DirectorTest {
                             id = m.botId();
                             assertNotNull(pool.remove(id), "materialized a persona that is not in the pool");
                         }
-                        bots.put(id, new Director.BotNow(id, m.at(), m.assignment(), false, id));
+                        Pos at = m.at();
+                        if (obey && (m.assignment().kind() == Assignment.Kind.HUNT)) {
+                            // walks in to hunt in sight of the player, but not on top of him
+                            at = new Pos(m.assignment().center().x() + 1500 + ((id % 5) * 250), m.assignment().center().y() + 500, 0);
+                        }
+                        bots.put(id, new Director.BotNow(id, at, m.assignment(), false, id));
+                        levels.put(id, m.level());
                     }
                     case Director.Command.Assign a -> {
                         final Director.BotNow b = bots.get(a.botId());
-                        bots.put(a.botId(), new Director.BotNow(b.botId(), b.pos(), a.assignment(), false, b.seed()));
+                        Pos to = b.pos();
+                        if (obey) {
+                            switch (a.assignment().kind()) {
+                                case LEAVE_SOE -> to = TOWN;
+                                case LEAVE_RUN, LEAVE_GK, PASS -> to = a.assignment().exit() != null ? a.assignment().exit() : to;
+                                case LEAVE_SPOT -> {
+                                    bots.remove(a.botId());
+                                    pool.put(a.botId(), levels.getOrDefault(a.botId(), 30));
+                                    lastLogout.put(a.botId(), now);
+                                    loggedOutOnField.add(a.botId());
+                                    continue;
+                                }
+                                default -> {
+                                }
+                            }
+                        }
+                        bots.put(a.botId(), new Director.BotNow(b.botId(), to, a.assignment(), false, b.seed()));
                     }
                     case Director.Command.Logout o -> {
-                        assertNotNull(bots.remove(o.botId()));
-                        pool.put(o.botId(), 30);
+                        final Director.BotNow b = bots.remove(o.botId());
+                        assertNotNull(b);
+                        pool.put(o.botId(), obey ? levels.getOrDefault(o.botId(), 30) : 30);
+                        lastLogout.put(o.botId(), now);
+                        if (b.assignment().center().distance2d(FIELD) < 100) {
+                            loggedOutOnField.add(o.botId());
+                        }
                     }
                 }
             }
@@ -201,6 +233,96 @@ class DirectorTest {
         s.run(14, at(new Pos(0, -1500, 0)), 50 * 60_000);
         assertTrue(s.all.stream().anyMatch(c -> (c instanceof Director.Command.Assign a) && a.assignment().leaving()), "nobody lingered out");
         assertTrue(s.d.statsLine().contains("lingerLeaves="));
+    }
+
+    static DirectorConfig linger(long minMs, long maxMs) {
+        final DirectorConfig d = DirectorConfig.defaults();
+        return new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), d.hiddenMin(), d.hiddenMax(), d.seenRadius(), d.unseenRadius(),
+            d.unseenLogoutMs(), minMs, maxMs, d.townNight(), d.townDay(), d.townEvening(), d.groundMin(), d.groundMax(), d.indoorFactor(),
+            d.huntPerCluster(), d.huntPerExtraPlayer(), d.maxPerCluster(), d.maxInWorld(), d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), d.returnCooldownMs(),
+            d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs());
+    }
+
+    static long stat(Director d, String key) {
+        final java.util.regex.Matcher m = java.util.regex.Pattern.compile(" " + key + "=(\\d+)").matcher(d.statsLine());
+        return m.find() ? Long.parseLong(m.group(1)) : -1;
+    }
+
+    @Test
+    void huntSessionIsTwentyToNinetyMinutes() {
+        assertEquals(20 * 60_000L, DirectorConfig.defaults().lingerMinMs());
+        assertEquals(90 * 60_000L, DirectorConfig.defaults().lingerMaxMs());
+    }
+
+    @Test
+    void restockersGoToTownAndComeBackToTheSameGround() {
+        final Sim s = new Sim(linger(60_000, 120_000));
+        s.obey = true;
+        s.d.setLife(new Director.Life(1.0, 1, 0, 0, 60_000, 120_000));
+        s.run(14, at(FIELD), 25 * 60_000);
+        assertTrue(stat(s.d, "restocks") > 0, s.d.statsLine());
+        assertTrue(stat(s.d, "comebacks") > 0, "nobody came back: " + s.d.statsLine());
+        // the same persona appears again on the field after it left it
+        boolean again = false;
+        final java.util.Set<Integer> left = new java.util.HashSet<>();
+        for (Director.Command c : s.all) {
+            if ((c instanceof Director.Command.Assign a) && a.assignment().leaving()) {
+                left.add(a.botId());
+            } else if ((c instanceof Director.Command.Materialize m) && left.contains(m.botId()) && "field".equals(m.assignment().place())) {
+                again = true;
+            }
+        }
+        assertTrue(again, "no persona came back to the field");
+        assertTrue(s.all.stream().anyMatch(c -> (c instanceof Director.Command.Assign a) && (a.assignment().kind() == Assignment.Kind.LEAVE_SOE)), "no scroll of escape");
+    }
+
+    @Test
+    void logoutStylesFollowTheWeights() {
+        final Sim s = new Sim(linger(60_000, 120_000));
+        s.obey = true;
+        s.d.setLife(new Director.Life(0, 0, 1, 0, 60_000, 120_000));
+        s.run(14, at(FIELD), 15 * 60_000);
+        assertTrue(s.all.stream().anyMatch(c -> (c instanceof Director.Command.Assign a) && (a.assignment().kind() == Assignment.Kind.LEAVE_SPOT)), "no spot logout");
+        assertTrue(s.all.stream().noneMatch(c -> (c instanceof Director.Command.Assign a) && (a.assignment().kind() == Assignment.Kind.LEAVE_SOE)), "scroll with weight 0");
+        assertEquals(0, stat(s.d, "restocks"));
+    }
+
+    @Test
+    void neverLogsOutOnTheSpotInFrontOfAPlayer() {
+        final Director d = new Director(catalog(), DirectorConfig.defaults(), new Random(1));
+        d.setLife(new Director.Life(0, 0, 1, 0, 60_000, 120_000));
+        final Pos bot = new Pos(FIELD.x() + 500, FIELD.y(), 0);
+        final Assignment hunt = new Assignment(1, Assignment.Kind.HUNT, "field", FIELD, 3000, 30, 34, List.of(), List.of(), null);
+        final Director.BotNow b = new Director.BotNow(77, bot, hunt, false, 77);
+        final Director.Command near = d.endOfStay(DirectorConfig.defaults(), 1_000_000L, b, at(new Pos(bot.x() + 600, bot.y(), 0)), p -> p, "test");
+        assertTrue((near instanceof Director.Command.Assign a) && (a.assignment().kind() != Assignment.Kind.LEAVE_SPOT), "vanished in front of a player: " + near);
+        final Director.Command far = d.endOfStay(DirectorConfig.defaults(), 1_000_000L, b, at(new Pos(bot.x() + 2500, bot.y(), 0)), p -> p, "test");
+        assertTrue((far instanceof Director.Command.Assign a) && (a.assignment().kind() == Assignment.Kind.LEAVE_SPOT), "no spot logout: " + far);
+    }
+
+    @Test
+    void scrollLandingInFrontOfAPlayerGoesOnErrands() {
+        final Sim s = new Sim(linger(60_000, 120_000));
+        s.obey = true;
+        s.d.setLife(new Director.Life(0, 1, 0, 0, 60_000, 120_000));
+        s.run(14, at(FIELD, new Pos(0, -1500, 0)), 15 * 60_000);
+        final List<Assignment> errands = s.all.stream().filter(c -> (c instanceof Director.Command.Assign a) && (a.assignment().kind() == Assignment.Kind.ERRANDS))
+            .map(c -> ((Director.Command.Assign) c).assignment()).toList();
+        assertFalse(errands.isEmpty(), "no errands: " + s.d.statsLine());
+        assertTrue(errands.stream().allMatch(a -> "town".equals(a.place()) && GK.equals(a.exit())), errands.toString());
+    }
+
+    @Test
+    void deadBotsWaitByTheirPatience() {
+        final Random r = new Random(3);
+        for (int i = 0; i < 200; i++) {
+            final long quick = DeathWait.ms(0.1, 5000, 40_000, r);
+            assertTrue((quick >= 2000) && (quick < 8000), "impatient: " + quick);
+            final long res = DeathWait.ms(0.9, 5000, 40_000, r);
+            assertTrue((res >= 60_000) && (res < 180_000), "waits for a res: " + res);
+            final long mid = DeathWait.ms(0.5, 5000, 40_000, r);
+            assertTrue((mid >= 5000) && (mid <= 40_000), "usual: " + mid);
+        }
     }
 
     @Test

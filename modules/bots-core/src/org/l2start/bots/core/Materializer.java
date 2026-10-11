@@ -83,6 +83,7 @@ final class Materializer {
         cleanup(p);
         sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
         sb.append(", ").append(potions(p, target));
+        p.getInventory().addItem(ItemProcessType.REWARD, SOE, 2, p, null); // like everybody: to end the hunt (phase 4d)
         final String crystals = summonItems(p);
         if (crystals != null) {
             sb.append(", ").append(crystals);
@@ -157,6 +158,9 @@ final class Materializer {
     }
 
     static final int POTIONS = 20;
+
+    /** Scroll of Escape: 2 for every bot (they vanish with the rest on logout). */
+    static final int SOE = 736;
 
     private static String potions(Player p, int level) {
         final int id = potionFor(level);
