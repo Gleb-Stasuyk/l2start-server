@@ -218,7 +218,8 @@ say "-- 7 bots (AutoCreate=20, AutoSpawn=10, Presence=manual)"
 export SMOKE_BOTS_PRESENCE=manual
 BOTCHARS="SELECT char_id FROM mod_bots_core_identity"
 wait_log() { # wait_log REGEX TIMEOUT_S
-  local t=0; while [ $t -lt "$2" ]; do gamelog | grep -qE "$1" && return 0; sleep 3; t=$((t + 3)); done; return 1
+  # no grep -q here: with pipefail, grep -q quitting early kills tr with SIGPIPE and the wait reads "not found"
+  local t=0; while [ $t -lt "$2" ]; do gamelog | grep -E "$1" >/dev/null && return 0; sleep 3; t=$((t + 3)); done; return 1
 }
 start_game solo false off 20 10
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
@@ -299,6 +300,7 @@ check "director: >= 4 personas got a level of their zone (>= 30)" test "$(sql "S
 check "director: level >= 20 = a profession (no starting class)" test "$(sql "SELECT COUNT(*) FROM characters WHERE level >= 20 AND classid IN (0,10,18,25,31,38,44,49,53) AND charId IN ($BOTS8)")" = 0
 check "director: level >= 20 bots wear zone gear (>= 4 items)" test "$(sql "SELECT COUNT(*) FROM characters c WHERE c.level >= 20 AND c.charId IN ($BOTS8) AND (SELECT COUNT(*) FROM items it WHERE it.owner_id=c.charId AND it.loc='PAPERDOLL') < 4")" = 0
 check "director: loot vanished (nothing in bags but arrows)" test "$(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345) AND owner_id IN ($BOTS8)")" = 0
+say "   bag items left (item_id count): $(sql "SELECT item_id, COUNT(*) FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345) AND owner_id IN ($BOTS8) GROUP BY item_id" | tr '\t\n' ':,')"
 check "director: bots hidden (online=0)" test "$(sql "SELECT COUNT(*) FROM characters WHERE online<>0 AND charId IN ($BOTS8)")" = 0
 unset SMOKE_BOTS_ANCHORS
 
