@@ -28,14 +28,23 @@ public final class Director {
     }
 
     /** A bot in the world right now. */
-    public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed) {
+    /** @param group the pair/trio it came in with (phase 4g), 0 = alone */
+    public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group) {
+        public BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed) {
+            this(botId, pos, assignment, dead, seed, 0);
+        }
     }
 
     /** A persona that could enter: not in the world, its level now (paper or real, the higher). */
     /** @param race 0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf, -1 unknown */
-    public record Candidate(int botId, int level, long lastLogout, int race) {
+    /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity) {
+        public Candidate(int botId, int level, long lastLogout, int race) {
+            this(botId, level, lastLogout, race, 1);
+        }
+
         public Candidate(int botId, int level, long lastLogout) {
-            this(botId, level, lastLogout, -1);
+            this(botId, level, lastLogout, -1, 1);
         }
     }
 
@@ -69,7 +78,11 @@ public final class Director {
     public sealed interface Command {
         /** Bring this persona (botId 0 = create a new one) at {@code level} into the world at {@code at} with this order. */
         /** @param race the race of a new persona (botId 0), -1 = any */
-        record Materialize(int botId, int level, Pos at, Assignment assignment, int race) implements Command {
+        /** @param group bots of one group come in together and form a party (phase 4g), 0 = alone */
+        record Materialize(int botId, int level, Pos at, Assignment assignment, int race, int group) implements Command {
+            public Materialize(int botId, int level, Pos at, Assignment assignment, int race) {
+                this(botId, level, at, assignment, race, 0);
+            }
         }
 
         /** A new order for a bot in the world (leave). */
@@ -84,6 +97,29 @@ public final class Director {
     /** One place in the last tick (for //bots director and the log). */
     public record PlaceState(String id, boolean town, int players, int target, int present, int pending) {
     }
+
+    /**
+     * How hunters end a hunt (phase 4d; bots-core keys RestockShare, LogoutStyle, RestockAway).
+     * @param restockShare share of ends that are "went to town and back" (scroll of escape or running off, back on the
+     *     same ground from its edge after {@code awayMinMs..awayMaxMs})
+     * @param soe weight of "scroll of escape and log out in town"
+     * @param spot weight of "log out right here, sitting" (only with no live player within {@link #SPOT_LOGOUT_CLEAR})
+     * @param gk weight of "walk off to the gatekeeper" (out of sight)
+     */
+    public record Life(double restockShare, double soe, double spot, double gk, long awayMinMs, long awayMaxMs) {
+        public static Life defaults() {
+            return new Life(0.4, 5, 3, 2, 4 * 60_000L, 12 * 60_000L);
+        }
+    }
+
+    /** A player closer than this: no logging out on the spot (it would vanish in front of them). */
+    static final int SPOT_LOGOUT_CLEAR = 1200;
+
+    private record Comeback(String place, long due) {
+    }
+
+    /** A bot leaving a dungeon farther than this from every player and out of their line of sight is gone from view. */
+    static final int INDOOR_OUT_OF_SIGHT = 600;
 
     private static final class Track {
         long seenSince;
@@ -105,6 +141,8 @@ public final class Director {
     private final Map<Integer, Pending> pending = new HashMap<>();
     private final Map<String, Long> nextSpawn = new HashMap<>();
     private final Map<String, Long> nextLeave = new HashMap<>();
+    private final Map<Integer, Comeback> comebacks = new HashMap<>();
+    private volatile Life life = Life.defaults();
     private final Deque<String> decisions = new ArrayDeque<>();
     private long seq;
     private int newKey;
@@ -121,6 +159,16 @@ public final class Director {
     private long noPersona;
     private long transits;
     private long passers;
+    private long restocks;
+    private long comebacksDone;
+    private long soeLeaves;
+    private long spotLogouts;
+    private long errandsTrips;
+    // right now (last tick)
+    private volatile int roadNow;
+    private volatile int transitNow;
+    private volatile int leavingNow;
+    private volatile int indoorNow;
 
     public Director(WorldCatalog catalog, DirectorConfig cfg, Random rnd) {
         this.catalog = catalog;
@@ -130,6 +178,32 @@ public final class Director {
 
     public void setConfig(DirectorConfig c) {
         cfg = c;
+    }
+
+    public void setLife(Life l) {
+        life = l;
+    }
+
+    /** Phase 4g: share of hunters that come as a pair or trio (bots-core PartyShare). */
+    private volatile double partyShare = 0.12;
+    private int groupSeq;
+    private long parties;
+    private long partyLeaves;
+    /** Extra Materialize commands of the partners of the last {@link #spawn}. */
+    private final List<Command> partners = new ArrayList<>();
+    /** How many more bots the place being spawned may take (the partners must fit). */
+    private int spawnRoom;
+
+    public void setPartyShare(double share) {
+        partyShare = Math.max(0, Math.min(1, share));
+    }
+
+    public double partyShare() {
+        return partyShare;
+    }
+
+    public Life life() {
+        return life;
     }
 
     private volatile double density = 1;
@@ -172,6 +246,30 @@ public final class Director {
         // 2. who sees whom: unseen bots leave, leaving bots vanish once unseen, lingering bots get a leave order
         final Map<String, List<BotNow>> byPlace = new HashMap<>();
         final List<BotNow> lingering = new ArrayList<>();
+        int road = 0;
+        int transit = 0;
+        int leavingCount = 0;
+        int indoors = 0;
+        for (BotNow b : bots) {
+            final Assignment k = b.assignment();
+            if (k != null) {
+                switch (k.kind()) {
+                    case PASS -> road++;
+                    case TRANSIT -> transit++;
+                    case LEAVE_RUN, LEAVE_GK, LEAVE_SOE, LEAVE_SPOT, ERRANDS -> leavingCount++;
+                    default -> {
+                        final WorldCatalog.Ground g = catalog.ground(k.place());
+                        if ((g != null) && g.indoor()) {
+                            indoors++;
+                        }
+                    }
+                }
+            }
+        }
+        roadNow = road;
+        transitNow = transit;
+        leavingNow = leavingCount;
+        indoorNow = indoors;
         for (BotNow b : bots) {
             final Track t = tracks.computeIfAbsent(b.botId(), k -> {
                 final Track n = new Track();
@@ -179,7 +277,11 @@ public final class Director {
                 return n;
             });
             final double d = nearest(live, b.pos());
-            if (d > c.unseenRadius()) {
+            final Assignment a0 = b.assignment();
+            final WorldCatalog.Ground g0 = (a0 == null) || !a0.passing() ? null : catalog.ground(a0.place());
+            // leaving a dungeon: round a corner or onto another floor is out of sight, not only past the radius
+            final boolean hiddenIndoors = (g0 != null) && g0.indoor() && (d > INDOOR_OUT_OF_SIGHT) && !inSight(c, live, b.pos(), terrain);
+            if ((d > c.unseenRadius()) || hiddenIndoors) {
                 if (t.unseenSince == 0) {
                     t.unseenSince = now;
                 }
@@ -196,6 +298,25 @@ public final class Director {
                 out.add(new Command.Logout(b.botId(), leaving ? "left unseen" : "nobody around"));
                 unseenLogouts++;
                 tracks.remove(b.botId());
+                continue;
+            }
+            if ((a != null) && (a.kind() == Assignment.Kind.LEAVE_SOE) && !b.dead() && (t.unseenSince == 0)) {
+                // read a scroll of escape and landed in a town in front of a player: errands there, then the gatekeeper
+                final WorldCatalog.Town town = catalog.townAt(b.pos(), c.townMargin());
+                if ((town != null) && (a.center().distance2d(b.pos()) > (a.radius() + 3000))) {
+                    Pos gk = null;
+                    for (Pos g : town.anchors("gk")) {
+                        if ((gk == null) || (g.distance2d(b.pos()) < gk.distance2d(b.pos()))) {
+                            gk = g;
+                        }
+                    }
+                    if (gk != null) {
+                        errandsTrips++;
+                        note(now, "bot " + b.botId() + " back in " + town.id() + " from a hunt: errands, then the gatekeeper");
+                        out.add(new Command.Assign(b.botId(), new Assignment(++seq, Assignment.Kind.ERRANDS, town.id(), town.center(), town.radius(), town.minLevel(),
+                            town.maxLevel(), List.of(), town.anchors(), gk)));
+                    }
+                }
                 continue;
             }
             if ((a == null) || leaving || b.dead()) {
@@ -281,10 +402,14 @@ public final class Director {
                 }
                 final int have = here.size() + pend;
                 if ((have < want) && (now >= nextSpawn.getOrDefault(d.id(), 0L)) && (total < c.maxInWorld())) {
+                    spawnRoom = Math.min(want - have, c.maxInWorld() - total);
+                    partners.clear();
                     final Command m = spawn(c, now, d, cluster, live, pool, terrain, createdThisTick);
                     if (m != null) {
                         out.add(m);
                         total++;
+                        out.addAll(partners);
+                        total += partners.size();
                         if (((Command.Materialize) m).botId() == 0) {
                             createdThisTick = true;
                         }
@@ -292,7 +417,7 @@ public final class Director {
                     nextSpawn.put(d.id(), now + c.spawnIntervalMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.spawnIntervalMaxMs() - c.spawnIntervalMinMs())));
                 } else if ((here.size() > want) && (now >= nextLeave.getOrDefault(d.id(), 0L))) {
                     final BotNow b = oldest(here);
-                    final Command l = leave(c, now, b, live, terrain, "more than " + want + " at " + d.id());
+                    final Command l = endOfStay(c, now, b, live, terrain, "more than " + want + " at " + d.id());
                     if (l != null) {
                         out.add(l);
                         nextLeave.put(d.id(), now + c.leaveIntervalMs());
@@ -341,7 +466,7 @@ public final class Director {
             if (now < nextLeave.getOrDefault(place, 0L)) {
                 continue;
             }
-            final Command l = leave(c, now, b, live, terrain, "seen too long");
+            final Command l = endOfStay(c, now, b, live, terrain, "hunt over");
             if (l != null) {
                 out.add(l);
                 lingerLeaves++;
@@ -349,8 +474,49 @@ public final class Director {
                 nextLeave.put(place, now + c.leaveIntervalMs());
             }
         }
+        together(out, bots, live);
         places = List.copyOf(states);
         return out;
+    }
+
+    /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
+    private void together(List<Command> out, List<BotNow> bots, List<Live> live) {
+        final Map<Integer, BotNow> byId = new HashMap<>();
+        for (BotNow b : bots) {
+            byId.put(b.botId(), b);
+        }
+        final Set<Integer> ordered = new HashSet<>();
+        for (Command x : out) {
+            if (x instanceof Command.Assign a) {
+                ordered.add(a.botId());
+            } else if (x instanceof Command.Logout l) {
+                ordered.add(l.botId());
+            }
+        }
+        final List<Command> more = new ArrayList<>();
+        for (Command x : out) {
+            if (!(x instanceof Command.Assign a) || !a.assignment().leaving()) {
+                continue;
+            }
+            final BotNow b = byId.get(a.botId());
+            if ((b == null) || (b.group() == 0)) {
+                continue;
+            }
+            for (BotNow o : bots) {
+                if ((o.group() != b.group()) || (o.botId() == b.botId()) || o.dead() || ordered.contains(o.botId()) || (o.assignment() == null) || o.assignment().leaving()) {
+                    continue;
+                }
+                Assignment.Kind k = a.assignment().kind();
+                if ((k == Assignment.Kind.LEAVE_SPOT) && (nearest(live, o.pos()) < SPOT_LOGOUT_CLEAR)) {
+                    k = Assignment.Kind.LEAVE_SOE; // that one has somebody next to it
+                }
+                final Pos to = k == Assignment.Kind.LEAVE_SOE ? null : k == Assignment.Kind.LEAVE_SPOT ? o.pos() : a.assignment().exit();
+                more.add(new Command.Assign(o.botId(), o.assignment().leave(++seq, k, to)));
+                ordered.add(o.botId());
+                partyLeaves++;
+            }
+        }
+        out.addAll(more);
     }
 
     // ------------------------------------------------------------------ density
@@ -423,10 +589,27 @@ public final class Director {
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
         final int race = d.town() ? raceOf(d.townRef().id()) : -1;
+        Candidate back = null;
+        if (!d.town()) {
+            // back from town (restock): the same persona on the same ground, from its edge, before anybody else
+            comebacks.values().removeIf(x -> now > (x.due() + 30 * 60_000L));
+            for (Candidate x : cands) {
+                final Comeback cb = comebacks.get(x.botId());
+                if ((cb != null) && cb.place().equals(d.id()) && (now >= cb.due()) && !pending.containsKey(x.botId())) {
+                    back = x;
+                    break;
+                }
+            }
+        }
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         int botId = 0;
         int level;
-        if (!cands.isEmpty()) {
+        if (back != null) {
+            comebacks.remove(back.botId());
+            comebacksDone++;
+            botId = back.botId();
+            level = back.level();
+        } else if (!cands.isEmpty()) {
             final Candidate pick = weighted(cands, now);
             botId = pick.botId();
             level = pick.level();
@@ -450,7 +633,31 @@ public final class Director {
         if (botId == 0) {
             created++;
         }
-        note(now, (botId == 0 ? "new persona" : "bot " + botId) + " lv " + level + " -> " + a.kind() + " " + d.id() + " at " + at);
+        note(now, (botId == 0 ? "new persona" : "bot " + botId) + " lv " + level + " -> " + a.kind() + " " + d.id() + " at " + at + (back != null ? " (back from town)" : ""));
+        if (!d.town() && (botId != 0) && (back == null) && (spawnRoom >= 2) && (rnd.nextDouble() < partyShare)) {
+            // a pair or a trio: personas of about the same level come in together from the same edge
+            final int lvl = level;
+            final int self = botId;
+            final List<Candidate> mates = new ArrayList<>(cands);
+            mates.removeIf(x -> (x.botId() == self) || (Math.abs(x.level() - lvl) > 5));
+            final int want = Math.min(mates.size(), ((spawnRoom >= 3) && (rnd.nextDouble() < 0.35)) ? 2 : 1);
+            if (want > 0) {
+                final int group = ++groupSeq;
+                parties++;
+                final StringBuilder names = new StringBuilder();
+                for (int i = 0; i < want; i++) {
+                    final Candidate mate = mates.remove(rnd.nextInt(mates.size()));
+                    final Assignment ma = new Assignment(++seq, a.kind(), a.place(), a.center(), a.radius(), a.minLevel(), a.maxLevel(), a.spots(), a.anchors(), a.exit());
+                    final Pos mat = terrain.ground(new Pos(at.x() + 60 + (i * 50), at.y() + 40 - (i * 80), at.z()));
+                    pending.put(mate.botId(), new Pending(d.id(), ma.seq(), now));
+                    materialized++;
+                    partners.add(new Command.Materialize(mate.botId(), mate.level(), mat == null ? at : mat, ma, -1, group));
+                    names.append(' ').append(mate.botId());
+                }
+                note(now, "bot " + botId + " comes with" + names + " as a party (" + (want + 1) + ")");
+                return new Command.Materialize(botId, level, at, a, race, group);
+            }
+        }
         return new Command.Materialize(botId, level, at, a, race);
     }
 
@@ -563,6 +770,7 @@ public final class Director {
         final double[] w = new double[cands.size()];
         for (int i = 0; i < w.length; i++) {
             w[i] = 1 + (Math.min(86_400_000L, Math.max(0, now - cands.get(i).lastLogout())) / 3_600_000.0); // long gone = more likely
+            w[i] *= 0.1 + Math.max(0, Math.min(1, cands.get(i).activity())); // their hours (chronotype): far more likely
             sum += w[i];
         }
         double r = rnd.nextDouble() * sum;
@@ -649,6 +857,52 @@ public final class Director {
     }
 
     // ------------------------------------------------------------------ out
+
+    /**
+     * The end of a stay (phase 4d). A hunter: "went to town and back" (RestockShare: scroll of escape or running off,
+     * the same persona comes back to the same ground from its edge later), else a human logout by LogoutStyle (scroll of
+     * escape and logout in town, logout on the spot sitting when nobody is near, walking off to the gatekeeper). A town
+     * bot leaves as before (gatekeeper or running off).
+     */
+    Command endOfStay(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain, String why) {
+        final Assignment a = b.assignment();
+        if (a.kind() != Assignment.Kind.HUNT) {
+            return leave(c, now, b, live, terrain, why);
+        }
+        final Life l = life;
+        final boolean restock = (b.group() == 0) && (rnd.nextDouble() < l.restockShare()); // a party just logs out together
+        String how;
+        if (restock) {
+            how = rnd.nextDouble() < 0.6 ? "soe" : "gk";
+        } else {
+            final double sum = Math.max(1e-9, l.soe() + l.spot() + l.gk());
+            final double x = rnd.nextDouble() * sum;
+            how = x < l.soe() ? "soe" : x < (l.soe() + l.spot()) ? "spot" : "gk";
+        }
+        if (how.equals("spot") && (nearest(live, b.pos()) < SPOT_LOGOUT_CLEAR)) {
+            how = "gk"; // somebody would see it vanish
+        }
+        final Command cmd;
+        if (how.equals("soe")) {
+            leaves++;
+            soeLeaves++;
+            note(now, "bot " + b.botId() + " reads a scroll of escape at " + a.place() + " (" + why + (restock ? ", back later" : ", logs out in town") + ")");
+            cmd = new Command.Assign(b.botId(), a.leave(++seq, Assignment.Kind.LEAVE_SOE, null));
+        } else if (how.equals("spot")) {
+            leaves++;
+            spotLogouts++;
+            note(now, "bot " + b.botId() + " logs out on the spot at " + a.place() + " (" + why + ")");
+            cmd = new Command.Assign(b.botId(), a.leave(++seq, Assignment.Kind.LEAVE_SPOT, b.pos()));
+        } else {
+            cmd = leave(c, now, b, live, terrain, why + (restock ? ", back later" : ""));
+        }
+        if ((cmd != null) && restock) {
+            restocks++;
+            final long span = Math.max(0, l.awayMaxMs() - l.awayMinMs());
+            comebacks.put(b.botId(), new Comeback(a.place(), now + l.awayMinMs() + (long) (rnd.nextDouble() * span)));
+        }
+        return cmd;
+    }
 
     private Command leave(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain, String why) {
         final Assignment a = b.assignment();
@@ -781,6 +1035,14 @@ public final class Director {
         return pending.size();
     }
 
+    /** Separate lines for //bots director: road, transit, dungeons, leaving - now and since the start. */
+    public List<String> kindLines() {
+        return List.of("Road (passers-by): " + roadNow + " now, " + passers + " since start", "Transit (gatekeeper): " + transitNow + " now, " + transits + " since start",
+            "Dungeons: " + indoorNow + " bots on indoor grounds now", "Leaving: " + leavingNow + " now, " + leaves + " leave orders since start",
+            "Ends of hunts: " + soeLeaves + " scroll of escape, " + spotLogouts + " logout on the spot, " + restocks + " went to town (" + errandsTrips + " errands seen, "
+                + comebacksDone + " came back, " + comebacks.size() + " expected); parties " + parties + " (share " + Math.round(partyShare * 100) + "%), left together " + partyLeaves);
+    }
+
     public synchronized String statsLine() {
         int target = 0;
         for (PlaceState p : places) {
@@ -788,6 +1050,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + (density < 1 ? " density=" + density : "");
     }
 }

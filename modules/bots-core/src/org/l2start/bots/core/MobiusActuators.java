@@ -7,6 +7,7 @@ import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.WorldObject;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2jmobius.gameserver.entity.actor.Summon;
 import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportWhereType;
 import org.l2jmobius.gameserver.entity.item.enums.ItemLocation;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
@@ -83,8 +84,12 @@ final class MobiusActuators implements Actuators {
     }
 
     private static Creature creature(Player p, int objectId) {
+        return creature(p, objectId, false);
+    }
+
+    private static Creature creature(Player p, int objectId, boolean deadToo) {
         final WorldObject o = World.findObject(objectId);
-        if (!(o instanceof Creature c) || c.isDead() || !c.isSpawned() || (c.calculateDistance2D(p) > MAX_TARGET)) {
+        if (!(o instanceof Creature c) || (c.isDead() && !deadToo) || !c.isSpawned() || (c.calculateDistance2D(p) > MAX_TARGET)) {
             return null;
         }
         return c;
@@ -148,9 +153,12 @@ final class MobiusActuators implements Actuators {
     public ActionResult cast(int skillId, int objectId) {
         final Player p = alive();
         final Skill skill = p == null ? null : p.getKnownSkill(skillId);
-        final Creature c = p == null ? null : creature(p, objectId);
+        final boolean corpse = (skill != null) && MobiusWorldView.corpse(skill);
+        final boolean res = (skill != null) && skill.hasEffectType(org.l2jmobius.gameserver.mechanics.effects.EffectType.RESURRECTION); // on a dead party member (4g)
+        final Creature c = p == null ? null : creature(p, objectId, corpse || res);
         final String arg = skillId + "->" + (c == null ? String.valueOf(objectId) : c.getName());
-        if ((skill == null) || (c == null) || p.isSitting() || p.isAllSkillsDisabled() || (((skill.getEffectPoint() < 0) || skill.isDebuff()) && (!c.isAutoAttackable(p) || p.isInsidePeaceZone(p, c)))) {
+        if ((skill == null) || (c == null) || p.isSitting() || p.isAllSkillsDisabled() || (corpse && (!c.isDead() || !c.isAttackable())) || (res && (!c.isDead() || !c.isPlayer()))
+            || (!corpse && ((skill.getEffectPoint() < 0) || skill.isDebuff()) && (!c.isAutoAttackable(p) || p.isInsidePeaceZone(p, c)))) {
             return done("cast", arg, ActionResult.INVALID);
         }
         if (p.isSkillDisabled(skill) || p.isCastingNow() || (p.getCurrentMp() < skill.getMpConsume())) {
@@ -288,6 +296,49 @@ final class MobiusActuators implements Actuators {
             p.getAI().setIntentionActive();
         }
         return done("stop", "", ActionResult.OK);
+    }
+
+    /** Its own summon when it is in the world and alive. */
+    private static Summon pet(Player p) {
+        final Summon s = p == null ? null : p.getSummon();
+        return (s == null) || s.isDead() || !s.isSpawned() ? null : s;
+    }
+
+    @Override
+    public ActionResult petAttack(int objectId) {
+        final Player p = alive();
+        final Summon s = pet(p);
+        final Creature c = s == null ? null : creature(p, objectId);
+        final String name = c == null ? String.valueOf(objectId) : c.getName();
+        // the same checks as the client's pet window "Attack" (RequestActionUse 16/22) plus the bot's validator
+        if ((c == null) || (c == p) || (c == s) || s.isBetrayed() || s.isMovementDisabled() || !c.isAutoAttackable(p) || p.isInsidePeaceZone(p, c)) {
+            return done("petAttack", name, ActionResult.INVALID);
+        }
+        s.setFollowStatus(false);
+        s.doSummonAttack(c);
+        return done("petAttack", name, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult petFollow() {
+        final Player p = alive();
+        final Summon s = pet(p);
+        if (s == null) {
+            return done("petFollow", "", ActionResult.INVALID);
+        }
+        s.cancelAction();
+        s.setFollowStatus(true);
+        return done("petFollow", "", ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult unsummon() {
+        final Player p = r.player();
+        if ((p == null) || !p.hasSummon()) {
+            return done("unsummon", "", ActionResult.INVALID);
+        }
+        BotWorld.dismissSummon(p);
+        return done("unsummon", "", ActionResult.OK);
     }
 
     @Override

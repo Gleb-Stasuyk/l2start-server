@@ -295,9 +295,19 @@ public final class BotsCoreModule implements GameModule {
 
     private void applyConfig() {
         world.setRequireGeodata(ctx.config().getBoolean("RequireGeodata"));
+        org.l2start.bots.director.PaperLevel.setGlobalPace(Double.parseDouble(ctx.config().getString("PaperLevelPace").trim()));
         brains.applyConfig();
+        org.l2start.bots.director.GearTable.setEnchantMax(ctx.config().getInt("EnchantMax"));
         if (director != null) {
+            final int[] lag = ints(ctx.config().getList("GradeLag"), 2, "GradeLag");
+            director.setGradeLag(lag[0], lag[1]);
             director.setConfig(directorConfig());
+            director.director().setLife(life());
+            try {
+                director.director().setPartyShare(Double.parseDouble(ctx.config().getString("PartyShare").trim()));
+            } catch (NumberFormatException e) {
+                ctx.log().warn("bad PartyShare: " + ctx.config().getString("PartyShare"));
+            }
             director.setAnchors(anchors(ctx.config().getList("Anchors")));
         }
     }
@@ -333,6 +343,35 @@ public final class BotsCoreModule implements GameModule {
             d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), ctx.config().getDuration("DirectorReturnCooldown").toMillis(), d.pendingTimeoutMs(), curve,
             millis(transit.get(0)), millis(transit.get(1)), Double.parseDouble(ctx.config().getString("DirectorTransitStarterFactor").trim()), millis(pass.get(0)),
             millis(pass.get(1)));
+    }
+
+    private org.l2start.bots.director.Director.Life life() {
+        double soe = 0;
+        double spot = 0;
+        double gk = 0;
+        for (String e : ctx.config().getList("LogoutStyle")) {
+            final String[] kv = e.trim().split(":");
+            if (kv.length != 2) {
+                throw new IllegalArgumentException("LogoutStyle: soe:N,spot:N,gk:N expected, got " + e);
+            }
+            final double w = Math.max(0, Double.parseDouble(kv[1].trim()));
+            switch (kv[0].trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "soe" -> soe = w;
+                case "spot" -> spot = w;
+                case "gk" -> gk = w;
+                default -> throw new IllegalArgumentException("LogoutStyle: unknown style " + kv[0]);
+            }
+        }
+        if ((soe + spot + gk) <= 0) {
+            gk = 1;
+        }
+        final List<String> away = ctx.config().getList("RestockAway");
+        if (away.size() != 2) {
+            throw new IllegalArgumentException("RestockAway: min,max expected");
+        }
+        final double share = Math.max(0, Math.min(1, Double.parseDouble(ctx.config().getString("RestockShare").trim())));
+        final long min = millis(away.get(0));
+        return new org.l2start.bots.director.Director.Life(share, soe, spot, gk, min, Math.max(min, millis(away.get(1))));
     }
 
     /** "90s", "20m", "2h". */
@@ -431,16 +470,59 @@ public final class BotsCoreModule implements GameModule {
         ctx.log().info(sb.toString());
     }
 
-    /** Lies dead DeathReturnMin..Max, then "To village" (like a player reading the death dialog). */
+    /**
+     * Lies dead a while by its patience (impatient 2-8 s, patient 1-3 min "waiting for a res", else
+     * DeathReturnMin..Max), with a partner of its pair/trio alive near at least 1-2 min; accepts a resurrection
+     * (4g) and otherwise presses "To village".
+     */
     private void scheduleReturn(BotRecord r) {
         final long min = ctx.config().getDuration("DeathReturnMin").toMillis();
         final long max = Math.max(min, ctx.config().getDuration("DeathReturnMax").toMillis());
-        long delay = min + (max > min ? ThreadLocalRandom.current().nextLong(max - min + 1) : 0);
+        final double patience = (r.persona() == null) || (r.persona().traits() == null) ? 0.5 : r.persona().traits().patience();
+        long delay = org.l2start.bots.director.DeathWait.ms(patience, min, max, new java.util.Random(ThreadLocalRandom.current().nextLong()));
         final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
         if ((p != null) && (p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.TOWN) || p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.PEACE))) {
             delay = 1500 + ThreadLocalRandom.current().nextLong(1500); // no corpses lying in towns
+        } else if ((p != null) && partnerNear(r, p)) {
+            delay = Math.max(delay, 60_000 + ThreadLocalRandom.current().nextLong(60_000)); // its healer will raise it
         }
-        ctx.scheduler().schedule("return " + r.name(), Duration.ofMillis(delay), () -> world.returnToTown(r));
+        final long returnAt = System.currentTimeMillis() + delay;
+        deadWatch(r, returnAt);
+    }
+
+    /** Every 2 s while dead: takes a resurrection offered, or goes to town when the time is up. */
+    private void deadWatch(BotRecord r, long returnAt) {
+        final long wait = Math.max(200, Math.min(2000, returnAt - System.currentTimeMillis()));
+        ctx.scheduler().schedule("dead " + r.name(), Duration.ofMillis(wait), () -> {
+            final Player p = r.player();
+            if ((p == null) || !p.isDead() || !r.inWorld()) {
+                return;
+            }
+            if (p.isReviveRequested() && !p.isRevivingPet()) {
+                p.reviveAnswer(1);
+                ctx.metrics().counter("resurrected").inc();
+                return;
+            }
+            if (System.currentTimeMillis() >= returnAt) {
+                world.returnToTown(r);
+                return;
+            }
+            deadWatch(r, returnAt);
+        });
+    }
+
+    /** A live member of its pair/trio within 2000. */
+    private boolean partnerNear(BotRecord r, Player p) {
+        if (r.group() == 0) {
+            return false;
+        }
+        for (BotRecord o : registry.all()) {
+            final Player q = o.player();
+            if ((o != r) && (o.group() == r.group()) && (q != null) && !q.isDead() && (q.calculateDistance2D(p) < 2000)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void onDamage(OnCreatureDamageReceived e) {

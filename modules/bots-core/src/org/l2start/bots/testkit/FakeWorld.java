@@ -15,6 +15,7 @@ import org.l2start.bots.api.BotEvent;
 import org.l2start.bots.api.DropView;
 import org.l2start.bots.api.Geo;
 import org.l2start.bots.api.NpcView;
+import org.l2start.bots.api.PartyMember;
 import org.l2start.bots.api.PlayerView;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
@@ -32,11 +33,41 @@ public final class FakeWorld {
     public static final int NUKE_ID = 1177;
     /** A nuke the game always refuses here (like Might of Heaven on a living monster); only with {@link #undeadOnlyNuke}. */
     public static final int UNDEAD_NUKE_ID = 1028;
+    /** Phase 4b (with {@link #selfBuffs}): a 20-minute self buff (Shield) and, for fighters, a stance (Vicious Stance). */
+    public static final int BUFF_ID = 1040;
+    public static final int BUFF_MP = 10;
+    public static final long BUFF_MS = 1_200_000;
+    public static final int TOGGLE_ID = 312;
+    /** Phase 4c (with {@link #strikeSkill}): a fighter's Power Strike - double damage in melee, 10 MP, reuse 3 s. */
+    public static final int STRIKE_ID = 3;
+    public static final int STRIKE_MP = 10;
     public static final double SPEED = 120; // units per second
     public static final int MELEE_RANGE = 80;
     public static final int NUKE_RANGE = 600;
     public static final int NUKE_MP = 10;
     public static final int VIEW = 1500;
+    public static final int BOW_RANGE = 500;
+    /** HP potions (Lesser, Healing, Greater): +30 % HP, reuse 10 s, like the stock 10 s reuse. */
+    public static final int[] POTIONS = { 1060, 1061, 1539 };
+    /** Scroll of Escape: useItem casts 20 s, then the bot is in town. */
+    public static final int SOE = 736;
+    public int soeUsed;
+    public int logouts;
+    private long escapeAt;
+    /** Phase 4c: heals that put 30 % HP back on whoever they are cast on (the bot or its summon). */
+    public static final java.util.Set<Integer> HEALS = java.util.Set.of(1011, 1015, 1217, 1218, 1401, 1127);
+    public static final int SPOIL_ID = 254;
+    public static final int SWEEPER_ID = 42;
+    public static final int BACKSTAB_ID = 30;
+    /** What Sweeper takes from a spoiled body. */
+    public static final int SWEEP_ITEM = 1864;
+    /** Skills that add one charge (Sonic Focus, Focused Force), at most {@link #MAX_CHARGES}. */
+    public static final java.util.Set<Integer> CHARGE_GAIN = java.util.Set.of(8, 50);
+    public static final int MAX_CHARGES = 7;
+
+    /** A skill added by a test: {@link #addSkill}. */
+    public record Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed) {
+    }
 
     public static final class Mob {
         public final int objectId;
@@ -50,8 +81,18 @@ public final class FakeWorld {
         public int targetId;
         /** Object id of another player fighting it (kill-steal tests). */
         public int engagedBy;
+        /** Physical attack range: melee 40 (stops at {@link #MELEE_RANGE}), an archer monster 500. */
+        public int attackRange = 40;
+        /** An aggressive monster attacks the bot when it comes this close. */
+        public int aggroRange = NpcView.AGGRO;
+        /** Phase 4c: where it looks (client units, 0 = east); it turns to whoever it hits. */
+        public int heading;
+        public boolean undead;
+        /** Spoil (254) worked on it: Sweeper (42) on the corpse gives {@link #SWEEP_ITEM}. */
+        public boolean spoiled;
         long respawnAt = -1;
         long nextHitAt;
+        long swingUntil;
 
         Mob(int objectId, int npcId, int level, Pos pos) {
             this.objectId = objectId;
@@ -106,6 +147,28 @@ public final class FakeWorld {
     private long nextSwingAt;
     private boolean peaceZone;
     private int townRadius = 800;
+    private boolean archer;
+    private final Map<Integer, Long> items = new HashMap<>();
+    private long potionReadyAt;
+    /** Monster speed as a share of the bot's (0.8: a bot can step away from a monster; 1.2: it cannot). */
+    public double mobSpeed = 0.8;
+    /** Damage the bot took from monsters (kiting tests). */
+    public double damageTaken;
+    public int potionsUsed;
+
+    // phase 4c: added skills, charges, the summon
+    private final Map<Integer, Extra> extras = new LinkedHashMap<>();
+    /** Every added skill that went off: "id->target". */
+    public final List<String> casts = new ArrayList<>();
+    public int classId = -1;
+    public int charges;
+    public int petId;
+    public double petHp;
+    public int petTargetId;
+    private long petNextHitAt;
+    public int unsummons;
+    public int sweeps;
+    public int petKills;
 
     // statistics for tests
     public int kills;
@@ -136,8 +199,57 @@ public final class FakeWorld {
         walls.add(new Wall(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)));
     }
 
+    /** Phase 4g: the other members of its party (tests move and hurt them with {@link #setParty}). */
+    public final List<PartyMember> party = new ArrayList<>();
+    public boolean partyLeader = true;
+    /** "skillId>objectId" of every skill cast on a party member. */
+    public final List<String> partyCasts = new ArrayList<>();
+    public static final int RESURRECTION = 1016;
+    public static final int AGGRESSION = 28;
+    public int taunts;
+
+    public void setParty(PartyMember... members) {
+        party.clear();
+        party.addAll(List.of(members));
+    }
+
+    private int partyIndex(int objectId) {
+        for (int i = 0; i < party.size(); i++) {
+            if (party.get(i).objectId() == objectId) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     public void addPlayer(PlayerView p) {
         players.add(p);
+    }
+
+    /** A bow in the hands: shoots from {@link #BOW_RANGE}. */
+    public void setArcher(boolean a) {
+        archer = a;
+    }
+
+    public void giveItem(int itemId, long count) {
+        items.merge(itemId, count, Long::sum);
+    }
+
+    public long itemCount(int itemId) {
+        return items.getOrDefault(itemId, 0L);
+    }
+
+    /** Phase 4c: the bot knows this skill (damage: STRIKE in melee, NUKE from {@link #NUKE_RANGE}). */
+    public void addSkill(int id, SkillView.Kind kind, int mp, long reuseMs) {
+        addSkill(new Extra(id, kind, mp, reuseMs, 0, 0, 0));
+    }
+
+    public void addSkill(Extra e) {
+        extras.put(e.id(), e);
+    }
+
+    public int petMaxHp() {
+        return 60 + (level * 10);
     }
 
     public void setTownRadius(int r) {
@@ -147,6 +259,7 @@ public final class FakeWorld {
     public void teleport(Pos p) {
         pos = p;
         moveDest = null;
+        peaceZone = pos.distance2d(town) <= townRadius;
     }
 
     public void setLevel(int l) {
@@ -223,6 +336,9 @@ public final class FakeWorld {
         if (dead) {
             return;
         }
+        if (toggleOn && sitting) {
+            toggleSittingMs += ms;
+        }
         // regeneration
         final double regen = sitting ? 0.05 : 0.01;
         hp = Math.min(maxHp(), hp + (maxHp() * regen * sec));
@@ -232,17 +348,36 @@ public final class FakeWorld {
             if (m.dead()) {
                 continue;
             }
-            if (m.aggressive && (m.targetId == 0) && (m.engagedBy == 0) && (m.pos.distance2d(pos) < 300)) {
+            if (m.aggressive && (m.targetId == 0) && (m.engagedBy == 0) && (m.pos.distance2d(pos) < m.aggroRange)) {
                 m.targetId = SELF_ID;
             }
-            if (m.targetId == SELF_ID) {
+            if ((petId != 0) && (m.targetId == petId)) { // the summon stays by the bot
                 final double d = m.pos.distance2d(pos);
+                m.heading = headingTo(m.pos, pos);
                 if (d > MELEE_RANGE) {
-                    m.pos = m.pos.toward(pos, SPEED * 0.8 * sec);
+                    m.pos = m.pos.toward(pos, SPEED * mobSpeed * sec);
                 } else if (now >= m.nextHitAt) {
                     m.nextHitAt = now + 1500;
+                    m.swingUntil = now + 500;
+                    petHp -= 2 + (m.level * 1.5);
+                    if (petHp <= 0) {
+                        petGone();
+                    }
+                }
+                continue;
+            }
+            if (m.targetId == SELF_ID) {
+                m.heading = headingTo(m.pos, pos);
+                final double d = m.pos.distance2d(pos);
+                final int reach = Math.max(MELEE_RANGE, m.attackRange);
+                if (d > reach) {
+                    m.pos = m.pos.toward(pos, SPEED * mobSpeed * sec);
+                } else if (now >= m.nextHitAt) {
+                    m.nextHitAt = now + 1500;
+                    m.swingUntil = now + 500;
                     final double dmg = 2 + (m.level * 1.5);
                     hp -= dmg;
+                    damageTaken += dmg;
                     pending.add(new BotEvent.Attacked(m.objectId, false, dmg));
                     if (sitting) {
                         sitting = false;
@@ -253,6 +388,20 @@ public final class FakeWorld {
                     }
                 }
             }
+        }
+        if (petId != 0) {
+            final Mob t = mobs.get(petTargetId);
+            if ((t == null) || t.dead()) {
+                petTargetId = 0;
+            } else if ((t.pos.distance2d(pos) <= (MELEE_RANGE * 3)) && (now >= petNextHitAt)) {
+                petNextHitAt = now + 1000;
+                hit(t, 4 + level, petId);
+            }
+        }
+        if ((escapeAt > 0) && (now >= escapeAt)) {
+            escapeAt = 0;
+            actuators.returnToTown();
+            return;
         }
         if (sitting) {
             return;
@@ -270,18 +419,43 @@ public final class FakeWorld {
                     intention = "ACTIVE";
                     break;
                 }
-                if (moveTowards(m.pos, sec, MELEE_RANGE - 10) && (now >= nextSwingAt)) {
+                if (moveTowards(m.pos, sec, archer ? BOW_RANGE - 10 : MELEE_RANGE - 10) && (now >= nextSwingAt)) {
                     nextSwingAt = now + 1000;
                     hit(m, mage ? 3 + level : 6 + (level * 2));
                 }
             }
             case "CAST" -> {
                 final Mob m = mobs.get(targetId);
+                final Extra ex = extras.get(castSkill);
+                if ((ex != null) && (m != null) && (ex.kind() == SkillView.Kind.CORPSE)) {
+                    if (moveTowards(m.pos, sec, MELEE_RANGE - 10)) {
+                        applyExtra(ex, m);
+                        intention = "ACTIVE";
+                    }
+                    break;
+                }
                 if ((m == null) || m.dead()) {
                     intention = "ACTIVE";
                     break;
                 }
-                if (moveTowards(m.pos, sec, NUKE_RANGE - 20)) {
+                if (ex != null) { // like the stock AI: walk up, then the skill goes off
+                    if (moveTowards(m.pos, sec, (ex.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : MELEE_RANGE) - 10)) {
+                        applyExtra(ex, m);
+                        intention = m.dead() ? "ACTIVE" : "ATTACK";
+                    }
+                    break;
+                }
+                if (castSkill == STRIKE_ID) {
+                    if (moveTowards(m.pos, sec, MELEE_RANGE - 10)) {
+                        if (mp >= STRIKE_MP) {
+                            mp -= STRIKE_MP;
+                            skillReadyAt.put(STRIKE_ID, now + 3000);
+                            strikes++;
+                            hit(m, 2 * (6 + (level * 2)));
+                        }
+                        intention = "ATTACK"; // like the stock AI: back to hitting the target
+                    }
+                } else if (moveTowards(m.pos, sec, NUKE_RANGE - 20)) {
                     if (mp >= NUKE_MP) {
                         mp -= NUKE_MP;
                         skillReadyAt.put(castSkill, now + 1500);
@@ -326,14 +500,21 @@ public final class FakeWorld {
     }
 
     private void hit(Mob m, double dmg) {
+        hit(m, dmg, SELF_ID);
+    }
+
+    private void hit(Mob m, double dmg, int by) {
         if (m.engagedBy != 0) {
             stolenHits++;
         }
         m.hp -= dmg;
         if (m.targetId == 0) {
-            m.targetId = SELF_ID;
+            m.targetId = by;
         }
         if (m.dead()) {
+            if (by != SELF_ID) {
+                petKills++;
+            }
             m.respawnAt = now + 30_000;
             m.targetId = 0;
             kills++;
@@ -352,11 +533,28 @@ public final class FakeWorld {
         }
     }
 
+    private void petGone() {
+        petId = 0;
+        petHp = 0;
+        petTargetId = 0;
+        for (Mob m : mobs.values()) {
+            if ((m.targetId != 0) && (m.targetId != SELF_ID) && !m.dead() && (m.engagedBy == 0)) {
+                m.targetId = 0;
+            }
+        }
+    }
+
+    static int headingTo(Pos from, Pos to) {
+        return (int) Math.round((Math.atan2(to.y() - from.y(), to.x() - from.x()) * 65536) / (2 * Math.PI)) & 0xFFFF;
+    }
+
     private void die(int killer) {
         dead = true;
         deaths++;
         hp = 0;
         sitting = false;
+        buffUntil = 0; // effects go on death
+        toggleOn = false;
         intention = "IDLE";
         moveDest = null;
         for (Mob m : mobs.values()) {
@@ -423,11 +621,23 @@ public final class FakeWorld {
 
     private NpcView npcView(Mob m) {
         return new NpcView(m.objectId, m.npcId, "Mob" + m.npcId, m.level, m.pos, m.pos.distance(pos), m.dead() ? 0 : (m.hp * 100) / m.maxHp, m.dead(), true, m.aggressive, true,
-            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID)));
+            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID) && (m.targetId != petId) && (partyIndex(m.targetId) < 0)), m.attackRange, now < m.swingUntil,
+            m.aggressive ? m.aggroRange : 0, m.heading, m.undead, m.spoiled);
     }
 
     /** Give the mage an undead-only nuke with a lower id than the real one (it is listed first). */
     public boolean undeadOnlyNuke;
+    /** Phase 4b: the bot knows {@link #BUFF_ID} (and a fighter {@link #TOGGLE_ID}). */
+    public boolean selfBuffs;
+    /** Phase 4c: a fighter knows {@link #STRIKE_ID}. */
+    public boolean strikeSkill;
+    public int strikes;
+    /** Self buff on until (ms of the fake clock). */
+    public long buffUntil;
+    public boolean toggleOn;
+    public int buffCasts;
+    /** How long the stance was on while the bot sat (it should switch it off before sitting). */
+    public long toggleSittingMs;
 
     public SelfView self() {
         final List<SkillView> skills = new ArrayList<>();
@@ -438,9 +648,23 @@ public final class FakeWorld {
             skills.add(new SkillView(NUKE_ID, 1, SkillView.Kind.NUKE, NUKE_MP, NUKE_RANGE, now >= skillReadyAt.getOrDefault(NUKE_ID, 0L)));
         }
         skills.add(new SkillView(1012, 1, SkillView.Kind.OTHER, 5, 0, true));
+        if (strikeSkill && !mage) {
+            skills.add(new SkillView(STRIKE_ID, 1, SkillView.Kind.STRIKE, STRIKE_MP, 40, now >= skillReadyAt.getOrDefault(STRIKE_ID, 0L)));
+        }
+        if (selfBuffs) {
+            skills.add(new SkillView(BUFF_ID, 3, SkillView.Kind.BUFF, BUFF_MP, 0, true, now < buffUntil ? (int) Math.max(1, (buffUntil - now) / 1000) : 0));
+            if (!mage) {
+                skills.add(new SkillView(TOGGLE_ID, 1, SkillView.Kind.TOGGLE, 5, 0, true, toggleOn ? -1 : 0));
+            }
+        }
+        for (Extra e : extras.values()) {
+            skills.add(new SkillView(e.id(), 1, e.kind(), e.mp(), e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : 40, now >= skillReadyAt.getOrDefault(e.id(), 0L), 0, e.itemId(),
+                e.itemCount()));
+        }
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
-        return new SelfView(SELF_ID, "Bot", mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
-            "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills);
+        return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
+            "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
+            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId);
     }
 
     /** The view of the next tick: events since the previous view are handed over (and cleared). */
@@ -465,6 +689,17 @@ public final class FakeWorld {
             }
 
             @Override
+            public List<PartyMember> party() {
+                return party.stream().map(m -> new PartyMember(m.objectId(), m.name(), m.classId(), m.level(), m.pos(), m.pos().distance(self.pos()), m.hpPct(), m.mpPct(), m.dead(),
+                    m.targetId(), m.leader())).toList();
+            }
+
+            @Override
+            public boolean partyLeader() {
+                return partyLeader;
+            }
+
+            @Override
             public List<DropView> drops() {
                 return drops.stream().map(d -> new DropView(d.objectId, d.itemId, d.count, d.pos, d.pos.distance(pos), true)).filter(v -> v.distance() <= VIEW)
                     .sorted(Comparator.comparingDouble(DropView::distance)).toList();
@@ -484,6 +719,11 @@ public final class FakeWorld {
             public NpcView npc(int objectId) {
                 final Mob m = mobs.get(objectId);
                 return m == null ? null : npcView(m);
+            }
+
+            @Override
+            public long itemCount(int itemId) {
+                return FakeWorld.this.itemCount(itemId);
             }
         };
     }
@@ -549,7 +789,39 @@ public final class FakeWorld {
 
         @Override
         public ActionResult cast(int skillId, int objectId) {
+            final Extra extra = extras.get(skillId);
+            if (extra != null) {
+                return castExtra(extra, objectId);
+            }
+            if (selfBuffs && (objectId == SELF_ID) && ((skillId == BUFF_ID) || ((skillId == TOGGLE_ID) && !mage))) {
+                if (dead || sitting) {
+                    return ActionResult.INVALID;
+                }
+                if (skillId == TOGGLE_ID) {
+                    toggleOn = !toggleOn;
+                    return ActionResult.OK;
+                }
+                if (mp < BUFF_MP) {
+                    return ActionResult.COOLDOWN;
+                }
+                mp -= BUFF_MP;
+                buffUntil = now + BUFF_MS;
+                buffCasts++;
+                return ActionResult.OK;
+            }
             final Mob m = mobs.get(objectId);
+            if (strikeSkill && !mage && (skillId == STRIKE_ID)) {
+                if (dead || sitting || (m == null) || m.dead() || peaceZone) {
+                    return ActionResult.INVALID;
+                }
+                if ((now < skillReadyAt.getOrDefault(STRIKE_ID, 0L)) || (mp < STRIKE_MP)) {
+                    return ActionResult.COOLDOWN;
+                }
+                targetId = objectId;
+                castSkill = STRIKE_ID;
+                intention = "CAST";
+                return ActionResult.OK;
+            }
             if (dead || sitting || (m == null) || m.dead() || peaceZone || !mage || (skillId != NUKE_ID)) {
                 return ActionResult.INVALID;
             }
@@ -564,7 +836,25 @@ public final class FakeWorld {
 
         @Override
         public ActionResult useItem(int itemId) {
-            return ActionResult.INVALID;
+            if ((itemId == SOE) && !dead && !sitting && (itemCount(SOE) > 0) && (escapeAt == 0)) {
+                items.merge(SOE, -1L, Long::sum);
+                escapeAt = now + 20_000; // the stock cast of a scroll of escape
+                intention = "CAST";
+                moveDest = null;
+                soeUsed++;
+                return ActionResult.OK;
+            }
+            if (dead || sitting || (itemCount(itemId) <= 0) || java.util.Arrays.stream(POTIONS).noneMatch(x -> x == itemId)) {
+                return ActionResult.INVALID;
+            }
+            if (now < potionReadyAt) {
+                return ActionResult.COOLDOWN;
+            }
+            potionReadyAt = now + 10_000;
+            items.merge(itemId, -1L, Long::sum);
+            potionsUsed++;
+            hp = Math.min(maxHp(), hp + (maxHp() * 0.3));
+            return ActionResult.OK;
         }
 
         @Override
@@ -643,10 +933,175 @@ public final class FakeWorld {
         }
 
         @Override
+        public ActionResult petAttack(int objectId) {
+            final Mob m = mobs.get(objectId);
+            if (dead || (petId == 0) || (m == null) || m.dead() || peaceZone) {
+                return ActionResult.INVALID;
+            }
+            petTargetId = objectId;
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult petFollow() {
+            if (petId == 0) {
+                return ActionResult.INVALID;
+            }
+            petTargetId = 0;
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult unsummon() {
+            if (petId == 0) {
+                return ActionResult.INVALID;
+            }
+            unsummons++;
+            petGone();
+            return ActionResult.OK;
+        }
+
+        @Override
         public ActionResult logout() {
+            logouts++;
             return ActionResult.OK;
         }
     };
+
+    /** Casts of added skills that failed when they went off (Backstab from the front, a skill without its charges). */
+    public int extraFailures;
+
+    private ActionResult castExtra(Extra e, int objectId) {
+        if (dead || sitting) {
+            return ActionResult.INVALID;
+        }
+        if ((now < skillReadyAt.getOrDefault(e.id(), 0L)) || (mp < e.mp())) {
+            return ActionResult.COOLDOWN;
+        }
+        final Mob m = mobs.get(objectId);
+        if ((e.id() == AGGRESSION) && (m != null) && !m.dead()) {
+            m.targetId = SELF_ID; // pulled onto the bot
+            taunts++;
+            spend(e, objectId);
+            return ActionResult.OK;
+        }
+        switch (e.kind()) {
+            case SUMMON -> {
+                if ((petId != 0) || (itemCount(e.itemId()) < e.itemCount())) {
+                    return ActionResult.INVALID;
+                }
+                if (e.itemId() > 0) {
+                    items.merge(e.itemId(), (long) -e.itemCount(), Long::sum);
+                }
+                petId = nextId++;
+                petHp = petMaxHp();
+                petTargetId = 0;
+                spend(e, objectId);
+                return ActionResult.OK;
+            }
+            case CORPSE -> {
+                if ((m == null) || !m.dead() || !m.spoiled) {
+                    return ActionResult.INVALID;
+                }
+            }
+            default -> {
+                if (objectId == SELF_ID) {
+                    if (HEALS.contains(e.id())) {
+                        hp = Math.min(maxHp(), hp + (maxHp() * 0.3));
+                    }
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                final int pi = partyIndex(objectId);
+                if (pi >= 0) {
+                    final PartyMember pm = party.get(pi);
+                    if (pm.pos().distance(pos) > 900) {
+                        return ActionResult.NOT_REACHABLE;
+                    }
+                    if (e.id() == RESURRECTION) {
+                        if (!pm.dead()) {
+                            return ActionResult.INVALID;
+                        }
+                        party.set(pi, new PartyMember(pm.objectId(), pm.name(), pm.classId(), pm.level(), pm.pos(), 0, 30, 0, false, 0, pm.leader()));
+                    } else if (pm.dead()) {
+                        return ActionResult.INVALID;
+                    } else if (HEALS.contains(e.id())) {
+                        party.set(pi, new PartyMember(pm.objectId(), pm.name(), pm.classId(), pm.level(), pm.pos(), 0, Math.min(100, pm.hpPct() + 30), pm.mpPct(), false, pm.targetId(), pm.leader()));
+                    }
+                    partyCasts.add(e.id() + ">" + objectId);
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                if ((petId != 0) && (objectId == petId)) {
+                    if (HEALS.contains(e.id())) {
+                        petHp = Math.min(petMaxHp(), petHp + (petMaxHp() * 0.3));
+                    }
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                if ((m == null) || m.dead() || peaceZone) {
+                    return ActionResult.INVALID;
+                }
+                if (blocked(pos, m.pos)) {
+                    return ActionResult.NOT_REACHABLE;
+                }
+            }
+        }
+        targetId = objectId;
+        final int range = e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : MELEE_RANGE;
+        if (m.pos.distance2d(pos) <= range) {
+            applyExtra(e, m);
+            if ((e.kind() != SkillView.Kind.CORPSE) && !m.dead()) {
+                intention = "ATTACK"; // like the stock AI after a skill: back to hitting
+            }
+        } else {
+            castSkill = e.id(); // walks up first (step: CAST)
+            intention = "CAST";
+        }
+        return ActionResult.OK;
+    }
+
+    private void spend(Extra e, int objectId) {
+        mp -= e.mp();
+        skillReadyAt.put(e.id(), now + e.reuseMs());
+        casts.add(e.id() + "->" + objectId);
+    }
+
+    /** The skill goes off on the monster (in range now); a failed one still costs MP and reuse, like stock. */
+    private void applyExtra(Extra e, Mob m) {
+        if (mp < e.mp()) {
+            return;
+        }
+        if (e.kind() == SkillView.Kind.CORPSE) {
+            if (m.dead() && m.spoiled) {
+                m.spoiled = false;
+                sweeps++;
+                giveItem(SWEEP_ITEM, 1);
+                spend(e, m.objectId);
+            } else {
+                extraFailures++;
+            }
+            return;
+        }
+        if (((e.id() == BACKSTAB_ID) && !npcView(m).behind(pos, 120)) || (e.chargesUsed() > charges)) {
+            extraFailures++; // stock: Backstab only from behind; charge skills need their charges
+            mp -= e.mp();
+            return;
+        }
+        spend(e, m.objectId);
+        charges -= e.chargesUsed();
+        if (CHARGE_GAIN.contains(e.id())) {
+            charges = Math.min(MAX_CHARGES, charges + 1);
+        }
+        if (e.id() == SPOIL_ID) {
+            m.spoiled = true;
+        }
+        if ((e.kind() == SkillView.Kind.STRIKE) || (e.kind() == SkillView.Kind.NUKE)) {
+            hit(m, 2 * (6 + (level * 2)));
+        } else if (m.targetId == 0) {
+            m.targetId = SELF_ID;
+        }
+    }
 
     public Actuators actuators() {
         return actuators;

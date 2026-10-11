@@ -38,6 +38,8 @@ public final class BotRecord {
     private volatile int levelBase = 1;
     private volatile long baseAt;
     private volatile int realLevel = 1;
+    /** Phase 4g: the bot pair/trio it came in with (0 = alone); its members form a party. */
+    private volatile int group;
 
     public BotRecord(int botId, int charId, String accountName, String name, int classId, Status status, long lastLogin, long lastLogout) {
         this.botId = botId;
@@ -65,6 +67,10 @@ public final class BotRecord {
     public String lastWhisper() { return lastWhisper; }
     public int deaths() { return deaths.get(); }
     public Persona persona() { return persona; }
+
+    public int group() { return group; }
+
+    public void setGroup(int g) { group = g; }
     public int homeX() { return homeX; }
     public int homeY() { return homeY; }
     public int homeZ() { return homeZ; }
@@ -84,7 +90,8 @@ public final class BotRecord {
     /** Level now: the real one, or the one "on paper" when it grew while the bot was away (whichever is higher). */
     public int paperLevel(long now) {
         final long seed = persona == null ? charId : persona.seed();
-        return Math.max(realLevel, org.l2start.bots.director.PaperLevel.at(levelBase, baseAt, org.l2start.bots.director.PaperLevel.pace(seed), now));
+        final double hours = persona == null ? org.l2start.bots.director.PaperLevel.DEFAULT_HOURS : persona.chronotype().hoursPerDay();
+        return Math.max(realLevel, org.l2start.bots.director.PaperLevel.at(levelBase, baseAt, org.l2start.bots.director.PaperLevel.pace(seed), now, hours));
     }
 
     void setAssignment(org.l2start.bots.api.Assignment a) { assignment = a; }

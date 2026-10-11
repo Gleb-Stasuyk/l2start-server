@@ -11,9 +11,13 @@ import org.l2jmobius.gameserver.entity.actor.Attackable;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Npc;
 import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2jmobius.gameserver.entity.actor.Summon;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
+import org.l2jmobius.gameserver.entity.item.type.WeaponType;
 import org.l2jmobius.gameserver.entity.zone.ZoneId;
 import org.l2jmobius.gameserver.mechanics.effects.EffectType;
+import org.l2jmobius.gameserver.mechanics.skill.AbnormalType;
+import org.l2jmobius.gameserver.mechanics.skill.BuffInfo;
 import org.l2jmobius.gameserver.mechanics.skill.Skill;
 import org.l2jmobius.gameserver.mechanics.skill.targets.TargetType;
 import org.l2start.bots.api.BotEvent;
@@ -58,6 +62,7 @@ final class MobiusWorldView implements WorldView {
                 continue;
             }
             SkillView.Kind kind = SkillView.Kind.OTHER;
+            int left = 0;
             if (s.getTargetType() == TargetType.ONE) {
                 if (s.hasEffectType(EffectType.MAGICAL_ATTACK)) {
                     kind = SkillView.Kind.NUKE;
@@ -65,7 +70,23 @@ final class MobiusWorldView implements WorldView {
                     kind = SkillView.Kind.STRIKE;
                 }
             }
-            skills.add(new SkillView(s.getId(), s.getLevel(), kind, s.getMpConsume(), s.getCastRange(), !p.isSkillDisabled(s)));
+            if ((kind == SkillView.Kind.OTHER) && corpse(s)) {
+                kind = SkillView.Kind.CORPSE; // Sweeper; also the necromancer's summons from a body
+            } else if ((kind == SkillView.Kind.OTHER) && (s.hasEffectType(EffectType.SUMMON) || s.hasEffectType(EffectType.SUMMON_PET))) {
+                kind = SkillView.Kind.SUMMON;
+            }
+            if ((kind == SkillView.Kind.OTHER) && !s.isDebuff()) {
+                if (s.isToggle()) {
+                    kind = SkillView.Kind.TOGGLE;
+                    left = p.getEffectList().isAffectedBySkill(s.getId()) ? -1 : 0;
+                } else if (selfBuff(s)) {
+                    kind = SkillView.Kind.BUFF;
+                    final BuffInfo on = s.getAbnormalType() == AbnormalType.NONE ? p.getEffectList().getBuffInfoBySkillId(s.getId()) : p.getEffectList().getBuffInfoByAbnormalType(s.getAbnormalType());
+                    left = on == null ? 0 : Math.max(1, on.getTime());
+                }
+            }
+            skills.add(new SkillView(s.getId(), s.getLevel(), kind, s.getMpConsume(), s.getCastRange(), !p.isSkillDisabled(s), left, Math.max(0, s.getItemConsumeId()),
+                Math.max(0, s.getItemConsumeCount())));
         }
         skills.sort(Comparator.comparingInt(SkillView::id));
         final int level = p.getLevel();
@@ -78,9 +99,14 @@ final class MobiusWorldView implements WorldView {
             // max level
         }
         final WorldObject t = p.getTarget();
+        final Summon pet = p.getSummon();
+        final boolean petUp = (pet != null) && pet.isSpawned() && !pet.isDead();
+        final WorldObject petTarget = petUp ? pet.getTarget() : null;
         return new SelfView(p.getObjectId(), p.getName(), p.getPlayerClass().getId(), p.isMageClass(), level, expPct, p.getSp(), p.getCurrentHp(), p.getMaxHp(),
             p.getCurrentMp(), p.getMaxMp(), pos(p), p.isDead(), p.isSitting(), p.isMoving(), p.isInCombat(), p.isAttackingNow(), p.isCastingNow(), t == null ? 0 : t.getObjectId(),
-            p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills));
+            p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills),
+            p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW),
+            p.getCharges(), petUp ? pet.getObjectId() : 0, petUp && (pet.getMaxHp() > 0) ? (pet.getCurrentHp() * 100) / pet.getMaxHp() : 0, petTarget == null ? 0 : petTarget.getObjectId());
     }
 
     @Override
@@ -92,13 +118,14 @@ final class MobiusWorldView implements WorldView {
         boolean engaged = false;
         int targetId = 0;
         final WorldObject t = n.getTarget();
+        final Summon own = p.getSummon(); // the bot's own summon fights for the bot: not "someone else"
         if (t != null) {
             targetId = t.getObjectId();
-            engaged = (t != p) && t.isPlayable();
+            engaged = (t != p) && (t != own) && t.isPlayable() && !ours(t);
         }
         if (!engaged && (n instanceof Attackable a)) {
             for (Creature c : a.getAggroList().keySet()) {
-                if ((c != p) && c.isPlayable()) {
+                if ((c != p) && (c != own) && c.isPlayable() && !ours(c)) {
                     engaged = true;
                     break;
                 }
@@ -106,7 +133,8 @@ final class MobiusWorldView implements WorldView {
         }
         final Pos at = pos(n);
         return new NpcView(n.getObjectId(), n.getId(), n.getName(), n.getLevel(), at, at.distance(self.pos()), n.getMaxHp() <= 0 ? 0 : (n.getCurrentHp() * 100) / n.getMaxHp(), n.isDead(),
-            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged);
+            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow(), aggroRange(n),
+            n.getHeading(), n.isUndead(), (n instanceof Attackable a) && a.isSpoiled());
     }
 
     @Override
@@ -138,6 +166,46 @@ final class MobiusWorldView implements WorldView {
         return players;
     }
 
+    private List<org.l2start.bots.api.PartyMember> party;
+
+    @Override
+    public List<org.l2start.bots.api.PartyMember> party() {
+        if (party == null) {
+            final List<org.l2start.bots.api.PartyMember> l = new ArrayList<>();
+            final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+            if (pt != null) {
+                for (Player o : pt.getMembers()) {
+                    if ((o == null) || (o == p) || !o.isOnline()) {
+                        continue;
+                    }
+                    final Pos at = pos(o);
+                    final WorldObject t = o.getTarget();
+                    l.add(new org.l2start.bots.api.PartyMember(o.getObjectId(), o.getName(), o.getPlayerClass().getId(), o.getLevel(), at, at.distance(self.pos()),
+                        o.getMaxHp() <= 0 ? 0 : (o.getCurrentHp() * 100) / o.getMaxHp(), o.getMaxMp() <= 0 ? 0 : (o.getCurrentMp() * 100) / o.getMaxMp(), o.isDead(),
+                        t == null ? 0 : t.getObjectId(), pt.isLeader(o)));
+                }
+            }
+            party = l;
+        }
+        return party;
+    }
+
+    @Override
+    public boolean partyLeader() {
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        return (pt == null) || pt.isLeader(p);
+    }
+
+    /** A party member of the bot (or its summon): its fights are not "someone else's". */
+    private boolean ours(WorldObject t) {
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        if ((pt == null) || !(t instanceof Creature c)) {
+            return false;
+        }
+        final Player owner = c instanceof Player pl ? pl : c instanceof Summon s ? s.getOwner() : null;
+        return (owner != null) && (owner.getParty() == pt);
+    }
+
     @Override
     public List<DropView> drops() {
         if (drops == null) {
@@ -164,7 +232,45 @@ final class MobiusWorldView implements WorldView {
     }
 
     @Override
+    public long itemCount(int itemId) {
+        return p.getInventory().getInventoryItemCount(itemId, -1, false);
+    }
+
+    @Override
     public NpcView npc(int objectId) {
         return World.findObject(objectId) instanceof Npc n ? view(n) : null;
+    }
+
+    /** Aggro range of an aggressive monster (NPC data; the usual 300 when the data has none), else 0. */
+    static int aggroRange(Npc n) {
+        if (!n.isAggressive()) {
+            return 0;
+        }
+        final int r = n.getTemplate().getAggroRange();
+        return r > 0 ? r : NpcView.AGGRO;
+    }
+
+    /** Used on a dead monster's body (Sweeper). */
+    static boolean corpse(Skill s) {
+        return switch (s.getTargetType()) {
+            case CORPSE_MOB -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * A lasting good effect a player can put on himself (phase 4b): continuous, 2 minutes or longer (no short panic
+     * skills like Ultimate Defense or Frenzy), cast on himself, the party or a friendly target, no items consumed, no
+     * dances or songs (they need a party around).
+     */
+    static boolean selfBuff(Skill s) {
+        if (!s.isContinuous() || s.isToggle() || s.isDebuff() || s.isDance() || s.isHealingPotionSkill() || (s.getAbnormalTime() < 120) || (s.getItemConsumeCount() > 0)
+            || (s.getAbnormalType() == null)) {
+            return false;
+        }
+        return switch (s.getTargetType()) {
+            case SELF, ONE, PARTY, CLAN, PARTY_CLAN, AURA_FRIENDLY -> s.getEffectPoint() >= 0;
+            default -> false;
+        };
     }
 }

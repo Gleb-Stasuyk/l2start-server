@@ -10,6 +10,8 @@ import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.item.enums.ItemProcessType;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.type.EtcItemType;
+import org.l2jmobius.gameserver.mechanics.skill.Skill;
+import org.l2start.bots.api.SkillView;
 import org.l2start.bots.director.GearTable;
 import org.l2start.bots.persona.Persona;
 
@@ -29,8 +31,17 @@ final class Materializer {
 
     private final GearTable gear;
 
+    /** Config GradeLag of bots-core: a new grade comes min..max levels late (by greed). */
+    private volatile int lagMin = 0;
+    private volatile int lagMax = 5;
+
     Materializer(GearTable gear) {
         this.gear = gear;
+    }
+
+    void setGradeLag(int min, int max) {
+        lagMin = Math.max(0, Math.min(10, min));
+        lagMax = Math.max(lagMin, Math.min(10, max));
     }
 
     /** @return what was done, for the log ("lv 41, class 2, 6 items") */
@@ -60,13 +71,23 @@ final class Materializer {
             sb.append(", ").append(skills).append(" skills");
         }
         // equipment
-        final GearTable.Plan plan = gear.plan(future, target, seed);
+        final int lag = GearTable.lag(persona == null ? 0.5 : persona.traits().greed(), lagMin, lagMax);
+        final GearTable.Plan plan = gear.plan(future, target, seed, lag);
         if (!plan.items().isEmpty()) {
             final int n = equip(p, plan);
             sb.append(", ").append(plan.grade()).append(" gear ").append(n).append(" new");
+            if (plan.weaponEnchant() > 0) {
+                sb.append(", weapon +").append(plan.weaponEnchant());
+            }
         }
         cleanup(p);
         sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
+        sb.append(", ").append(potions(p, target));
+        p.getInventory().addItem(ItemProcessType.REWARD, SOE, 2, p, null); // like everybody: to end the hunt (phase 4d)
+        final String crystals = summonItems(p);
+        if (crystals != null) {
+            sb.append(", ").append(crystals);
+        }
         if (p.isDead()) { // logged out dead (left unseen before "To village"): never arrive as a corpse
             p.setDead(false);
             p.setIsPendingRevive(false);
@@ -97,8 +118,15 @@ final class Materializer {
                 it = p.getInventory().addItem(ItemProcessType.REWARD, id, 1, p, null);
                 added++;
             }
-            if ((it != null) && !it.isEquipped()) {
-                p.getInventory().equipItem(it);
+            if (it != null) {
+                // visible enchant of the persona in this grade (stable: the same bot tomorrow shows the same +N)
+                final int enchant = id == plan.weaponId() ? plan.weaponEnchant() : plan.armorEnchant();
+                if (it.getEnchantLevel() != enchant) {
+                    it.setEnchantLevel(enchant);
+                }
+                if (!it.isEquipped()) {
+                    p.getInventory().equipItem(it);
+                }
             }
         }
         if ("BOW".equals(plan.weaponKind())) {
@@ -124,6 +152,44 @@ final class Materializer {
         return "shots " + id;
     }
 
+    /** HP potions of the level (phase 4a), like a player farming; they vanish with the rest on logout. */
+    static int potionFor(int level) {
+        return level < 20 ? 1060 : level < 40 ? 1061 : 1539; // Lesser / Healing / Greater Healing Potion
+    }
+
+    static final int POTIONS = 20;
+
+    /** Scroll of Escape: 2 for every bot (they vanish with the rest on logout). */
+    static final int SOE = 736;
+
+    private static String potions(Player p, int level) {
+        final int id = potionFor(level);
+        p.getInventory().addItem(ItemProcessType.REWARD, id, POTIONS, p, null);
+        return POTIONS + " potions " + id;
+    }
+
+    /** Calls of each servitor summon a bot carries the crystals for (phase 4c); they vanish with the rest on logout. */
+    static final int SUMMON_CASTS = 20;
+    /** Crystals on top for the servitor's upkeep (a few every 4 minutes while it is out). */
+    static final int SUMMON_UPKEEP = 100;
+
+    /** Crystals for the servitor summons it knows (Summon Kat the Cat: D-grade crystals), like a summoner farming. */
+    private static String summonItems(Player p) {
+        final java.util.Map<Integer, Integer> need = new java.util.TreeMap<>();
+        for (Skill s : p.getSkills().values()) {
+            if (SkillView.servitorSummon(s.getId()) && (s.getItemConsumeId() > 0)) {
+                need.merge(s.getItemConsumeId(), (Math.max(1, s.getItemConsumeCount()) * SUMMON_CASTS) + SUMMON_UPKEEP, Math::max);
+            }
+        }
+        if (need.isEmpty()) {
+            return null;
+        }
+        for (java.util.Map.Entry<Integer, Integer> e : need.entrySet()) {
+            p.getInventory().addItem(ItemProcessType.REWARD, e.getKey(), e.getValue(), p, null);
+        }
+        return "summon crystals " + need;
+    }
+
     private static boolean jewel(Item it) {
         final String bp = String.valueOf(it.getTemplate().getBodyPart());
         return bp.contains("EAR") || bp.contains("FINGER") || bp.contains("NECK");
@@ -142,5 +208,19 @@ final class Materializer {
             p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
         }
         return junk.size();
+    }
+
+    /** Phase 4b: buffs some bots arrive with (in the world already: the effects show at once). */
+    static String arrivalBuffs(Player p, double[] shares, java.util.Random r) {
+        final java.util.List<ArrivalBuffs.Buff> buffs = ArrivalBuffs.pick(p.getLevel(), p.isMageClass(), shares[0], shares[1], r);
+        int n = 0;
+        for (ArrivalBuffs.Buff b : buffs) {
+            final org.l2jmobius.gameserver.mechanics.skill.Skill s = org.l2jmobius.gameserver.data.xml.SkillData.getInstance().getSkill(b.skillId(), b.level());
+            if ((s != null) && (s.getAbnormalTime() > 0)) {
+                s.applyEffects(p, p, false, Math.max(30, (int) (s.getAbnormalTime() * b.left())));
+                n++;
+            }
+        }
+        return n == 0 ? "no buffs" : (n + " buffs");
     }
 }

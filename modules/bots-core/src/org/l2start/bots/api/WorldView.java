@@ -22,4 +22,19 @@ public interface WorldView {
 
     /** A monster or NPC by object id, wherever it is (null = gone). */
     NpcView npc(int objectId);
+
+    /** How many of these items the bot carries (potions, arrows, scrolls); 0 when unknown. */
+    default long itemCount(int itemId) {
+        return 0;
+    }
+
+    /** The other members of its party (phase 4g), empty when it is alone. */
+    default List<PartyMember> party() {
+        return List.of();
+    }
+
+    /** It leads its party (or has none). */
+    default boolean partyLeader() {
+        return true;
+    }
 }

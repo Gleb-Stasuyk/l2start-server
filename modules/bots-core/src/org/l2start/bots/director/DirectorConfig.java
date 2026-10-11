@@ -18,7 +18,7 @@ public record DirectorConfig(int clusterLink, int groundReach, int townMargin, i
     }
 
     public static DirectorConfig defaults() {
-        return new DirectorConfig(6000, 2500, 300, 3200, 4200, 3000, 4500, 90_000, 20 * 60_000L, 45 * 60_000L, new int[] { 2, 4 }, new int[] { 5, 10 },
+        return new DirectorConfig(6000, 2500, 300, 3200, 4200, 3000, 4500, 90_000, 20 * 60_000L, 90 * 60_000L, new int[] { 2, 4 }, new int[] { 5, 10 },
             new int[] { 10, 20 }, 2, 5, 0.5, 6, 3, 30, 150, 4000, 8000, 20_000, 10 * 60_000L, 30_000, defaultCurve(), 20_000, 40_000, 4.0,
             120_000, 300_000);
     }

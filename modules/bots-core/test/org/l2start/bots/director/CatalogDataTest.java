@@ -64,4 +64,43 @@ class CatalogDataTest {
         assertEquals(GearTable.Grade.D, GearTable.Grade.of(20));
         assertEquals(GearTable.Grade.S, GearTable.Grade.of(76));
     }
+
+    @Test
+    void gearStaysForTheWholeGradeComesLateAndIsSometimesEnchanted() throws Exception {
+        final GearTable g = GearTable.load(DATA.resolve("gear.xml"));
+        for (long seed = 1; seed < 40; seed++) {
+            // the same bot at 41 and at 50: the same C weapon and set (lag 0)
+            assertEquals(g.plan(2, 41, seed, 0).items(), g.plan(2, 50, seed, 0).items(), "seed " + seed);
+            assertEquals(g.plan(12, 22, seed, 0).items(), g.plan(12, 38, seed, 0).items(), "seed " + seed);
+            assertEquals(g.plan(2, 45, seed, 0).weaponEnchant(), g.plan(2, 51, seed, 0).weaponEnchant());
+        }
+        assertEquals(GearTable.Grade.C, GearTable.gradeWorn(52, 3), "52 with 3 levels of lag: still C");
+        assertEquals(GearTable.Grade.B, GearTable.gradeWorn(55, 3));
+        assertEquals(GearTable.Grade.B, GearTable.gradeWorn(52, 0));
+        assertEquals(GearTable.Grade.B, GearTable.gradeWorn(62, 30), "lag never takes it below the grade before");
+        assertEquals(GearTable.Grade.C, g.plan(2, 52, 3, 5).grade());
+        assertEquals(0, GearTable.lag(0, 0, 5));
+        assertEquals(5, GearTable.lag(1, 0, 5));
+        int enchanted = 0;
+        int high = 0;
+        for (long seed = 0; seed < 1000; seed++) {
+            final GearTable.Plan p = g.plan(2, 45, seed, 0);
+            assertTrue((p.weaponEnchant() >= 0) && (p.weaponEnchant() <= 4));
+            assertTrue((p.armorEnchant() >= 0) && (p.armorEnchant() <= 3));
+            assertTrue(p.weaponId() != 0);
+            enchanted += p.weaponEnchant() > 0 ? 1 : 0;
+            high += p.weaponEnchant() == 4 ? 1 : 0;
+            assertEquals(0, g.plan(2, 15, seed, 0).weaponEnchant(), "no-grade weapons are never enchanted");
+        }
+        assertTrue((enchanted > 300) && (enchanted < 600), "enchanted weapons: " + enchanted);
+        assertTrue((high > 30) && (high < 150), "+4: " + high);
+        GearTable.setEnchantMax(2);
+        try {
+            for (long seed = 0; seed < 200; seed++) {
+                assertTrue(g.plan(2, 45, seed, 0).weaponEnchant() <= 2);
+            }
+        } finally {
+            GearTable.setEnchantMax(4);
+        }
+    }
 }

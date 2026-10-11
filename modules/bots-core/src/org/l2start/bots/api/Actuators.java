@@ -49,4 +49,19 @@ public interface Actuators {
 
     /** Log out of the world (it comes back only by //bots spawn or the schedule). */
     ActionResult logout();
+
+    /** Send its own summon at this target (like the pet window "Attack"). Phase 4c. */
+    default ActionResult petAttack(int objectId) {
+        return ActionResult.INVALID;
+    }
+
+    /** Call its own summon back to follow the bot (like "Stop" in the pet window). Phase 4c. */
+    default ActionResult petFollow() {
+        return ActionResult.INVALID;
+    }
+
+    /** Dismiss its own summon (like "Unsummon"); it is not stored for a later login. Phase 4c. */
+    default ActionResult unsummon() {
+        return ActionResult.INVALID;
+    }
 }
