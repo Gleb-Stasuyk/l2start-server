@@ -107,7 +107,7 @@ public final class DirectorRunner {
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
             if ((p != null) && !busy.contains(r.botId())) {
-                bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed()));
+                bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
             }
         }
         if (live.isEmpty() && bots.isEmpty()) {
@@ -249,6 +249,7 @@ public final class DirectorRunner {
                 final BotRecord bot = r;
                 final long now = System.currentTimeMillis();
                 bot.setAssignment(m.assignment());
+                bot.setGroup(m.group());
                 final String[] what = new String[1];
                 final String why = module.world().enterPrepared(bot, new Location(m.at().x(), m.at().y(), m.at().z()), p -> what[0] = materializer.prepare(p, bot, m.level()));
                 if (why != null) {
@@ -266,6 +267,12 @@ public final class DirectorRunner {
                 if (p != null) {
                     what[0] = what[0] + ", " + Materializer.arrivalBuffs(p, ArrivalBuffs.shares(ctx.config().getString("ArrivalBuffs")), java.util.concurrent.ThreadLocalRandom.current());
                 }
+                if ((p != null) && (m.group() != 0)) {
+                    final String with = joinParty(bot, p, m.group());
+                    if (with != null) {
+                        what[0] = what[0] + ", party with " + with;
+                    }
+                }
                 final int real = p == null ? m.level() : p.getLevel();
                 bot.setProgress(real, now, real);
                 module.repo().saveProgress(bot.botId(), real, now);
@@ -281,6 +288,33 @@ public final class DirectorRunner {
                 inFlight.decrementAndGet();
             }
         });
+    }
+
+    private final Object partyLock = new Object();
+
+    /** Phase 4g: the second and third of a group join the party of the first one in (a real party: shared XP, party window). */
+    private String joinParty(BotRecord bot, Player p, int group) {
+        synchronized (partyLock) {
+            for (BotRecord o : module.registry().all()) {
+                final Player q = o.player();
+                if ((o == bot) || (o.group() != group) || (q == null) || !q.isOnline() || q.isDead()) {
+                    continue;
+                }
+                org.l2jmobius.gameserver.entity.groups.Party party = q.getParty();
+                if (party == null) {
+                    party = new org.l2jmobius.gameserver.entity.groups.Party(q, org.l2jmobius.gameserver.entity.groups.PartyDistributionType.FINDERS_KEEPERS);
+                    q.setParty(party);
+                } else if (party.getMemberCount() >= 9) {
+                    return null;
+                }
+                if (p.getParty() == null) {
+                    p.joinParty(party);
+                }
+                ctx.metrics().counter("partyJoins").inc();
+                return q.getName();
+            }
+            return null;
+        }
     }
 
     /**

@@ -303,6 +303,11 @@ public final class BotsCoreModule implements GameModule {
             director.setGradeLag(lag[0], lag[1]);
             director.setConfig(directorConfig());
             director.director().setLife(life());
+            try {
+                director.director().setPartyShare(Double.parseDouble(ctx.config().getString("PartyShare").trim()));
+            } catch (NumberFormatException e) {
+                ctx.log().warn("bad PartyShare: " + ctx.config().getString("PartyShare"));
+            }
             director.setAnchors(anchors(ctx.config().getList("Anchors")));
         }
     }

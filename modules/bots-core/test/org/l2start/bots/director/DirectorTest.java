@@ -77,7 +77,7 @@ class DirectorTest {
                             // walks in to hunt in sight of the player, but not on top of him
                             at = new Pos(m.assignment().center().x() + 1500 + ((id % 5) * 250), m.assignment().center().y() + 500, 0);
                         }
-                        bots.put(id, new Director.BotNow(id, at, m.assignment(), false, id));
+                        bots.put(id, new Director.BotNow(id, at, m.assignment(), false, id, m.group()));
                         levels.put(id, m.level());
                     }
                     case Director.Command.Assign a -> {
@@ -98,7 +98,7 @@ class DirectorTest {
                                 }
                             }
                         }
-                        bots.put(a.botId(), new Director.BotNow(b.botId(), to, a.assignment(), false, b.seed()));
+                        bots.put(a.botId(), new Director.BotNow(b.botId(), to, a.assignment(), false, b.seed(), b.group()));
                     }
                     case Director.Command.Logout o -> {
                         final Director.BotNow b = bots.remove(o.botId());
@@ -310,6 +310,47 @@ class DirectorTest {
             .map(c -> ((Director.Command.Assign) c).assignment()).toList();
         assertFalse(errands.isEmpty(), "no errands: " + s.d.statsLine());
         assertTrue(errands.stream().allMatch(a -> "town".equals(a.place()) && GK.equals(a.exit())), errands.toString());
+    }
+
+    @Test
+    void pairsAndTriosComeTogetherAndLeaveTogether() {
+        final Sim s = new Sim(linger(3 * 60_000, 4 * 60_000));
+        s.obey = true;
+        s.d.setPartyShare(1.0);
+        s.d.setLife(new Director.Life(0, 1, 0, 0, 60_000, 120_000));
+        for (int i = 1; i <= 30; i++) {
+            s.pool.put(i, 32 + (i % 3));
+        }
+        s.run(14, at(FIELD), 20 * 60_000);
+        final Map<Integer, List<Director.Command.Materialize>> groups = new HashMap<>();
+        for (Director.Command c : s.all) {
+            if ((c instanceof Director.Command.Materialize m) && (m.group() != 0)) {
+                groups.computeIfAbsent(m.group(), k -> new ArrayList<>()).add(m);
+            }
+        }
+        assertFalse(groups.isEmpty(), "no party: " + s.d.statsLine());
+        for (List<Director.Command.Materialize> g : groups.values()) {
+            assertTrue((g.size() >= 2) && (g.size() <= 3), "group of " + g.size());
+            for (Director.Command.Materialize m : g) {
+                assertEquals(g.get(0).assignment().place(), m.assignment().place());
+                assertTrue(m.at().distance2d(g.get(0).at()) < 300, "came from different places");
+                assertTrue(Math.abs(m.level() - g.get(0).level()) <= 5, "levels too far apart");
+            }
+        }
+        // whoever of a group got a leave order, the others got the same one in that tick
+        assertTrue(stat(s.d, "partyLeaves") > 0, s.d.statsLine());
+        assertEquals(0, stat(s.d, "restocks"), "a party does not restock one by one");
+    }
+
+    @Test
+    void noPartiesWhenSwitchedOff() {
+        final Sim s = new Sim(DirectorConfig.defaults());
+        s.d.setPartyShare(0);
+        for (int i = 1; i <= 30; i++) {
+            s.pool.put(i, 32);
+        }
+        s.run(14, at(FIELD), 10 * 60_000);
+        assertTrue(s.all.stream().noneMatch(c -> (c instanceof Director.Command.Materialize m) && (m.group() != 0)));
     }
 
     @Test
