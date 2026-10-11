@@ -74,12 +74,23 @@ final class Crafts {
         s.lines = lines;
         if (!lines.isEmpty()) {
             final boolean ru = "RU".equals(lang);
-            final String top = StoreTitle.shortName(lines.get(0).name());
-            final String title = StoreTitle.fit((ru ? "Крафт: " : "Craft: ") + top + (lines.size() > 1 ? (ru ? " и др." : " etc") : ""));
+            final String title = title(ru, lines.get(0).name(), lines.size() > 1);
             s.row = new MarketRepository.StoreRow(s.row.botId(), s.row.town(), s.row.spot(), "CRAFT", s.row.profile(), title, s.row.openedAt(), now, lines.size());
         }
         p.setCurrentMp(p.getMaxMp());
         return lines.size();
+    }
+
+    /** "Крафт: Heavy Doom Ham и др." - the suffix always fits the 29 signs of a store title. */
+    static String title(boolean ru, String product, boolean more) {
+        final String head = ru ? "Крафт: " : "Craft: ";
+        final String tail = more ? (ru ? " и др." : " etc.") : "";
+        String top = StoreTitle.shortName(product);
+        final int room = StoreTitle.MAX - head.length() - tail.length();
+        if (top.length() > room) {
+            top = top.substring(0, room).trim();
+        }
+        return head + top + tail;
     }
 
     /** Leaving: the recipes and the store list go (memory only: nothing of it is in the database). */
