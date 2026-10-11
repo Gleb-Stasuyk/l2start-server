@@ -105,7 +105,7 @@
       "type": "double",
       "default": 0.6,
       "reloadable": true,
-      "description": "Share of the traders that keep the normal name colour at night (22:00-08:00); the others get the grey name of an offline store. All of them stay."
+      "description": "Share of the traders that keep the normal name colour at night (1:00-7:59 server time); the others get the grey name of an offline store. All of them stay."
     },
     "RestockMinutes": {
       "type": "int",
