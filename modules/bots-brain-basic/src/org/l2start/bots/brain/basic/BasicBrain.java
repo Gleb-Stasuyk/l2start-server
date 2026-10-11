@@ -14,6 +14,7 @@ import org.l2start.bots.api.Brain;
 import org.l2start.bots.api.BrainContext;
 import org.l2start.bots.api.DropView;
 import org.l2start.bots.api.NpcView;
+import org.l2start.bots.api.PartyMember;
 import org.l2start.bots.api.PlayerView;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
@@ -1185,6 +1186,10 @@ public final class BasicBrain implements Brain {
             ctx.act().stand();
             return 1500;
         }
+        final long pc = partyCare(ctx, w, me, now, attacker);
+        if (pc > 0) {
+            return pc;
+        }
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
             if (d > 0) {
@@ -1220,6 +1225,10 @@ public final class BasicBrain implements Brain {
         final long afk = afk(ctx, me, now);
         if (afk > 0) {
             return afk;
+        }
+        final long together = together(ctx, w, me, now);
+        if (together > 0) {
+            return together;
         }
         final double toZone = me.pos().distance2d(a.center());
         if (toZone < (a.radius() + 1500)) {
@@ -1274,7 +1283,12 @@ public final class BasicBrain implements Brain {
     }
 
     private long startFight(BrainContext ctx, SelfView me, NpcView mob, long now) {
-        if (!claims.claim(mob.objectId(), botId, now, FIGHT_TIMEOUT * 2) && (mob.targetId() != me.objectId())) {
+        return startFight(ctx, me, mob, now, false);
+    }
+
+    /** @param assist on the party leader's monster (4g): it is ours, not someone else's claim */
+    private long startFight(BrainContext ctx, SelfView me, NpcView mob, long now, boolean assist) {
+        if (!assist && !claims.claim(mob.objectId(), botId, now, FIGHT_TIMEOUT * 2) && (mob.targetId() != me.objectId())) {
             blacklist.put(mob.objectId(), now + 30_000);
             return ctx.reactionDelay();
         }
@@ -1557,6 +1571,160 @@ public final class BasicBrain implements Brain {
             }
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ bot pairs and trios (4g)
+
+    /** Phase 4g: heal, raise and buff party members; followers stay by the leader and fight its monster (bots-brain-basic PartyPlay). */
+    static volatile boolean partyPlay = true;
+    /** A healer heals a party member below this HP %, even in a fight. */
+    static final double PARTY_HEAL_HP = 60;
+    static final int RESURRECTION = 1016;
+    /** Buffs a bot may put on a party member (prophet / elder / shillien elder lines and the like); what it knows of them. */
+    static final int[] PARTY_BUFFS = { 1204, 1040, 1068, 1045, 1048, 1086, 1077, 1242, 1085, 1059, 1062, 1035, 1078, 1240, 1087, 1268, 1044, 1036, 1243, 1257 };
+    private final Map<String, Long> partyBuffed = new HashMap<>();
+    private long partyTried;
+    private long leaderWaitSince;
+    private int partyHeals;
+    private int partyBuffs;
+    private int raised;
+
+    public int partyHeals() {
+        return partyHeals;
+    }
+
+    public int partyBuffs() {
+        return partyBuffs;
+    }
+
+    public int raised() {
+        return raised;
+    }
+
+    private long partyCare(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
+        final List<PartyMember> pm = w.party();
+        if (!partyPlay || pm.isEmpty() || me.casting() || me.sitting() || (now < partyTried)) {
+            return 0;
+        }
+        PartyMember hurt = null;
+        for (PartyMember m : pm) {
+            if (!m.dead() && (m.hpPct() < PARTY_HEAL_HP) && (m.distance() < 1200) && ((hurt == null) || (m.hpPct() < hurt.hpPct()))) {
+                hurt = m;
+            }
+        }
+        if ((hurt != null) && (me.mpPct() >= 10)) {
+            for (int id : HEALS) {
+                final SkillView s = skill(me, id);
+                if (usable(me, s)) {
+                    final ActionResult r = ctx.act().cast(id, hurt.objectId());
+                    partyTried = now + (r.ok() ? 2500 : 5000);
+                    if (r.ok()) {
+                        heals++;
+                        partyHeals++;
+                        detail = "heals " + hurt.name();
+                        return 2500;
+                    }
+                    break;
+                }
+            }
+        }
+        if ((fightId != 0) || (attacker != null)) {
+            return 0;
+        }
+        for (PartyMember m : pm) {
+            if (m.dead() && (m.distance() < 1200)) {
+                final SkillView s = skill(me, RESURRECTION);
+                if (usable(me, s)) {
+                    final ActionResult r = ctx.act().cast(RESURRECTION, m.objectId());
+                    partyTried = now + (r.ok() ? 8000 : 10_000);
+                    if (r.ok()) {
+                        raised++;
+                        ctx.note("resurrects " + m.name());
+                        detail = "resurrects " + m.name();
+                        return 6000;
+                    }
+                }
+                break;
+            }
+        }
+        if (me.mpPct() < 50) {
+            return 0;
+        }
+        for (PartyMember m : pm) {
+            if (m.dead() || (m.distance() > 600)) {
+                continue;
+            }
+            for (int id : PARTY_BUFFS) {
+                final SkillView s = skill(me, id);
+                final String key = id + ">" + m.objectId();
+                if (!usable(me, s) || (partyBuffed.getOrDefault(key, 0L) > now)) {
+                    continue;
+                }
+                final ActionResult r = ctx.act().cast(id, m.objectId());
+                partyBuffed.put(key, now + (r.ok() ? 18 * 60_000L : 60_000L));
+                partyTried = now + 2500;
+                if (r.ok()) {
+                    partyBuffs++;
+                    detail = "buffs " + m.name();
+                    return 2500;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /** The party keeps together: a follower by the leader and on its monster, the leader waits a little for the rest. */
+    private long together(BrainContext ctx, WorldView w, SelfView me, long now) {
+        final List<PartyMember> pm = w.party();
+        if (!partyPlay || pm.isEmpty() || (fightId != 0)) {
+            return 0;
+        }
+        if (w.partyLeader()) {
+            PartyMember far = null;
+            for (PartyMember m : pm) {
+                if (!m.dead() && (m.distance() > 1200) && (m.distance() < 6000)) {
+                    far = m;
+                }
+            }
+            if (far == null) {
+                leaderWaitSince = 0;
+                return 0;
+            }
+            if (leaderWaitSince == 0) {
+                leaderWaitSince = now;
+            }
+            if ((now - leaderWaitSince) > 30_000) {
+                return 0; // it will catch up
+            }
+            if (me.moving()) {
+                ctx.act().stop();
+            }
+            detail = "waits for " + far.name();
+            return 2000;
+        }
+        PartyMember lead = null;
+        for (PartyMember m : pm) {
+            if (m.leader()) {
+                lead = m;
+            }
+        }
+        if ((lead == null) || lead.dead() || (lead.distance() > 6000)) {
+            return 0; // hunts on its own meanwhile
+        }
+        if (lead.targetId() != 0) {
+            final NpcView mob = w.npc(lead.targetId());
+            if ((mob != null) && !mob.dead() && mob.monster() && (mob.distance() < 1500)) {
+                errand = null;
+                return startFight(ctx, me, mob, now, true);
+            }
+        }
+        if (lead.distance() > 450) {
+            detail = "follows " + lead.name();
+            final Pos near = lead.pos().toward(me.pos(), 150 + ctx.rnd().nextInt(150));
+            return walk(ctx, w, me, near, now);
+        }
+        detail = "by " + lead.name();
+        return 1500 + ctx.rnd().nextInt(1000);
     }
 
     // ------------------------------------------------------------------ roles (4c, second part): summons, sweep, heals, back

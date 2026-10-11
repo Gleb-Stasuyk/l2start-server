@@ -27,4 +27,14 @@ public interface WorldView {
     default long itemCount(int itemId) {
         return 0;
     }
+
+    /** The other members of its party (phase 4g), empty when it is alone. */
+    default List<PartyMember> party() {
+        return List.of();
+    }
+
+    /** It leads its party (or has none). */
+    default boolean partyLeader() {
+        return true;
+    }
 }

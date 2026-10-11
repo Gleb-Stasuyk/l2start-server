@@ -465,7 +465,11 @@ public final class BotsCoreModule implements GameModule {
         ctx.log().info(sb.toString());
     }
 
-    /** Lies dead a while by its patience (impatient 2-8 s, patient 1-3 min "waiting for a res", else DeathReturnMin..Max), then "To village". */
+    /**
+     * Lies dead a while by its patience (impatient 2-8 s, patient 1-3 min "waiting for a res", else
+     * DeathReturnMin..Max), with a partner of its pair/trio alive near at least 1-2 min; accepts a resurrection
+     * (4g) and otherwise presses "To village".
+     */
     private void scheduleReturn(BotRecord r) {
         final long min = ctx.config().getDuration("DeathReturnMin").toMillis();
         final long max = Math.max(min, ctx.config().getDuration("DeathReturnMax").toMillis());
@@ -474,8 +478,46 @@ public final class BotsCoreModule implements GameModule {
         final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
         if ((p != null) && (p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.TOWN) || p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.PEACE))) {
             delay = 1500 + ThreadLocalRandom.current().nextLong(1500); // no corpses lying in towns
+        } else if ((p != null) && partnerNear(r, p)) {
+            delay = Math.max(delay, 60_000 + ThreadLocalRandom.current().nextLong(60_000)); // its healer will raise it
         }
-        ctx.scheduler().schedule("return " + r.name(), Duration.ofMillis(delay), () -> world.returnToTown(r));
+        final long returnAt = System.currentTimeMillis() + delay;
+        deadWatch(r, returnAt);
+    }
+
+    /** Every 2 s while dead: takes a resurrection offered, or goes to town when the time is up. */
+    private void deadWatch(BotRecord r, long returnAt) {
+        final long wait = Math.max(200, Math.min(2000, returnAt - System.currentTimeMillis()));
+        ctx.scheduler().schedule("dead " + r.name(), Duration.ofMillis(wait), () -> {
+            final Player p = r.player();
+            if ((p == null) || !p.isDead() || !r.inWorld()) {
+                return;
+            }
+            if (p.isReviveRequested() && !p.isRevivingPet()) {
+                p.reviveAnswer(1);
+                ctx.metrics().counter("resurrected").inc();
+                return;
+            }
+            if (System.currentTimeMillis() >= returnAt) {
+                world.returnToTown(r);
+                return;
+            }
+            deadWatch(r, returnAt);
+        });
+    }
+
+    /** A live member of its pair/trio within 2000. */
+    private boolean partnerNear(BotRecord r, Player p) {
+        if (r.group() == 0) {
+            return false;
+        }
+        for (BotRecord o : registry.all()) {
+            final Player q = o.player();
+            if ((o != r) && (o.group() == r.group()) && (q != null) && !q.isDead() && (q.calculateDistance2D(p) < 2000)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void onDamage(OnCreatureDamageReceived e) {

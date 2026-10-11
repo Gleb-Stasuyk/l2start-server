@@ -15,6 +15,7 @@ import org.l2start.bots.api.BotEvent;
 import org.l2start.bots.api.DropView;
 import org.l2start.bots.api.Geo;
 import org.l2start.bots.api.NpcView;
+import org.l2start.bots.api.PartyMember;
 import org.l2start.bots.api.PlayerView;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
@@ -196,6 +197,27 @@ public final class FakeWorld {
 
     public void addWall(int x1, int y1, int x2, int y2) {
         walls.add(new Wall(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)));
+    }
+
+    /** Phase 4g: the other members of its party (tests move and hurt them with {@link #setParty}). */
+    public final List<PartyMember> party = new ArrayList<>();
+    public boolean partyLeader = true;
+    /** "skillId>objectId" of every skill cast on a party member. */
+    public final List<String> partyCasts = new ArrayList<>();
+    public static final int RESURRECTION = 1016;
+
+    public void setParty(PartyMember... members) {
+        party.clear();
+        party.addAll(List.of(members));
+    }
+
+    private int partyIndex(int objectId) {
+        for (int i = 0; i < party.size(); i++) {
+            if (party.get(i).objectId() == objectId) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     public void addPlayer(PlayerView p) {
@@ -665,6 +687,17 @@ public final class FakeWorld {
             }
 
             @Override
+            public List<PartyMember> party() {
+                return party.stream().map(m -> new PartyMember(m.objectId(), m.name(), m.classId(), m.level(), m.pos(), m.pos().distance(self.pos()), m.hpPct(), m.mpPct(), m.dead(),
+                    m.targetId(), m.leader())).toList();
+            }
+
+            @Override
+            public boolean partyLeader() {
+                return partyLeader;
+            }
+
+            @Override
             public List<DropView> drops() {
                 return drops.stream().map(d -> new DropView(d.objectId, d.itemId, d.count, d.pos, d.pos.distance(pos), true)).filter(v -> v.distance() <= VIEW)
                     .sorted(Comparator.comparingDouble(DropView::distance)).toList();
@@ -968,6 +1001,26 @@ public final class FakeWorld {
                     if (HEALS.contains(e.id())) {
                         hp = Math.min(maxHp(), hp + (maxHp() * 0.3));
                     }
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                final int pi = partyIndex(objectId);
+                if (pi >= 0) {
+                    final PartyMember pm = party.get(pi);
+                    if (pm.pos().distance(pos) > 900) {
+                        return ActionResult.NOT_REACHABLE;
+                    }
+                    if (e.id() == RESURRECTION) {
+                        if (!pm.dead()) {
+                            return ActionResult.INVALID;
+                        }
+                        party.set(pi, new PartyMember(pm.objectId(), pm.name(), pm.classId(), pm.level(), pm.pos(), 0, 30, 0, false, 0, pm.leader()));
+                    } else if (pm.dead()) {
+                        return ActionResult.INVALID;
+                    } else if (HEALS.contains(e.id())) {
+                        party.set(pi, new PartyMember(pm.objectId(), pm.name(), pm.classId(), pm.level(), pm.pos(), 0, Math.min(100, pm.hpPct() + 30), pm.mpPct(), false, pm.targetId(), pm.leader()));
+                    }
+                    partyCasts.add(e.id() + ">" + objectId);
                     spend(e, objectId);
                     return ActionResult.OK;
                 }

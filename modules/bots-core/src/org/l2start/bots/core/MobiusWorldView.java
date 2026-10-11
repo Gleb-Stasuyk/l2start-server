@@ -121,11 +121,11 @@ final class MobiusWorldView implements WorldView {
         final Summon own = p.getSummon(); // the bot's own summon fights for the bot: not "someone else"
         if (t != null) {
             targetId = t.getObjectId();
-            engaged = (t != p) && (t != own) && t.isPlayable();
+            engaged = (t != p) && (t != own) && t.isPlayable() && !ours(t);
         }
         if (!engaged && (n instanceof Attackable a)) {
             for (Creature c : a.getAggroList().keySet()) {
-                if ((c != p) && (c != own) && c.isPlayable()) {
+                if ((c != p) && (c != own) && c.isPlayable() && !ours(c)) {
                     engaged = true;
                     break;
                 }
@@ -164,6 +164,46 @@ final class MobiusWorldView implements WorldView {
             players = l.size() > MAX_OBJECTS ? List.copyOf(l.subList(0, MAX_OBJECTS)) : l;
         }
         return players;
+    }
+
+    private List<org.l2start.bots.api.PartyMember> party;
+
+    @Override
+    public List<org.l2start.bots.api.PartyMember> party() {
+        if (party == null) {
+            final List<org.l2start.bots.api.PartyMember> l = new ArrayList<>();
+            final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+            if (pt != null) {
+                for (Player o : pt.getMembers()) {
+                    if ((o == null) || (o == p) || !o.isOnline()) {
+                        continue;
+                    }
+                    final Pos at = pos(o);
+                    final WorldObject t = o.getTarget();
+                    l.add(new org.l2start.bots.api.PartyMember(o.getObjectId(), o.getName(), o.getPlayerClass().getId(), o.getLevel(), at, at.distance(self.pos()),
+                        o.getMaxHp() <= 0 ? 0 : (o.getCurrentHp() * 100) / o.getMaxHp(), o.getMaxMp() <= 0 ? 0 : (o.getCurrentMp() * 100) / o.getMaxMp(), o.isDead(),
+                        t == null ? 0 : t.getObjectId(), pt.isLeader(o)));
+                }
+            }
+            party = l;
+        }
+        return party;
+    }
+
+    @Override
+    public boolean partyLeader() {
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        return (pt == null) || pt.isLeader(p);
+    }
+
+    /** A party member of the bot (or its summon): its fights are not "someone else's". */
+    private boolean ours(WorldObject t) {
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        if ((pt == null) || !(t instanceof Creature c)) {
+            return false;
+        }
+        final Player owner = c instanceof Player pl ? pl : c instanceof Summon s ? s.getOwner() : null;
+        return (owner != null) && (owner.getParty() == pt);
     }
 
     @Override

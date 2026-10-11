@@ -154,9 +154,10 @@ final class MobiusActuators implements Actuators {
         final Player p = alive();
         final Skill skill = p == null ? null : p.getKnownSkill(skillId);
         final boolean corpse = (skill != null) && MobiusWorldView.corpse(skill);
-        final Creature c = p == null ? null : creature(p, objectId, corpse);
+        final boolean res = (skill != null) && skill.hasEffectType(org.l2jmobius.gameserver.mechanics.effects.EffectType.RESURRECTION); // on a dead party member (4g)
+        final Creature c = p == null ? null : creature(p, objectId, corpse || res);
         final String arg = skillId + "->" + (c == null ? String.valueOf(objectId) : c.getName());
-        if ((skill == null) || (c == null) || p.isSitting() || p.isAllSkillsDisabled() || (corpse && (!c.isDead() || !c.isAttackable()))
+        if ((skill == null) || (c == null) || p.isSitting() || p.isAllSkillsDisabled() || (corpse && (!c.isDead() || !c.isAttackable())) || (res && (!c.isDead() || !c.isPlayer()))
             || (!corpse && ((skill.getEffectPoint() < 0) || skill.isDebuff()) && (!c.isAutoAttackable(p) || p.isInsidePeaceZone(p, c)))) {
             return done("cast", arg, ActionResult.INVALID);
         }

@@ -38,6 +38,8 @@ public final class BotRecord {
     private volatile int levelBase = 1;
     private volatile long baseAt;
     private volatile int realLevel = 1;
+    /** Phase 4g: the bot pair/trio it came in with (0 = alone); its members form a party. */
+    private volatile int group;
 
     public BotRecord(int botId, int charId, String accountName, String name, int classId, Status status, long lastLogin, long lastLogout) {
         this.botId = botId;
@@ -65,6 +67,10 @@ public final class BotRecord {
     public String lastWhisper() { return lastWhisper; }
     public int deaths() { return deaths.get(); }
     public Persona persona() { return persona; }
+
+    public int group() { return group; }
+
+    public void setGroup(int g) { group = g; }
     public int homeX() { return homeX; }
     public int homeY() { return homeY; }
     public int homeZ() { return homeZ; }

@@ -29,6 +29,7 @@ public final class BotsBrainBasicModule implements GameModule {
         apply(ctx.config().getString("PvpFightBack"), ctx.config().getBoolean("Potions"), ctx.config().getString("PotionHpPercent"),
             ctx.config().getString("FleeHpPercent"), ctx.config().getString("KiteDistance"));
         BasicBrain.selfBuffs = ctx.config().getBoolean("SelfBuffs");
+        BasicBrain.partyPlay = ctx.config().getBoolean("PartyPlay");
         BasicBrain.usePlaystyles = ctx.config().getBoolean("Playstyles");
         BasicBrain.summons = ctx.config().getBoolean("Summons");
         BasicBrain.afkShare = clamp(num(ctx.config().getString("AfkShare"), 0.15), 0, 1);
