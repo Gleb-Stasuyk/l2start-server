@@ -499,6 +499,9 @@ public final class BasicBrain implements Brain {
                 ctx.act().stop();
                 return 1000;
             }
+            if (stance(ctx, me, false, now)) {
+                return 800; // stances drain MP: off before sitting down
+            }
             ctx.act().sit();
             detail = "sit";
         }
@@ -976,6 +979,10 @@ public final class BasicBrain implements Brain {
         }
         final double toZone = me.pos().distance2d(a.center());
         if (toZone < (a.radius() + 1500)) {
+            final long buffed = selfBuff(ctx, me, now);
+            if (buffed > 0) {
+                return buffed;
+            }
             final NpcView mob = chooseMob(ctx, w, me, now);
             if (mob != null) {
                 errand = null;
@@ -1102,6 +1109,9 @@ public final class BasicBrain implements Brain {
         if (kite(ctx, w, me, mob, ctx.now())) {
             return;
         }
+        if (stance(ctx, me, me.mpPct() >= 15, ctx.now())) {
+            return; // the stance is switched (it targets the bot itself): the next tick attacks again
+        }
         if (me.mage() && (me.mpPct() >= 20)) {
             final SkillView nuke = nuke(me, mob.npcId(), badSkills, ctx.now());
             if (nuke != null) {
@@ -1153,6 +1163,73 @@ public final class BasicBrain implements Brain {
             }
         }
         return null;
+    }
+
+    // ------------------------------------------------------------------ buffs (4b)
+
+    /** Config SelfBuffs of bots-brain-basic. */
+    static volatile boolean selfBuffs = true;
+    /** Stances worth having on in a fight (Vicious Stance, Accuracy). Other toggles (Fake Death, Silent Move...) never. */
+    static final java.util.Set<Integer> STANCES = java.util.Set.of(312, 256);
+    /** A self buff with less than this many seconds left is cast again. */
+    static final int BUFF_RENEW = 30;
+    /** Skill id -> not before (ms): a buff just cast, refused or switched. */
+    private final Map<Integer, Long> buffTried = new HashMap<>();
+    private int buffs;
+
+    /** How many self buffs this bot cast (tests, //bots info). */
+    public int buffsCast() {
+        return buffs;
+    }
+
+    /**
+     * Out of a fight on the hunting ground: put on the own buffs that are missing or about to run out (an effect of the
+     * same kind from somebody else counts), one per decision, MP permitting (mystics keep half for nukes). A skill the
+     * game refuses is left alone for 10 minutes.
+     * @return the delay, 0 = nothing to do
+     */
+    private long selfBuff(BrainContext ctx, SelfView me, long now) {
+        if (!selfBuffs || me.casting() || me.sitting() || me.inPeaceZone() || (me.mpPct() < (me.mage() ? 50 : 30))) {
+            return 0;
+        }
+        for (SkillView s : me.skills()) {
+            if ((s.kind() != SkillView.Kind.BUFF) || (s.buffLeft() > BUFF_RENEW) || !s.ready() || (s.mpCost() > me.mp()) || (buffTried.getOrDefault(s.id(), 0L) > now)) {
+                continue;
+            }
+            final ActionResult r = ctx.act().cast(s.id(), me.objectId());
+            buffTried.put(s.id(), now + (r.ok() ? 20_000 : (r == ActionResult.COOLDOWN ? 5_000 : 600_000)));
+            if (r.ok()) {
+                buffs++;
+                ctx.note("buff " + s.id());
+                detail = "buff";
+                return 1200 + ctx.rnd().nextInt(600);
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Switch the bot's stances on (in a fight, MP permitting) or off (before resting).
+     * @return true when one was switched now
+     */
+    private boolean stance(BrainContext ctx, SelfView me, boolean on, long now) {
+        if (!selfBuffs || me.casting()) {
+            return false;
+        }
+        for (SkillView s : me.skills()) {
+            if ((s.kind() != SkillView.Kind.TOGGLE) || !STANCES.contains(s.id()) || ((s.buffLeft() == -1) == on) || (buffTried.getOrDefault(s.id(), 0L) > now)) {
+                continue;
+            }
+            if (on && ((me.mpPct() < 25) || (s.mpCost() > me.mp()))) {
+                continue;
+            }
+            final ActionResult r = ctx.act().cast(s.id(), me.objectId());
+            buffTried.put(s.id(), now + (r.ok() ? 3000 : 60_000));
+            if (r.ok()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ survival (4a): potions, leaving a lost fight, kiting

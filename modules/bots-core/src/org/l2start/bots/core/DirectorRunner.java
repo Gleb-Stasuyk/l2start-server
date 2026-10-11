@@ -244,6 +244,9 @@ public final class DirectorRunner {
                     return;
                 }
                 final Player p = bot.player();
+                if (p != null) {
+                    what[0] = what[0] + ", " + Materializer.arrivalBuffs(p, ArrivalBuffs.shares(ctx.config().getString("ArrivalBuffs")), java.util.concurrent.ThreadLocalRandom.current());
+                }
                 final int real = p == null ? m.level() : p.getLevel();
                 bot.setProgress(real, now, real);
                 module.repo().saveProgress(bot.botId(), real, now);

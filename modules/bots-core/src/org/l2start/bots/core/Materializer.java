@@ -157,4 +157,18 @@ final class Materializer {
         }
         return junk.size();
     }
+
+    /** Phase 4b: buffs some bots arrive with (in the world already: the effects show at once). */
+    static String arrivalBuffs(Player p, double[] shares, java.util.Random r) {
+        final java.util.List<ArrivalBuffs.Buff> buffs = ArrivalBuffs.pick(p.getLevel(), p.isMageClass(), shares[0], shares[1], r);
+        int n = 0;
+        for (ArrivalBuffs.Buff b : buffs) {
+            final org.l2jmobius.gameserver.mechanics.skill.Skill s = org.l2jmobius.gameserver.data.xml.SkillData.getInstance().getSkill(b.skillId(), b.level());
+            if ((s != null) && (s.getAbnormalTime() > 0)) {
+                s.applyEffects(p, p, false, Math.max(30, (int) (s.getAbnormalTime() * b.left())));
+                n++;
+            }
+        }
+        return n == 0 ? "no buffs" : (n + " buffs");
+    }
 }

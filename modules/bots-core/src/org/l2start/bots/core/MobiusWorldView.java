@@ -15,6 +15,8 @@ import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.type.WeaponType;
 import org.l2jmobius.gameserver.entity.zone.ZoneId;
 import org.l2jmobius.gameserver.mechanics.effects.EffectType;
+import org.l2jmobius.gameserver.mechanics.skill.AbnormalType;
+import org.l2jmobius.gameserver.mechanics.skill.BuffInfo;
 import org.l2jmobius.gameserver.mechanics.skill.Skill;
 import org.l2jmobius.gameserver.mechanics.skill.targets.TargetType;
 import org.l2start.bots.api.BotEvent;
@@ -59,6 +61,7 @@ final class MobiusWorldView implements WorldView {
                 continue;
             }
             SkillView.Kind kind = SkillView.Kind.OTHER;
+            int left = 0;
             if (s.getTargetType() == TargetType.ONE) {
                 if (s.hasEffectType(EffectType.MAGICAL_ATTACK)) {
                     kind = SkillView.Kind.NUKE;
@@ -66,7 +69,17 @@ final class MobiusWorldView implements WorldView {
                     kind = SkillView.Kind.STRIKE;
                 }
             }
-            skills.add(new SkillView(s.getId(), s.getLevel(), kind, s.getMpConsume(), s.getCastRange(), !p.isSkillDisabled(s)));
+            if ((kind == SkillView.Kind.OTHER) && !s.isDebuff()) {
+                if (s.isToggle()) {
+                    kind = SkillView.Kind.TOGGLE;
+                    left = p.getEffectList().isAffectedBySkill(s.getId()) ? -1 : 0;
+                } else if (selfBuff(s)) {
+                    kind = SkillView.Kind.BUFF;
+                    final BuffInfo on = s.getAbnormalType() == AbnormalType.NONE ? p.getEffectList().getBuffInfoBySkillId(s.getId()) : p.getEffectList().getBuffInfoByAbnormalType(s.getAbnormalType());
+                    left = on == null ? 0 : Math.max(1, on.getTime());
+                }
+            }
+            skills.add(new SkillView(s.getId(), s.getLevel(), kind, s.getMpConsume(), s.getCastRange(), !p.isSkillDisabled(s), left));
         }
         skills.sort(Comparator.comparingInt(SkillView::id));
         final int level = p.getLevel();
@@ -182,5 +195,21 @@ final class MobiusWorldView implements WorldView {
         }
         final int r = n.getTemplate().getAggroRange();
         return r > 0 ? r : NpcView.AGGRO;
+    }
+
+    /**
+     * A lasting good effect a player can put on himself (phase 4b): continuous, 2 minutes or longer (no short panic
+     * skills like Ultimate Defense or Frenzy), cast on himself, the party or a friendly target, no items consumed, no
+     * dances or songs (they need a party around).
+     */
+    static boolean selfBuff(Skill s) {
+        if (!s.isContinuous() || s.isToggle() || s.isDebuff() || s.isDance() || s.isHealingPotionSkill() || (s.getAbnormalTime() < 120) || (s.getItemConsumeCount() > 0)
+            || (s.getAbnormalType() == null)) {
+            return false;
+        }
+        return switch (s.getTargetType()) {
+            case SELF, ONE, PARTY, CLAN, PARTY_CLAN, AURA_FRIENDLY -> s.getEffectPoint() >= 0;
+            default -> false;
+        };
     }
 }

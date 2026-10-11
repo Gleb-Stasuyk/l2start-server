@@ -32,6 +32,11 @@ public final class FakeWorld {
     public static final int NUKE_ID = 1177;
     /** A nuke the game always refuses here (like Might of Heaven on a living monster); only with {@link #undeadOnlyNuke}. */
     public static final int UNDEAD_NUKE_ID = 1028;
+    /** Phase 4b (with {@link #selfBuffs}): a 20-minute self buff (Shield) and, for fighters, a stance (Vicious Stance). */
+    public static final int BUFF_ID = 1040;
+    public static final int BUFF_MP = 10;
+    public static final long BUFF_MS = 1_200_000;
+    public static final int TOGGLE_ID = 312;
     public static final double SPEED = 120; // units per second
     public static final int MELEE_RANGE = 80;
     public static final int NUKE_RANGE = 600;
@@ -253,6 +258,9 @@ public final class FakeWorld {
         if (dead) {
             return;
         }
+        if (toggleOn && sitting) {
+            toggleSittingMs += ms;
+        }
         // regeneration
         final double regen = sitting ? 0.05 : 0.01;
         hp = Math.min(maxHp(), hp + (maxHp() * regen * sec));
@@ -390,6 +398,8 @@ public final class FakeWorld {
         deaths++;
         hp = 0;
         sitting = false;
+        buffUntil = 0; // effects go on death
+        toggleOn = false;
         intention = "IDLE";
         moveDest = null;
         for (Mob m : mobs.values()) {
@@ -461,6 +471,14 @@ public final class FakeWorld {
 
     /** Give the mage an undead-only nuke with a lower id than the real one (it is listed first). */
     public boolean undeadOnlyNuke;
+    /** Phase 4b: the bot knows {@link #BUFF_ID} (and a fighter {@link #TOGGLE_ID}). */
+    public boolean selfBuffs;
+    /** Self buff on until (ms of the fake clock). */
+    public long buffUntil;
+    public boolean toggleOn;
+    public int buffCasts;
+    /** How long the stance was on while the bot sat (it should switch it off before sitting). */
+    public long toggleSittingMs;
 
     public SelfView self() {
         final List<SkillView> skills = new ArrayList<>();
@@ -471,6 +489,12 @@ public final class FakeWorld {
             skills.add(new SkillView(NUKE_ID, 1, SkillView.Kind.NUKE, NUKE_MP, NUKE_RANGE, now >= skillReadyAt.getOrDefault(NUKE_ID, 0L)));
         }
         skills.add(new SkillView(1012, 1, SkillView.Kind.OTHER, 5, 0, true));
+        if (selfBuffs) {
+            skills.add(new SkillView(BUFF_ID, 3, SkillView.Kind.BUFF, BUFF_MP, 0, true, now < buffUntil ? (int) Math.max(1, (buffUntil - now) / 1000) : 0));
+            if (!mage) {
+                skills.add(new SkillView(TOGGLE_ID, 1, SkillView.Kind.TOGGLE, 5, 0, true, toggleOn ? -1 : 0));
+            }
+        }
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
             "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
@@ -588,6 +612,22 @@ public final class FakeWorld {
 
         @Override
         public ActionResult cast(int skillId, int objectId) {
+            if (selfBuffs && (objectId == SELF_ID) && ((skillId == BUFF_ID) || ((skillId == TOGGLE_ID) && !mage))) {
+                if (dead || sitting) {
+                    return ActionResult.INVALID;
+                }
+                if (skillId == TOGGLE_ID) {
+                    toggleOn = !toggleOn;
+                    return ActionResult.OK;
+                }
+                if (mp < BUFF_MP) {
+                    return ActionResult.COOLDOWN;
+                }
+                mp -= BUFF_MP;
+                buffUntil = now + BUFF_MS;
+                buffCasts++;
+                return ActionResult.OK;
+            }
             final Mob m = mobs.get(objectId);
             if (dead || sitting || (m == null) || m.dead() || peaceZone || !mage || (skillId != NUKE_ID)) {
                 return ActionResult.INVALID;

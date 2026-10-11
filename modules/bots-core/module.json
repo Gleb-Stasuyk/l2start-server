@@ -26,6 +26,7 @@
     "Timezones": { "type": "list", "default": "Europe/Moscow:70,Europe/Kaliningrad:10,Europe/Samara:10,Asia/Yekaterinburg:10", "reloadable": true, "description": "Time zones of bot personas (Moscow +-2 hours, approved). Used by the session planner (step 3e)." },
     "Chronotypes": { "type": "list", "default": "EVENING:45,NIGHT_OWL:20,WEEKEND:15,ALLDAY:10,MORNING:10", "reloadable": true, "description": "When personas usually play. Used by the session planner (step 3e)." },
     "Seed": { "type": "long", "default": 0, "description": "Random seed for new personas (0 = random). Fixed seeds are for tests." },
+    "ArrivalBuffs": { "type": "string", "default": "0.6,0.25", "reloadable": true, "description": "Phase 4b: share of bots that come with buffs on: newbie (levels 8-25: the Newbie Helper buffs by the stock rules), party (level 40+: 2-5 buffs of a buffer, part of the time gone). 0,0 = nobody." },
     "Brain": { "type": "string", "default": "basic", "reloadable": true, "description": "Id of the brain every bot gets (a module registers it through the BrainRegistry service; bots-brain-basic registers 'basic'). No such brain = bots stand idle." },
     "Shards": { "type": "int", "default": 0, "min": 0, "max": 32, "description": "Tick shards (0 = max(2, cores/4)). A bot belongs to shard botId % N." },
     "WaveMs": { "type": "int", "default": 100, "min": 20, "max": 1000, "description": "Every shard ticks its due bots this often." },

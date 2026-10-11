@@ -27,6 +27,7 @@ public final class BotsBrainBasicModule implements GameModule {
     private static void applyConfig(ModuleContext ctx) {
         apply(ctx.config().getString("PvpFightBack"), ctx.config().getBoolean("Potions"), ctx.config().getString("PotionHpPercent"),
             ctx.config().getString("FleeHpPercent"), ctx.config().getString("KiteDistance"));
+        BasicBrain.selfBuffs = ctx.config().getBoolean("SelfBuffs");
     }
 
     /** Parses the brain settings into BasicBrain (bad values: the defaults stay). */
@@ -45,7 +46,7 @@ public final class BotsBrainBasicModule implements GameModule {
     static String describe() {
         return String.format(java.util.Locale.ROOT, "fights back real players with base chance %.2f, potions %s at hp %.0f-%.0f%%, flees below %.0f%%, kiting %s",
             BasicBrain.fightBackBase, BasicBrain.potions ? "on" : "off", BasicBrain.potionLo, BasicBrain.potionHi, BasicBrain.fleeHp,
-            BasicBrain.kiteClose <= 0 ? "off" : ("reach+" + BasicBrain.kiteClose + " -> " + BasicBrain.kiteTo));
+            BasicBrain.kiteClose <= 0 ? "off" : ("reach+" + BasicBrain.kiteClose + " -> " + BasicBrain.kiteTo)) + ", self buffs " + (BasicBrain.selfBuffs ? "on" : "off");
     }
 
     private static double num(String s, double def) {
