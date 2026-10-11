@@ -234,7 +234,7 @@ final class Traders {
         }
         towns.put(town, out);
         townWant.put(town, want);
-        m.ctx().log().info("traders: " + town + " has " + (out.size() - areas.services(town).size()) + " store places and " + areas.services(town).size() + " service traders");
+        m.ctx().log().info("traders: " + ((areas.area(town) != null) ? areas.area(town).town() : town) + " has " + (out.size() - areas.services(town).size()) + " store places and " + areas.services(town).size() + " service traders");
         return out;
     }
 
@@ -301,7 +301,7 @@ final class Traders {
         for (int k = 0; k < plan.size(); k++) {
             repo.addSpot(plan.get(k), kept.size() + k);
         }
-        m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + town + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
+        m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + a.town() + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
             + ((plan.size() < count) ? ", only " + plan.size() + " of " + count + " fit" : "") + ")");
         return plan;
     }
