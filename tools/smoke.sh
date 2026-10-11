@@ -8,7 +8,7 @@
 # It REPLACES the running l2s-* containers (same names/ports). Start the normal stack afterwards (start.bat solo).
 #
 # Scenarios:
-# The image always contains the real modules of modules/ (starter-kit, lw-fixes: on in both profiles; bots-core,
+# The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market: on in both profiles; bots-core,
 # bots-brain-basic: solo only);
 # the smoke image adds 9 test modules (platform/test/fixtures), switched by SMOKE_FIXTURES.
 #   1 stock     DisableAll=true                     -> healthy, startup counts == tools/smoke/baseline.txt, no module data
@@ -111,7 +111,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 13 discovered: 7 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 14 discovered: 8 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -178,8 +178,9 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 13 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 14 discovered: 3 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
+check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
 check "bots-brain-basic DISABLED in online" state_is bots-brain-basic DISABLED "$OUT/5-online.log"
 real_modules() { # real_modules LOG N
   check "$2: starter-kit RUNNING" state_is starter-kit RUNNING "$1"
@@ -188,7 +189,9 @@ real_modules() { # real_modules LOG N
   check "$2: profile override AutoLoot = True" has "override game/Player.ini: AutoLoot = True" "$1"
   check "$2: profile override DisableTutorial = True" has "override game/Player.ini: DisableTutorial = True" "$1"
   check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
-  check "$2: no platform error for starter-kit / lw-fixes" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes) ' \"\$0\"" "$1"
+  check "$2: no platform error for starter-kit / lw-fixes / economy-market" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes|economy-market) ' \"\$0\"" "$1"
+  check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
+  check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
   if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
 }
@@ -199,7 +202,7 @@ say "-- 6 solo, real modules only"
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/6-solo.log"
-check "summary: 4 running, fixtures disabled" grep -qE 'Platform: profile=solo, 13 discovered: 4 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "summary: 5 running, fixtures disabled" grep -qE 'Platform: profile=solo, 14 discovered: 5 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
 check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bots-core\]: brain 'basic' registered \(in use\)" "$OUT/6-solo.log"
@@ -209,6 +212,8 @@ check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-co
 check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity mod_bots_core_persona mod_bots_core_progress mod_bots_core_state "
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
+check "economy-market: bot market on in solo, stores only in Giran" grep -qE 'Module\[economy-market\]: market: .*market on, stores \{giran=20\}' "$OUT/6-solo.log"
+check "economy-market: tables created" test "$(sql "SHOW TABLES LIKE 'mod_economy_market_%'" | sort | tr '\n' ' ')" = "mod_economy_market_price_index mod_economy_market_store mod_economy_market_store_item mod_economy_market_trade_log mod_economy_market_wallet "
 check "bots-core: no bot created by default" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity")" = 0
 real_modules "$OUT/6-solo.log" 6
 check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
