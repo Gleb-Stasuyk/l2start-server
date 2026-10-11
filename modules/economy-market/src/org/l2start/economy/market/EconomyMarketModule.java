@@ -41,6 +41,10 @@ public final class EconomyMarketModule implements GameModule {
         book = new MarketBook(items, model(), drift(), seed);
         final int restored = repo.loadIndex(book, System.currentTimeMillis());
         quota = TownQuota.parse(ctx.config().getString("StoresPerTown"));
+        if (auto("StoresAnywhere")) {
+            final int[] z = StoresAnywhere.apply();
+            ctx.log().info("stores anywhere: " + z[0] + " no-store zones off, " + z[1] + " peace zones allow stores");
+        }
         traders = startTraders();
         ctx.onStoreDeal(this::onDeal);
         ctx.handlers().admin(new AdminMarket(this));

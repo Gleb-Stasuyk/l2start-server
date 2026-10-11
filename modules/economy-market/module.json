@@ -124,6 +124,17 @@
       "default": false,
       "reloadable": false,
       "description": "Smoke test only: once stores stand, one bot buys from a bot sell store and sells to a bot buy store through the stock store code and the result is logged (SELFTEST)."
+    },
+    "StoresAnywhere": {
+      "type": "enum",
+      "values": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto",
+      "reloadable": false,
+      "description": "Private stores for everybody anywhere (auto = on in solo, stock in online): the stock no-store zones (custom_no_store.xml) are off and Seven Signs peace zones allow stores; jail stays without stores. Applied at the start."
     }
   }
 }
