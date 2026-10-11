@@ -319,6 +319,7 @@ check "traders: no goods left in trader bags (items exist only while they stand)
 say "   trader bag items left (item_id count): $(sql "SELECT item_id, COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN ($TRADERS) GROUP BY item_id" | tr '\t\n' ':,')"
 check "traders: no stock offline-trade rows of bots" test "$(sql "SELECT (SELECT COUNT(*) FROM character_offline_trade WHERE charId IN (SELECT char_id FROM mod_bots_core_identity)) + (SELECT COUNT(*) FROM character_offline_trade_items WHERE charId IN (SELECT char_id FROM mod_bots_core_identity))")" = 0
 check "traders: the 2 self-test deals in the trade log" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_trade_log WHERE seller_bot=1 AND buyer_bot=1")" -ge 2
+check "traders: goods destroyed in the world on close (no stock save of the bag first)" bash -c "! grep -qE 'Module\[economy-market\]: trader .* bag rows still in the database' \"\$0\"" "$OUT/8-director-stop.log"
 check "traders: all stores closed on the stop, in time (before bots-core stops)" bash -c "grep -qE 'Module\[economy-market\]: traders: [0-9]+ stores closed \(server stop\)' \"\$0\" && ! grep -qE 'Platform: module economy-market did not finish onShutdown' \"\$0\"" "$OUT/8-director-stop.log"
 grep -E 'Module\[economy-market\]: (traders: [0-9]+ stores closed|trader .* left )|Platform: module economy-market (did not|failed)' "$OUT/8-director-stop.log" | head -6 | cut -c1-250 | tee -a "$SUMMARY"
 BOTS8="SELECT i.char_id FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id"

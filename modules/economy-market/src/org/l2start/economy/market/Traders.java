@@ -509,10 +509,11 @@ final class Traders {
             synchronized (s) {
                 s.lines = remaining(s, p);
             }
-            p.setPrivateStoreType(PrivateStoreType.NONE);
+            // goods first, store type untouched: the stock setPrivateStoreType(NONE) logs out a store owner without a
+            // client at once (OfflineDisconnectFinished) and would save the goods into the database first
+            s.destroyed = emptyBag(p);
             p.getSellList().clear();
             p.getBuyList().clear();
-            s.destroyed = emptyBag(p);
             byChar.remove(p.getObjectId());
         }
         s.open = false;
@@ -591,7 +592,9 @@ final class Traders {
         if (p != null) {
             final TradeList list = buy ? p.getBuyList() : p.getSellList();
             if (list.getItemCount() == 0) {
-                s.soldOutAt = System.currentTimeMillis();
+                // the stock packet now sets the store to NONE, which logs a client-less owner out at once: close on
+                // the next tick (bag rows the stock save wrote are removed after the logout)
+                s.soldOutAt = System.currentTimeMillis() - LEAVE_AFTER_SOLD_OUT_MS;
             }
         }
         m.ctx().metrics().counter(buy ? "trader buys" : "trader sales").inc();
