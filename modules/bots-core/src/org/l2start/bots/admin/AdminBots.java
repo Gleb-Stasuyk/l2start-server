@@ -251,7 +251,8 @@ public final class AdminBots implements IAdminCommandHandler {
             sb.append("Name style ").append(ps.nameStyle()).append(", chat ").append(ps.lang()).append(", ").append(ps.female() ? "female" : "male").append(", face ").append(ps.face()).append(", hair ").append(ps.hairStyle()).append("/").append(ps.hairColor()).append("<br>");
             sb.append("Future class: ").append(className(ps.futureClassId())).append("<br>");
             final ZonedDateTime local = ZonedDateTime.now(ZoneId.of(ps.timezone()));
-            sb.append("Plays: ").append(ps.chronotype()).append(", ").append(ps.timezone()).append(" (now ").append(String.format("%02d:%02d", local.getHour(), local.getMinute())).append(")<br>");
+            sb.append("Plays: ").append(ps.chronotype()).append(", ").append(ps.timezone()).append(" (now ").append(String.format("%02d:%02d", local.getHour(), local.getMinute())).append(", their time ")
+                .append(Math.round(ps.chronotype().activity(local.getHour(), local.getDayOfWeek()) * 100)).append("%, ").append(ps.chronotype().hoursPerDay()).append(" h a day)<br>");
             final Traits t = ps.traits();
             sb.append("Traits: aggr ").append(t.aggression()).append(", social ").append(t.sociability()).append(", greed ").append(t.greed()).append("<br>");
             sb.append("patience ").append(t.patience()).append(", skill ").append(t.skill()).append(" (reaction ").append(t.reactionMs()).append(" ms), chat ").append(t.chattiness()).append("<br>");

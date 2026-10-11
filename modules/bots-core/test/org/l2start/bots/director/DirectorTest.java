@@ -426,4 +426,31 @@ class DirectorTest {
         }
         assertTrue(seen > 0);
     }
+
+    @Test
+    void personasInTheirHoursComeFarMoreOften() {
+        final Director d = new Director(catalog(), DirectorConfig.defaults(), new Random(7));
+        final List<Director.Candidate> pool = new ArrayList<>();
+        for (int i = 1; i <= 20; i++) {
+            pool.add(new Director.Candidate(i, 25, 0, -1, i <= 10 ? 1.0 : 0.05)); // 1-10: their evening, 11-20: asleep
+        }
+        long now = 1_000_000_000L;
+        int theirs = 0;
+        int others = 0;
+        final java.util.Set<Integer> used = new java.util.HashSet<>();
+        for (int t = 0; t < 400; t++, now += 2000) {
+            final List<Director.Candidate> left = new ArrayList<>(pool);
+            left.removeIf(c -> used.contains(c.botId()));
+            for (Director.Command c : d.tick(now, 20, at(new Pos(0, -1500, 0)), List.of(), (lo, hi, x) -> left, p -> p)) {
+                if ((c instanceof Director.Command.Materialize m) && (m.botId() != 0)) {
+                    if (m.botId() <= 10) {
+                        theirs++;
+                    } else {
+                        others++;
+                    }
+                }
+            }
+        }
+        assertTrue(theirs > (others * 3), "their hours " + theirs + ", asleep " + others);
+    }
 }

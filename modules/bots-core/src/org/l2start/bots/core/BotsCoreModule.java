@@ -295,6 +295,7 @@ public final class BotsCoreModule implements GameModule {
 
     private void applyConfig() {
         world.setRequireGeodata(ctx.config().getBoolean("RequireGeodata"));
+        org.l2start.bots.director.PaperLevel.setGlobalPace(Double.parseDouble(ctx.config().getString("PaperLevelPace").trim()));
         brains.applyConfig();
         if (director != null) {
             director.setConfig(directorConfig());

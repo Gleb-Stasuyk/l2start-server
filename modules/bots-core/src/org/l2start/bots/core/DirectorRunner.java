@@ -182,10 +182,25 @@ public final class DirectorRunner {
             }
             final int lvl = r.paperLevel(now);
             if ((lvl >= minLevel) && (lvl <= maxLevel)) {
-                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId())));
+                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()), activity(r.persona(), now)));
             }
         }
         return l;
+    }
+
+    /** How much it is the persona's playing time now (its chronotype at its local time), 0..1; 1 without a persona. */
+    static double activity(org.l2start.bots.persona.Persona p, long now) {
+        if (p == null) {
+            return 1;
+        }
+        java.time.ZoneId zone;
+        try {
+            zone = java.time.ZoneId.of(p.timezone());
+        } catch (Exception e) {
+            zone = java.time.ZoneId.systemDefault();
+        }
+        final java.time.ZonedDateTime t = java.time.Instant.ofEpochMilli(now).atZone(zone);
+        return p.chronotype().activity(t.getHour(), t.getDayOfWeek());
     }
 
     /**

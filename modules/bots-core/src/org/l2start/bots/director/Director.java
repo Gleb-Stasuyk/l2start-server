@@ -33,9 +33,14 @@ public final class Director {
 
     /** A persona that could enter: not in the world, its level now (paper or real, the higher). */
     /** @param race 0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf, -1 unknown */
-    public record Candidate(int botId, int level, long lastLogout, int race) {
+    /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity) {
+        public Candidate(int botId, int level, long lastLogout, int race) {
+            this(botId, level, lastLogout, race, 1);
+        }
+
         public Candidate(int botId, int level, long lastLogout) {
-            this(botId, level, lastLogout, -1);
+            this(botId, level, lastLogout, -1, 1);
         }
     }
 
@@ -599,6 +604,7 @@ public final class Director {
         final double[] w = new double[cands.size()];
         for (int i = 0; i < w.length; i++) {
             w[i] = 1 + (Math.min(86_400_000L, Math.max(0, now - cands.get(i).lastLogout())) / 3_600_000.0); // long gone = more likely
+            w[i] *= 0.1 + Math.max(0, Math.min(1, cands.get(i).activity())); // their hours (chronotype): far more likely
             sum += w[i];
         }
         double r = rnd.nextDouble() * sum;

@@ -84,7 +84,8 @@ public final class BotRecord {
     /** Level now: the real one, or the one "on paper" when it grew while the bot was away (whichever is higher). */
     public int paperLevel(long now) {
         final long seed = persona == null ? charId : persona.seed();
-        return Math.max(realLevel, org.l2start.bots.director.PaperLevel.at(levelBase, baseAt, org.l2start.bots.director.PaperLevel.pace(seed), now));
+        final double hours = persona == null ? org.l2start.bots.director.PaperLevel.DEFAULT_HOURS : persona.chronotype().hoursPerDay();
+        return Math.max(realLevel, org.l2start.bots.director.PaperLevel.at(levelBase, baseAt, org.l2start.bots.director.PaperLevel.pace(seed), now, hours));
     }
 
     void setAssignment(org.l2start.bots.api.Assignment a) { assignment = a; }
