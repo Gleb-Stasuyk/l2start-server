@@ -78,6 +78,98 @@ final class MarketRepository {
         return db.queryOne("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'mod_bots_core_account'", rs -> rs.getInt(1)).orElse(0) > 0;
     }
 
+    // ---- traders (5b/5c)
+
+    /** A bot store on paper. */
+    record StoreRow(int botId, String town, String spot, String kind, String profile, String title, long openedAt, long touchedAt, int linesStart) {
+    }
+
+    Map<String, StoreRow> stores(String town) throws SQLException {
+        final Map<String, StoreRow> out = new HashMap<>();
+        db.query("SELECT bot_id, town, spot, kind, profile, title, opened_at, touched_at, lines_start FROM " + db.table("store") + " WHERE town = ?", rs -> {
+            final StoreRow r = new StoreRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getLong(7), rs.getLong(8), rs.getInt(9));
+            out.put(r.spot(), r);
+            return null;
+        }, town);
+        return out;
+    }
+
+    void dropStore(int botId) throws SQLException {
+        db.update("DELETE FROM " + db.table("store_item") + " WHERE bot_id = ?", botId);
+        db.update("DELETE FROM " + db.table("store") + " WHERE bot_id = ?", botId);
+    }
+
+    List<org.l2start.economy.market.model.Assortment.Line> lines(int botId, org.l2start.economy.market.model.MarketItems items) throws SQLException {
+        return db.query("SELECT item_id, count, price FROM " + db.table("store_item") + " WHERE bot_id = ? ORDER BY item_id", rs -> {
+            final org.l2start.economy.market.model.MarketItem it = items.get(rs.getInt(1));
+            return new org.l2start.economy.market.model.Assortment.Line(rs.getInt(1), (it == null) ? ("#" + rs.getInt(1)) : it.name(), rs.getLong(2), rs.getLong(3));
+        }, botId);
+    }
+
+    /** Saves the store and replaces its lines. */
+    void saveStore(StoreRow r, List<org.l2start.economy.market.model.Assortment.Line> lines) throws SQLException {
+        db.update("INSERT INTO " + db.table("store") + " (bot_id, town, spot, kind, profile, title, opened_at, touched_at, lines_start) VALUES (?,?,?,?,?,?,?,?,?) "
+            + "ON DUPLICATE KEY UPDATE town = VALUES(town), spot = VALUES(spot), kind = VALUES(kind), profile = VALUES(profile), title = VALUES(title), opened_at = VALUES(opened_at), touched_at = VALUES(touched_at), lines_start = VALUES(lines_start)",
+            r.botId(), r.town(), r.spot(), r.kind(), r.profile(), r.title(), r.openedAt(), r.touchedAt(), r.linesStart());
+        db.update("DELETE FROM " + db.table("store_item") + " WHERE bot_id = ?", r.botId());
+        for (org.l2start.economy.market.model.Assortment.Line l : lines) {
+            db.update("INSERT INTO " + db.table("store_item") + " (bot_id, item_id, count, price) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE count = count + VALUES(count), price = VALUES(price)", r.botId(), l.itemId(), l.count(), l.price());
+        }
+    }
+
+    long wallet(int botId) throws SQLException {
+        return db.queryOne("SELECT adena FROM " + db.table("wallet") + " WHERE bot_id = ?", rs -> rs.getLong(1), botId).orElse(-1L);
+    }
+
+    void setWallet(int botId, long adena) throws SQLException {
+        db.update("INSERT INTO " + db.table("wallet") + " (bot_id, adena) VALUES (?,?) ON DUPLICATE KEY UPDATE adena = VALUES(adena)", botId, Math.max(0, adena));
+    }
+
+    Map<Integer, Long> resale() throws SQLException {
+        final Map<Integer, Long> out = new HashMap<>();
+        db.query("SELECT item_id, count FROM " + db.table("resale") + " WHERE count > 0", rs -> out.put(rs.getInt(1), rs.getLong(2)));
+        return out;
+    }
+
+    void addResale(int itemId, long delta) throws SQLException {
+        db.update("INSERT INTO " + db.table("resale") + " (item_id, count) VALUES (?, GREATEST(0, ?)) ON DUPLICATE KEY UPDATE count = GREATEST(0, count + ?)", itemId, delta, delta);
+    }
+
+    void addPlayerDay(int charId, int itemId, int day, long count) throws SQLException {
+        db.update("INSERT INTO " + db.table("player_day") + " (char_id, item_id, day, count) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE count = count + VALUES(count)", charId, itemId, day, count);
+    }
+
+    /** The most pieces of the item one real character sold to bots on that day. */
+    long playerDayMax(int itemId, int day) throws SQLException {
+        return db.queryOne("SELECT COALESCE(MAX(count), 0) FROM " + db.table("player_day") + " WHERE item_id = ? AND day = ?", rs -> rs.getLong(1), itemId, day).orElse(0L);
+    }
+
+    int rotatePlayerDays(int beforeDay) throws SQLException {
+        return db.update("DELETE FROM " + db.table("player_day") + " WHERE day < ?", beforeDay);
+    }
+
+    /**
+     * Stock offline-trade rows of bot characters (the stock code writes them for a store owner without a client after
+     * every deal): a bot store must never come back as a stock offline trader. @return rows removed
+     */
+    int clearBotOfflineTrade(String charIds) throws SQLException {
+        if (!botAccounts()) {
+            return 0;
+        }
+        final String who = (charIds != null) ? charIds : "SELECT char_id FROM mod_bots_core_identity";
+        int n = db.update("DELETE FROM character_offline_trade_items WHERE charId IN (" + who + ")");
+        n += db.update("DELETE FROM character_offline_trade WHERE charId IN (" + who + ")");
+        return n;
+    }
+
+    /** Bag items (loc INVENTORY) of trader characters left by a crash: goods exist only while a trader stands. */
+    int clearTraderBags() throws SQLException {
+        if (!botAccounts()) {
+            return 0;
+        }
+        return db.update("DELETE FROM items WHERE loc = 'INVENTORY' AND owner_id IN (SELECT char_id FROM mod_bots_core_identity WHERE status = 'TRADER')");
+    }
+
     long seed() throws SQLException {
         return db.queryOne("SELECT COALESCE(MIN(charId), 1) FROM characters", rs -> rs.getLong(1)).orElse(1L);
     }

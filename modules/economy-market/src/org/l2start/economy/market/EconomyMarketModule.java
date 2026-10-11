@@ -26,6 +26,8 @@ public final class EconomyMarketModule implements GameModule {
     private final ConcurrentLinkedQueue<StoreDeal> pending = new ConcurrentLinkedQueue<>();
     private volatile int autoStage = 1;
     private volatile TownQuota quota = TownQuota.parse("");
+    /** Bot traders (5b/5c): only with the bots-core service; the class is never touched without it. */
+    private Object traders;
 
     @Override
     public void onEnable(ModuleContext context) throws Exception {
@@ -39,17 +41,22 @@ public final class EconomyMarketModule implements GameModule {
         book = new MarketBook(items, model(), drift(), seed);
         final int restored = repo.loadIndex(book, System.currentTimeMillis());
         quota = TownQuota.parse(ctx.config().getString("StoresPerTown"));
+        traders = startTraders();
         ctx.onStoreDeal(this::onDeal);
         ctx.handlers().admin(new AdminMarket(this));
-        ctx.log().info("market: " + items.size() + " items, " + restored + " indexed, market " + (marketOn() ? "on" : "off (log and index only)") + ", stores " + quota.active());
+        ctx.log().info("market: " + items.size() + " items, " + restored + " indexed, market " + (marketOn() ? "on" : "off (log and index only)") + ", stores " + quota.active() + ((traders == null) ? ", no traders (bots-core is off)" : ""));
     }
 
     @Override
     public void onServerReady(ModuleContext context) throws Exception {
         refreshStage();
         ctx.scheduler().fixedRate("write deals", Duration.ofSeconds(10), Duration.ofSeconds(10), () -> unchecked(this::flush));
+        if (traders != null) {
+            ctx.scheduler().fixedRate("traders", Duration.ofSeconds(5), Duration.ofSeconds(3), () -> unchecked(() -> ((Traders) traders).tick()));
+        }
         ctx.scheduler().fixedRate("stage and rotation", Duration.ofMinutes(10), Duration.ofMinutes(10), () -> unchecked(() -> {
             refreshStage();
+            repo.rotatePlayerDays((int) java.time.LocalDate.now().toEpochDay() - 2);
             final int gone = repo.rotate(System.currentTimeMillis() - (Math.max(1, ctx.config().getInt("TradeLogDays")) * 86_400_000L));
             if (gone > 0) {
                 ctx.log().info("trade log: " + gone + " old deals removed");
@@ -65,6 +72,9 @@ public final class EconomyMarketModule implements GameModule {
 
     @Override
     public void onShutdown(ModuleContext context) throws Exception {
+        if (traders != null) {
+            ((Traders) traders).closeAll("server stop"); // before bots-core logs the traders out
+        }
         flush();
     }
 
@@ -90,9 +100,32 @@ public final class EconomyMarketModule implements GameModule {
         pending.add(d);
         pendingAt.add(new long[] { now });
         ctx.metrics().counter(d.ownerReal() ? "deals real" : "deals bot").inc();
+        if (traders != null) {
+            ((Traders) traders).onDeal(d);
+        }
+    }
+
+    private Object startTraders() throws Exception {
+        try {
+            final Traders t = Traders.start(this);
+            if (t != null) {
+                t.cleanupAtStart(); // before the stock offline traders are restored
+            }
+            return t;
+        } catch (NoClassDefFoundError e) {
+            return null; // bots-core not installed
+        }
+    }
+
+    /** Lines for //market traders (null = no traders). */
+    java.util.List<String> traderLines() {
+        return (traders == null) ? null : ((Traders) traders).describe();
     }
 
     private void flush() throws Exception {
+        if (traders != null) {
+            ((Traders) traders).flush();
+        }
         StoreDeal d;
         while ((d = pending.poll()) != null) {
             final long[] at = pendingAt.poll();

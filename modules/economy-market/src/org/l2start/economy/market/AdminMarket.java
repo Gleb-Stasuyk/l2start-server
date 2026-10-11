@@ -43,6 +43,17 @@ final class AdminMarket implements IAdminCommandHandler {
             gm.sendMessage("bots sell " + q.lowSell() + "-" + q.highSell() + ", bots buy " + q.lowBid() + "-" + q.highBid());
             return true;
         }
+        if ("traders".equals(sub)) {
+            final java.util.List<String> lines = m.traderLines();
+            if (lines == null) {
+                gm.sendMessage("No bot traders (bots-core is off).");
+            } else if (lines.isEmpty()) {
+                gm.sendMessage("No trader has come yet (they come when a player is near the market).");
+            } else {
+                lines.forEach(gm::sendMessage);
+            }
+            return true;
+        }
         long today = -1;
         try {
             today = m.repo().dealsSince(System.currentTimeMillis() - 86_400_000L);
@@ -52,7 +63,7 @@ final class AdminMarket implements IAdminCommandHandler {
         gm.sendMessage("Market " + (m.marketOn() ? "on" : "off (log and index only)") + ", stage " + m.stage() + " (auto " + m.autoStage() + "), " + m.book().items().size() + " items");
         gm.sendMessage("Index: " + m.book().indexed() + " items; deals since start: " + m.book().realDeals() + " real, " + m.book().botDeals() + " bot; last 24 h: " + (today < 0 ? "?" : today));
         gm.sendMessage("Stores per town: " + m.quota().active() + " (of " + m.quota().total() + ")");
-        gm.sendMessage("//market price <itemId> - prices of one item");
+        gm.sendMessage("//market price <itemId> - prices of one item; //market traders - the store places");
         return true;
     }
 }
