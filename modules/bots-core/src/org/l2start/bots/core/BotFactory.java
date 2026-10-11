@@ -65,6 +65,11 @@ public final class BotFactory {
 
     /** @param classId a starting class, or -1 for the configured distribution */
     public synchronized BotRecord create(int classId) throws Exception {
+        return create(classId, null);
+    }
+
+    /** @param adjust changes the generated persona before the character is made (phase 5 traders: sex, profession, name), may be null */
+    public synchronized BotRecord create(int classId, java.util.function.UnaryOperator<Persona> adjust) throws Exception {
         if ((classId >= 0) && !ClassPicker.isStartingClass(classId)) {
             throw new IllegalArgumentException("class " + classId + " is not a starting class");
         }
@@ -76,6 +81,9 @@ public final class BotFactory {
         try {
             synchronized (CharInfoTable.getInstance()) {
                 persona = personas.get().generate(seeds.getAsLong(), classId, BotFactory::nameTaken);
+                if (adjust != null) {
+                    persona = adjust.apply(persona);
+                }
                 name = persona.name();
                 final PlayerTemplate template = PlayerTemplateData.getInstance().getTemplate(persona.classId());
                 if (template == null) {

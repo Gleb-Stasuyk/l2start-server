@@ -8,7 +8,8 @@ import org.l2start.bots.persona.Persona;
 /** One bot: its stock character and account (persistent), plus what is going on right now (runtime). */
 public final class BotRecord {
     public enum Status {
-        ACTIVE, RETIRED
+        /** TRADER (phase 5): a persona kept for a store place; never used by the director or the brain. */
+        ACTIVE, RETIRED, TRADER
     }
 
     private final int botId;

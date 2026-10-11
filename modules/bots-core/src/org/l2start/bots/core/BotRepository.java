@@ -137,6 +137,16 @@ public final class BotRepository {
         return db.queryOne("SELECT bot_id FROM " + identity + " WHERE char_id = ?", rs -> rs.getInt(1), charId).orElseThrow();
     }
 
+    public void setStatus(int botId, String status) throws SQLException {
+        db.update("UPDATE " + identity + " SET status = ? WHERE bot_id = ?", status, botId);
+    }
+
+    /** A new name before the first login (the character is not in the world). */
+    public void rename(int botId, int charId, String name) throws SQLException {
+        db.update("UPDATE characters SET char_name = ? WHERE charId = ?", name, charId);
+        db.update("UPDATE " + identity + " SET char_name = ? WHERE bot_id = ?", name, botId);
+    }
+
     public void retire(int botId) throws SQLException {
         db.update("UPDATE " + identity + " SET status = 'RETIRED' WHERE bot_id = ?", botId);
     }
