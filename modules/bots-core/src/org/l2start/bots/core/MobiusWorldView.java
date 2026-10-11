@@ -12,6 +12,7 @@ import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Npc;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
+import org.l2jmobius.gameserver.entity.item.type.WeaponType;
 import org.l2jmobius.gameserver.entity.zone.ZoneId;
 import org.l2jmobius.gameserver.mechanics.effects.EffectType;
 import org.l2jmobius.gameserver.mechanics.skill.Skill;
@@ -80,7 +81,8 @@ final class MobiusWorldView implements WorldView {
         final WorldObject t = p.getTarget();
         return new SelfView(p.getObjectId(), p.getName(), p.getPlayerClass().getId(), p.isMageClass(), level, expPct, p.getSp(), p.getCurrentHp(), p.getMaxHp(),
             p.getCurrentMp(), p.getMaxMp(), pos(p), p.isDead(), p.isSitting(), p.isMoving(), p.isInCombat(), p.isAttackingNow(), p.isCastingNow(), t == null ? 0 : t.getObjectId(),
-            p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills));
+            p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills),
+            p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW));
     }
 
     @Override
@@ -106,7 +108,7 @@ final class MobiusWorldView implements WorldView {
         }
         final Pos at = pos(n);
         return new NpcView(n.getObjectId(), n.getId(), n.getName(), n.getLevel(), at, at.distance(self.pos()), n.getMaxHp() <= 0 ? 0 : (n.getCurrentHp() * 100) / n.getMaxHp(), n.isDead(),
-            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged);
+            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow());
     }
 
     @Override
@@ -161,6 +163,11 @@ final class MobiusWorldView implements WorldView {
     @Override
     public Geo geo() {
         return MobiusGeo.INSTANCE;
+    }
+
+    @Override
+    public long itemCount(int itemId) {
+        return p.getInventory().getInventoryItemCount(itemId, -1, false);
     }
 
     @Override

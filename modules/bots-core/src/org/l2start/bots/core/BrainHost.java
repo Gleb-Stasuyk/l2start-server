@@ -108,6 +108,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     private long lastLogTicks;
     private long lastLogBusy;
     private long lastLogAt;
+    private long lastLogDeaths;
 
     BrainHost(ModuleContext ctx, BotRegistry registry, BotWorld world, Consumer<BotRecord> logout) {
         this.ctx = ctx;
@@ -476,7 +477,10 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
                 walking++;
             }
         }
-        ctx.log().info(statsLine() + String.format(Locale.ROOT, " ticks/s=%.1f shardCpu=%.2f%% walking=%d", (ticks - lastLogTicks) / secs, cpu, walking));
+        final long deaths = ctx.metrics().snapshot().getOrDefault("deaths", 0L);
+        final double deathsPerHour = ((deaths - lastLogDeaths) / secs) * 3600;
+        ctx.log().info(statsLine() + String.format(Locale.ROOT, " ticks/s=%.1f shardCpu=%.2f%% walking=%d deaths/h=%.0f", (ticks - lastLogTicks) / secs, cpu, walking, deathsPerHour));
+        lastLogDeaths = deaths;
         lastLogTicks = ticks;
         lastLogBusy = busy;
         lastLogAt = now;

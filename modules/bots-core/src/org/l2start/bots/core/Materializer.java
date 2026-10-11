@@ -67,6 +67,7 @@ final class Materializer {
         }
         cleanup(p);
         sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
+        sb.append(", ").append(potions(p, target));
         if (p.isDead()) { // logged out dead (left unseen before "To village"): never arrive as a corpse
             p.setDead(false);
             p.setIsPendingRevive(false);
@@ -122,6 +123,19 @@ final class Materializer {
         }
         p.addAutoSoulShot(id);
         return "shots " + id;
+    }
+
+    /** HP potions of the level (phase 4a), like a player farming; they vanish with the rest on logout. */
+    static int potionFor(int level) {
+        return level < 20 ? 1060 : level < 40 ? 1061 : 1539; // Lesser / Healing / Greater Healing Potion
+    }
+
+    static final int POTIONS = 20;
+
+    private static String potions(Player p, int level) {
+        final int id = potionFor(level);
+        p.getInventory().addItem(ItemProcessType.REWARD, id, POTIONS, p, null);
+        return POTIONS + " potions " + id;
     }
 
     private static boolean jewel(Item it) {

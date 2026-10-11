@@ -22,4 +22,9 @@ public interface WorldView {
 
     /** A monster or NPC by object id, wherever it is (null = gone). */
     NpcView npc(int objectId);
+
+    /** How many of these items the bot carries (potions, arrows, scrolls); 0 when unknown. */
+    default long itemCount(int itemId) {
+        return 0;
+    }
 }

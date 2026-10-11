@@ -37,6 +37,9 @@ public final class FakeWorld {
     public static final int NUKE_RANGE = 600;
     public static final int NUKE_MP = 10;
     public static final int VIEW = 1500;
+    public static final int BOW_RANGE = 500;
+    /** HP potions (Lesser, Healing, Greater): +30 % HP, reuse 10 s, like the stock 10 s reuse. */
+    public static final int[] POTIONS = { 1060, 1061, 1539 };
 
     public static final class Mob {
         public final int objectId;
@@ -50,8 +53,11 @@ public final class FakeWorld {
         public int targetId;
         /** Object id of another player fighting it (kill-steal tests). */
         public int engagedBy;
+        /** Physical attack range: melee 40 (stops at {@link #MELEE_RANGE}), an archer monster 500. */
+        public int attackRange = 40;
         long respawnAt = -1;
         long nextHitAt;
+        long swingUntil;
 
         Mob(int objectId, int npcId, int level, Pos pos) {
             this.objectId = objectId;
@@ -106,6 +112,14 @@ public final class FakeWorld {
     private long nextSwingAt;
     private boolean peaceZone;
     private int townRadius = 800;
+    private boolean archer;
+    private final Map<Integer, Long> items = new HashMap<>();
+    private long potionReadyAt;
+    /** Monster speed as a share of the bot's (0.8: a bot can step away from a monster; 1.2: it cannot). */
+    public double mobSpeed = 0.8;
+    /** Damage the bot took from monsters (kiting tests). */
+    public double damageTaken;
+    public int potionsUsed;
 
     // statistics for tests
     public int kills;
@@ -138,6 +152,19 @@ public final class FakeWorld {
 
     public void addPlayer(PlayerView p) {
         players.add(p);
+    }
+
+    /** A bow in the hands: shoots from {@link #BOW_RANGE}. */
+    public void setArcher(boolean a) {
+        archer = a;
+    }
+
+    public void giveItem(int itemId, long count) {
+        items.merge(itemId, count, Long::sum);
+    }
+
+    public long itemCount(int itemId) {
+        return items.getOrDefault(itemId, 0L);
     }
 
     public void setTownRadius(int r) {
@@ -237,12 +264,15 @@ public final class FakeWorld {
             }
             if (m.targetId == SELF_ID) {
                 final double d = m.pos.distance2d(pos);
-                if (d > MELEE_RANGE) {
-                    m.pos = m.pos.toward(pos, SPEED * 0.8 * sec);
+                final int reach = Math.max(MELEE_RANGE, m.attackRange);
+                if (d > reach) {
+                    m.pos = m.pos.toward(pos, SPEED * mobSpeed * sec);
                 } else if (now >= m.nextHitAt) {
                     m.nextHitAt = now + 1500;
+                    m.swingUntil = now + 500;
                     final double dmg = 2 + (m.level * 1.5);
                     hp -= dmg;
+                    damageTaken += dmg;
                     pending.add(new BotEvent.Attacked(m.objectId, false, dmg));
                     if (sitting) {
                         sitting = false;
@@ -270,7 +300,7 @@ public final class FakeWorld {
                     intention = "ACTIVE";
                     break;
                 }
-                if (moveTowards(m.pos, sec, MELEE_RANGE - 10) && (now >= nextSwingAt)) {
+                if (moveTowards(m.pos, sec, archer ? BOW_RANGE - 10 : MELEE_RANGE - 10) && (now >= nextSwingAt)) {
                     nextSwingAt = now + 1000;
                     hit(m, mage ? 3 + level : 6 + (level * 2));
                 }
@@ -423,7 +453,7 @@ public final class FakeWorld {
 
     private NpcView npcView(Mob m) {
         return new NpcView(m.objectId, m.npcId, "Mob" + m.npcId, m.level, m.pos, m.pos.distance(pos), m.dead() ? 0 : (m.hp * 100) / m.maxHp, m.dead(), true, m.aggressive, true,
-            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID)));
+            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID)), m.attackRange, now < m.swingUntil);
     }
 
     /** Give the mage an undead-only nuke with a lower id than the real one (it is listed first). */
@@ -440,7 +470,8 @@ public final class FakeWorld {
         skills.add(new SkillView(1012, 1, SkillView.Kind.OTHER, 5, 0, true));
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
-            "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills);
+            "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
+            0, 0, archer ? BOW_RANGE : 40, archer);
     }
 
     /** The view of the next tick: events since the previous view are handed over (and cleared). */
@@ -484,6 +515,11 @@ public final class FakeWorld {
             public NpcView npc(int objectId) {
                 final Mob m = mobs.get(objectId);
                 return m == null ? null : npcView(m);
+            }
+
+            @Override
+            public long itemCount(int itemId) {
+                return FakeWorld.this.itemCount(itemId);
             }
         };
     }
@@ -564,7 +600,17 @@ public final class FakeWorld {
 
         @Override
         public ActionResult useItem(int itemId) {
-            return ActionResult.INVALID;
+            if (dead || sitting || (itemCount(itemId) <= 0) || java.util.Arrays.stream(POTIONS).noneMatch(x -> x == itemId)) {
+                return ActionResult.INVALID;
+            }
+            if (now < potionReadyAt) {
+                return ActionResult.COOLDOWN;
+            }
+            potionReadyAt = now + 10_000;
+            items.merge(itemId, -1L, Long::sum);
+            potionsUsed++;
+            hp = Math.min(maxHp(), hp + (maxHp() * 0.3));
+            return ActionResult.OK;
         }
 
         @Override
