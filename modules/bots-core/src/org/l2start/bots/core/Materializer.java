@@ -73,6 +73,9 @@ final class Materializer {
         }
         p.setCurrentHpMp(p.getMaxHp(), p.getMaxMp());
         p.setCurrentCp(p.getMaxCp());
+        // stock onPlayerEnter puts HP/MP/CP back to the values loaded from the database 300 ms after entering
+        // (of the old, lower level): without this a bot raised to the zone's level arrives at 5-10 % HP and MP
+        p.setOriginalCpHpMp(p.getMaxCp(), p.getMaxHp(), p.getMaxMp());
         return sb.toString();
     }
 
