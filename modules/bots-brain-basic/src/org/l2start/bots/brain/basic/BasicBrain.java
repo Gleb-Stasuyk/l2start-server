@@ -1,5 +1,6 @@
 package org.l2start.bots.brain.basic;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -405,7 +406,9 @@ public final class BasicBrain implements Brain {
         final double dx = me.pos().x() - p.pos().x();
         final double dy = me.pos().y() - p.pos().y();
         final double len = Math.max(1, Math.hypot(dx, dy));
-        pvpFlee = new Pos(me.pos().x() + (int) ((dx / len) * 1200), me.pos().y() + (int) ((dy / len) * 1200), me.pos().z());
+        final int from = (int) me.pos().distance2d(p.pos());
+        final Pos safe = safePoint(me.pos(), p.pos(), from + 1200, 1200, ctx.world().geo(), threats(ctx.world(), 0), FLEE_FAN, false);
+        pvpFlee = safe != null ? safe : new Pos(me.pos().x() + (int) ((dx / len) * 1200), me.pos().y() + (int) ((dy / len) * 1200), me.pos().z());
         endFight();
         ctx.act().moveTo(pvpFlee);
         return 600;
@@ -1033,6 +1036,7 @@ public final class BasicBrain implements Brain {
         kiteFails = 0;
         kiteUntil = 0;
         kiteNext = 0;
+        kiteBlocked = false;
         ctx.note("fight " + mob.name() + " lv " + mob.level() + (mob.targetId() == me.objectId() ? " (it attacked)" : ""));
         detail = "fight " + fightName;
         hit(ctx, ctx.world(), me, mob);
@@ -1164,6 +1168,14 @@ public final class BasicBrain implements Brain {
     static volatile int kiteTo = 400;
     /** Aggressive monsters this close: no sitting down. */
     static final int AGGRO_NEAR = 450;
+    /** One step back is at most this long (a short step keeps the bot on the ground it knows). */
+    static final int KITE_STEP = 400;
+    /** A spot (and the way to it) must stay this much outside the aggro range of every free aggressive monster. */
+    static final int AGGRO_MARGIN = 80;
+    /** Directions tried for stepping back, degrees from straight away from the monster (LW PhantomCasterPositioning fan). */
+    static final int[] KITE_FAN = { 0, 30, -30, 60, -60, 90, -90 };
+    /** Directions tried for running away (wider: anything but back past the monster). */
+    static final int[] FLEE_FAN = { 0, 30, -30, 60, -60, 90, -90, 135, -135 };
     /** HP potions, best first (Greater Healing, Healing, Lesser Healing). */
     static final int[] HP_POTIONS = { 1539, 1061, 1060 };
     static final long POTION_REUSE = 10_000;
@@ -1173,6 +1185,7 @@ public final class BasicBrain implements Brain {
     private long kiteNext;
     private int kiteFails;
     private boolean kiteOff;
+    private boolean kiteBlocked;
     private int kites;
     private Pos mobFleeTo;
     private int mobFleeFrom;
@@ -1228,17 +1241,20 @@ public final class BasicBrain implements Brain {
         if ((me.hpPct() >= fleeHp) || potionSoon(w, now)) {
             return false;
         }
-        int onMe = 0;
-        for (NpcView n : w.npcs()) {
-            if (!n.dead() && n.monster() && (n.targetId() == me.objectId())) {
-                onMe++;
-            }
-        }
-        return (onMe >= 2) || (mob.hpPct() > 20) || (me.hpPct() < (fleeHp * 0.5));
+        return (onMe(w, me) >= 2) || (mob.hpPct() > 20) || (me.hpPct() < (fleeHp * 0.5));
     }
 
     private long startMobFlee(BrainContext ctx, SelfView me, NpcView mob, long now) {
-        final Pos away = me.pos().toward(mob.pos(), -1200);
+        final WorldView w = ctx.world();
+        final int from = (int) me.pos().distance2d(mob.pos());
+        final Pos away = safePoint(me.pos(), mob.pos(), from + 1200, 1200, w.geo(), threats(w, mob.objectId()), FLEE_FAN, false);
+        if (away == null) { // every way out leads into other aggressive monsters
+            ctx.note("no safe way out from " + mob.name() + ": scroll of escape");
+            endFight();
+            standIfSitting(ctx, me);
+            ctx.act().returnToTown();
+            return 3000;
+        }
         mobFleeTo = new Pos(away.x(), away.y(), me.pos().z());
         mobFleeFrom = mob.objectId();
         mobFleeSince = now;
@@ -1294,7 +1310,7 @@ public final class BasicBrain implements Brain {
         }
         detail = "rest away from " + aggro.name();
         if (!me.moving()) {
-            final Pos p = kitePoint(me.pos(), aggro.pos(), AGGRO_NEAR + 300, w.geo());
+            final Pos p = safePoint(me.pos(), aggro.pos(), AGGRO_NEAR + 300, AGGRO_NEAR + 300, w.geo(), threats(w, aggro.objectId()), FLEE_FAN, false);
             if ((p == null) || !ctx.act().moveTo(p).ok()) {
                 return 0; // nowhere to go: rest here after all
             }
@@ -1325,6 +1341,9 @@ public final class BasicBrain implements Brain {
             return false;
         }
         final double close = mob.attackRange() + kiteClose;
+        if (onMe(w, me) >= 2) {
+            return false; // several on it: stepping back only drags them along; fight here (or leave the fight)
+        }
         if (kiteUntil > 0) {
             if (me.moving() && (now < kiteUntil)) {
                 return true;
@@ -1344,8 +1363,16 @@ public final class BasicBrain implements Brain {
             return false;
         }
         final int to = Math.max(150, Math.min(kiteTo, range - 50));
-        final Pos p = kitePoint(me.pos(), mob.pos(), to, w.geo());
-        if ((p == null) || !ctx.act().moveTo(p).ok()) {
+        final Pos p = safePoint(me.pos(), mob.pos(), to, KITE_STEP, w.geo(), threats(w, mob.objectId()), KITE_FAN, true);
+        if (p == null) {
+            kiteNext = now + 2000; // no safe spot behind (wall, other aggressive monsters): fight in place, look again later
+            if (!kiteBlocked) {
+                kiteBlocked = true;
+                ctx.note("no safe spot to step back from " + fightName + ": fights in place");
+            }
+            return false;
+        }
+        if (!ctx.act().moveTo(p).ok()) {
             kiteNext = now + 3000;
             if (++kiteFails >= 2) {
                 kiteOff = true;
@@ -1359,24 +1386,89 @@ public final class BasicBrain implements Brain {
         return true;
     }
 
-    /**
-     * A point {@code dist} away from the monster on the bot's side (straight back, then 30 and 60 degrees aside, then
-     * shorter), walkable from the bot and with the monster in sight (LW PhantomCasterPositioning.destination).
-     * @return null when there is no such point
-     */
+    /** {@link #safePoint} with no other monsters around and no step limit (tests). */
     static Pos kitePoint(Pos me, Pos mob, int dist, org.l2start.bots.api.Geo geo) {
-        final double now = Math.max(1, me.distance2d(mob));
-        final double angle = Math.atan2(me.y() - mob.y(), me.x() - mob.x());
-        for (int offset : new int[] { 0, 30, -30, 60, -60 }) {
-            final double a = angle + Math.toRadians(offset);
-            for (int r = dist; r >= Math.max(now + 80, 150); r -= 80) {
-                final Pos c = new Pos(mob.x() + (int) (Math.cos(a) * r), mob.y() + (int) (Math.sin(a) * r), me.z());
-                if ((c.distance2d(me) > 40) && geo.canMoveTo(me, c) && geo.canSee(c, mob)) {
-                    return c;
-                }
+        return safePoint(me, mob, dist, Integer.MAX_VALUE, geo, List.of(), KITE_FAN, true);
+    }
+
+    /** Monsters of this bot's fight on it (they target it). */
+    static int onMe(WorldView w, SelfView me) {
+        int n = 0;
+        for (NpcView v : w.npcs()) {
+            if (!v.dead() && v.monster() && (v.targetId() == me.objectId())) {
+                n++;
             }
         }
-        return null;
+        return n;
+    }
+
+    /** Free aggressive monsters around (not the one fought): walking into their aggro range pulls them. */
+    static List<NpcView> threats(WorldView w, int exceptId) {
+        final List<NpcView> l = new ArrayList<>();
+        for (NpcView v : w.npcs()) {
+            if ((v.objectId() != exceptId) && v.freeAggressive() && (v.aggroRange() > 0)) {
+                l.add(v);
+            }
+        }
+        return l;
+    }
+
+    /**
+     * How far the walk from {@code a} to {@code b} stays outside the aggro range (+ margin) of the nearest threat; negative =
+     * it passes (or ends) inside one. No threats: {@link Double#MAX_VALUE}.
+     */
+    static double clearance(Pos a, Pos b, List<NpcView> threats) {
+        double best = Double.MAX_VALUE;
+        for (NpcView t : threats) {
+            best = Math.min(best, segmentDistance(t.pos(), a, b) - (t.aggroRange() + AGGRO_MARGIN));
+        }
+        return best;
+    }
+
+    /** 2D distance from {@code p} to the segment a-b. */
+    static double segmentDistance(Pos p, Pos a, Pos b) {
+        final double dx = b.x() - a.x();
+        final double dy = b.y() - a.y();
+        final double len2 = (dx * dx) + (dy * dy);
+        double t = len2 <= 0 ? 0 : (((p.x() - a.x()) * dx) + ((p.y() - a.y()) * dy)) / len2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x() - (a.x() + (t * dx)), p.y() - (a.y() + (t * dy)));
+    }
+
+    /**
+     * A spot to step back or run to, away from {@code from} (the monster or player): rays of the fan (degrees from straight
+     * away), on each the farthest point up to {@code dist} from {@code from} and at most {@code step} from the bot that is
+     * walkable (geodata), in sight of {@code from} when asked, and whose way there stays outside the aggro range of every
+     * threat. Best score wins: room from the threats, then straight away, then length (LW PhantomCasterPositioning fan).
+     * @return null when there is no such spot (then: no kiting, fight in place)
+     */
+    static Pos safePoint(Pos me, Pos from, int dist, int step, org.l2start.bots.api.Geo geo, List<NpcView> threats, int[] fan, boolean sight) {
+        final double now = Math.max(1, me.distance2d(from));
+        final double angle = Math.atan2(me.y() - from.y(), me.x() - from.x());
+        final double maxR = Math.min(dist, now + Math.max(80, step));
+        final double minR = Math.max(now + 80, 150);
+        Pos best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int offset : fan) {
+            final double a = angle + Math.toRadians(offset);
+            for (double r = maxR; r >= minR; r -= 80) {
+                final Pos c = new Pos(from.x() + (int) (Math.cos(a) * r), from.y() + (int) (Math.sin(a) * r), me.z());
+                if ((c.distance2d(me) <= 40) || !geo.canMoveTo(me, c) || (sight && !geo.canSee(c, from))) {
+                    continue;
+                }
+                final double room = clearance(me, c, threats);
+                if (room < 0) {
+                    continue;
+                }
+                final double score = Math.min(room, 400) - (2 * Math.abs(offset)) + (0.2 * r);
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = c;
+                }
+                break; // the farthest good point of this ray
+            }
+        }
+        return best;
     }
 
     private long loot(BrainContext ctx, WorldView w, SelfView me) {

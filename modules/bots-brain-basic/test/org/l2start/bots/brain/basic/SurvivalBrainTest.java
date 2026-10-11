@@ -5,10 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import java.util.Random;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.l2start.bots.api.NpcView;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.testkit.BrainHarness;
 import org.l2start.bots.testkit.FakeWorld;
@@ -179,5 +181,115 @@ class SurvivalBrainTest {
         w.addWall(600, 600, 1500, 960);
         w.addWall(600, 1040, 1500, 1400);
         assertNull(BasicBrain.kitePoint(me, mob, 400, w.geo()));
+    }
+
+    static NpcView aggro(int id, Pos at) {
+        return new NpcView(id, 9, "Aggro", 15, at, 0, 100, false, true, true, true, 0, false, 40, false, 300);
+    }
+
+    @Test
+    void safePointDoesNotStepBackIntoAggressiveMonsters() {
+        final FakeWorld w = new FakeWorld(1, BasicBrainTest.TOWN, true);
+        final Pos me = new Pos(1000, 1000, 0);
+        final Pos mob = new Pos(1080, 1000, 0);
+        // an aggressive monster right behind the bot: straight back would walk into its aggro range
+        final List<NpcView> behind = List.of(aggro(50, new Pos(550, 1000, 0)));
+        final Pos p = BasicBrain.safePoint(me, mob, 400, BasicBrain.KITE_STEP, w.geo(), behind, BasicBrain.KITE_FAN, true);
+        assertNotNull(p);
+        assertTrue(BasicBrain.clearance(me, p, behind) >= 0, "into its aggro range: " + p);
+        assertTrue(p.distance2d(new Pos(550, 1000, 0)) > (300 + BasicBrain.AGGRO_MARGIN), p.toString());
+        assertTrue(p.distance2d(mob) > me.distance2d(mob), "still away from the fought monster: " + p);
+        // the step is short
+        assertTrue(p.distance2d(me) <= (BasicBrain.KITE_STEP + 90), "step " + (int) p.distance2d(me));
+        // aggressive monsters behind and on both sides: no safe spot -> null (fight in place)
+        final List<NpcView> around = List.of(aggro(50, new Pos(550, 1000, 0)), aggro(51, new Pos(1000, 1450, 0)), aggro(52, new Pos(1000, 550, 0)),
+            aggro(53, new Pos(700, 1350, 0)), aggro(54, new Pos(700, 650, 0)));
+        assertNull(BasicBrain.safePoint(me, mob, 400, BasicBrain.KITE_STEP, w.geo(), around, BasicBrain.KITE_FAN, true));
+        // a monster that fights somebody else is not a danger
+        final NpcView busy = new NpcView(55, 9, "Busy", 15, new Pos(550, 1000, 0), 0, 100, false, true, true, true, 777, true, 40, false, 300);
+        assertTrue(!busy.freeAggressive());
+    }
+
+    @Test
+    void clearanceCountsTheWayNotOnlyTheEnd() {
+        // the end is far from the monster, but the way passes right next to it
+        final List<NpcView> t = List.of(aggro(50, new Pos(500, 0, 0)));
+        assertTrue(BasicBrain.clearance(new Pos(0, 0, 0), new Pos(1000, 0, 0), t) < 0);
+        assertTrue(BasicBrain.clearance(new Pos(0, 0, 0), new Pos(0, 1000, 0), t) >= 0);
+        assertEquals(Double.MAX_VALUE, BasicBrain.clearance(new Pos(0, 0, 0), new Pos(1000, 0, 0), List.of()));
+    }
+
+    /** Archer fights a passive monster with aggressive ones a bit behind it (outside their aggro range): it never pulls them. */
+    void kitingDoesNotPull(boolean mage, long seed) {
+        final FakeWorld w = ground(seed, mage, 5, 0);
+        w.setArcher(!mage);
+        w.addMob(2, 5, new Pos(0, 4180, 0));
+        final List<FakeWorld.Mob> aggros = List.of(w.addMob(9, 15, new Pos(0, 3540, 0)), w.addMob(9, 15, new Pos(-280, 3600, 0)),
+            w.addMob(9, 15, new Pos(280, 3600, 0)));
+        aggros.forEach(m -> m.aggressive = true);
+        w.teleport(new Pos(0, 4000, 0));
+        final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());
+        final BrainHarness h = new BrainHarness(b, BasicBrainTest.info(mage), w, seed);
+        h.setAssignment(PresenceBrainTest.hunt(1));
+        for (int i = 0; (i < 240) && (w.kills == 0); i++) {
+            h.run(250);
+            for (FakeWorld.Mob m : aggros) {
+                assertEquals(0, m.targetId, "pulled an aggressive monster at " + w.pos() + " (it stands at " + m.pos + "): " + h.notes());
+            }
+        }
+        assertEquals(1, w.kills, "the fight did not end: " + h.notes());
+        assertTrue((b.kites() > 0) || noted(new Run(w, h, b), "no safe spot"), h.notes().toString());
+    }
+
+    @Test
+    void archerDoesNotKiteIntoAggressiveMonsters() {
+        kitingDoesNotPull(false, 31);
+    }
+
+    @Test
+    void mageDoesNotKiteIntoAggressiveMonsters() {
+        kitingDoesNotPull(true, 32);
+    }
+
+    @Test
+    void noKitingWithTwoMonstersOnIt() {
+        final FakeWorld w = ground(33, true, 5, 0);
+        final FakeWorld.Mob a = w.addMob(2, 5, new Pos(0, 4150, 0));
+        final FakeWorld.Mob c = w.addMob(2, 5, new Pos(60, 4150, 0));
+        a.targetId = FakeWorld.SELF_ID;
+        c.targetId = FakeWorld.SELF_ID;
+        w.teleport(new Pos(0, 4000, 0));
+        final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());
+        final BrainHarness h = new BrainHarness(b, BasicBrainTest.info(true), w, 33);
+        h.setAssignment(PresenceBrainTest.hunt(1));
+        for (int i = 0; (i < 120) && (w.kills == 0); i++) {
+            h.run(250);
+        }
+        assertEquals(0, b.kites(), h.notes().toString());
+    }
+
+    @Test
+    void runsAwayNotIntoAggressiveMonstersOrReadsAScroll() {
+        BasicBrain.kiteClose = 0;
+        BasicBrain.potions = false;
+        final FakeWorld w = ground(34, false, 7, 0);
+        final FakeWorld.Mob mob = w.addMob(2, 7, new Pos(0, 4100, 0));
+        mob.targetId = FakeWorld.SELF_ID;
+        // aggressive monsters behind, left and right: no safe way out
+        final List<FakeWorld.Mob> aggros = List.of(w.addMob(9, 15, new Pos(0, 3500, 0)), w.addMob(9, 15, new Pos(-500, 3900, 0)),
+            w.addMob(9, 15, new Pos(500, 3900, 0)), w.addMob(9, 15, new Pos(-400, 3550, 0)), w.addMob(9, 15, new Pos(400, 3550, 0)));
+        aggros.forEach(m -> m.aggressive = true);
+        w.teleport(new Pos(0, 4000, 0));
+        w.setHp(w.maxHp() * 0.15);
+        final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());
+        final BrainHarness h = new BrainHarness(b, BasicBrainTest.info(false), w, 34);
+        h.setAssignment(PresenceBrainTest.hunt(1));
+        for (int i = 0; i < 40; i++) {
+            h.run(250);
+            for (FakeWorld.Mob m : aggros) {
+                assertEquals(0, m.targetId, "ran into an aggressive monster at " + w.pos() + ": " + h.notes());
+            }
+        }
+        assertTrue(noted(new Run(w, h, b), "no safe way out") || noted(new Run(w, h, b), "runs"), h.notes().toString());
     }
 }
