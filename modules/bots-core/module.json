@@ -29,6 +29,7 @@
     "Brain": { "type": "string", "default": "basic", "reloadable": true, "description": "Id of the brain every bot gets (a module registers it through the BrainRegistry service; bots-brain-basic registers 'basic'). No such brain = bots stand idle." },
     "Shards": { "type": "int", "default": 0, "min": 0, "max": 32, "description": "Tick shards (0 = max(2, cores/4)). A bot belongs to shard botId % N." },
     "WaveMs": { "type": "int", "default": 100, "min": 20, "max": 1000, "description": "Every shard ticks its due bots this often." },
+    "Overload": { "type": "string", "default": "auto", "reloadable": true, "description": "Overload guard: auto (more than 10% of waves overrun for 30 s: far active bots think half as often, then the director wants 30% fewer bots; back after 2 min calm), or a forced step: normal, slow, cut (checks, load tests)." },
     "WaveBudgetMs": { "type": "int", "default": 25, "min": 1, "max": 500, "description": "Time budget of one wave; bots that do not fit wait for the next wave (counted as overrun)." },
     "ViewRadius": { "type": "int", "default": 1500, "min": 300, "max": 4000, "reloadable": true, "description": "What a bot sees (monsters, players, drops) around itself." },
     "PromoteRadius": { "type": "int", "default": 3000, "min": 0, "max": 20000, "reloadable": true, "description": "A live player this close makes a bot ACTIVE (ticks 0.3-1 s instead of 3-5 s)." },

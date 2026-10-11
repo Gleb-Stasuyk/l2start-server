@@ -130,6 +130,16 @@ class DirectorTest {
     }
 
     @Test
+    void overloadGuardWantsThirtyPercentFewer() {
+        final Sim s = new Sim(DirectorConfig.defaults());
+        s.d.setDensity(0.7);
+        s.run(20, at(new Pos(0, -1500, 0)), 10 * 60_000);
+        final long town = s.count(Assignment.Kind.TOWN);
+        assertTrue((town >= 7) && (town <= 14), "town bots in the evening at 70 %: " + town);
+        assertTrue(s.d.statsLine().contains("density=0.7"), s.d.statsLine());
+    }
+
+    @Test
     void nightTownHasFewer() {
         final Sim s = new Sim(DirectorConfig.defaults());
         s.run(4, at(new Pos(0, -1500, 0)), 10 * 60_000);

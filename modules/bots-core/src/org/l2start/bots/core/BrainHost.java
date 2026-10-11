@@ -99,6 +99,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     private final Map<Integer, Mind> minds = new ConcurrentHashMap<>();
     private volatile java.util.function.Supplier<java.util.List<Pos>> anchors = java.util.List::of;
     private volatile Ticker ticker;
+    private final org.l2start.bots.runtime.Overload overload = new org.l2start.bots.runtime.Overload();
     private volatile String brainId = "basic";
     private volatile int viewRadius = 1500;
     private volatile int promoteRadius = 3000;
@@ -129,6 +130,9 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         promoteRadius = ctx.config().getInt("PromoteRadius");
         demoteRadius = Math.max(promoteRadius, ctx.config().getInt("DemoteRadius"));
         demoteDelay = ctx.config().getDuration("DemoteDelay").toMillis();
+        if (overload.force(org.l2start.bots.runtime.Overload.parse(ctx.config().getString("Overload")))) {
+            ctx.log().info("overload: " + overload.describe());
+        }
         for (Mind m : minds.values()) {
             ensureBrain(m);
         }
@@ -153,6 +157,12 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         if (!every.isZero()) {
             ctx.scheduler().fixedRate("stats", every, every, this::logStats);
         }
+        ctx.scheduler().fixedRate("overload", Duration.ofSeconds(10), Duration.ofSeconds(10), () -> {
+            if (overload.sample(clock.now(), t.waves(), t.overruns())) {
+                ctx.metrics().counter("overloadSteps").inc();
+                ctx.log().warn("overload: " + overload.describe() + (overload.density() < 1 ? ": the director wants 30% fewer bots" : overload.step() == org.l2start.bots.runtime.Overload.Step.SLOW_FAR ? ": far active bots think half as often" : ": back to normal"));
+            }
+        });
         lastLogAt = clock.now();
         ctx.log().info("runtime: " + n + " shards, wave " + wave + " ms, budget " + budget + " ms, brain '" + brainId + "'" + (factories.containsKey(brainId) ? "" : " (not registered yet)"));
     }
@@ -308,7 +318,8 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             m.ctx.view = null;
         }
         m.r.setGoal(brain.state());
-        return Lod.delay(slot.lod().level(), brain.inCombat() || p.isInCombat(), wanted, m.ctx.rnd().nextDouble());
+        final long d = Lod.delay(slot.lod().level(), brain.inCombat() || p.isInCombat(), wanted, m.ctx.rnd().nextDouble());
+        return overload.delay(d, slot.lod().level() == Lod.Level.ACTIVE, m.nearestLive);
     }
 
     private double nearestLive(Player p) {
@@ -400,6 +411,11 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         return m == null ? Double.POSITIVE_INFINITY : m.nearestLive;
     }
 
+    /** Overload guard (director density, far bots' tick). */
+    public org.l2start.bots.runtime.Overload overload() {
+        return overload;
+    }
+
     public void setPaused(boolean p) {
         final Ticker t = ticker;
         if (t != null) {
@@ -437,9 +453,9 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             }
         }
         final Map<String, Long> mm = ctx.metrics().snapshot();
-        return String.format(Locale.ROOT, "BOTS world=%d ticking=%d active=%d present=%d brain=%s%s noBrain=%d ticks=%d p50=%.2fms p99=%.2fms overrun=%d errors=%d safeIdle=%d paused=%s moves=%d attacks=%d kills=%d deaths=%d levelUps=%d rejected=%d",
+        return String.format(Locale.ROOT, "BOTS world=%d ticking=%d active=%d present=%d brain=%s%s noBrain=%d ticks=%d p50=%.2fms p99=%.2fms overrun=%d overload=%s errors=%d safeIdle=%d paused=%s moves=%d attacks=%d kills=%d deaths=%d levelUps=%d rejected=%d",
             registry.inWorld(), t.size(), active, present, brainId, factories.containsKey(brainId) ? "" : "(missing)", noBrain, t.ticks(), t.percentileNanos(50) / 1e6, t.percentileNanos(99) / 1e6,
-            t.overruns(), t.errors(), safeIdle, t.paused(), mm.getOrDefault("moves", 0L), mm.getOrDefault("attacks", 0L), mm.getOrDefault("kills", 0L), mm.getOrDefault("deaths", 0L),
+            t.overruns(), overload.step(), t.errors(), safeIdle, t.paused(), mm.getOrDefault("moves", 0L), mm.getOrDefault("attacks", 0L), mm.getOrDefault("kills", 0L), mm.getOrDefault("deaths", 0L),
             mm.getOrDefault("levelUps", 0L), mm.getOrDefault("actionsRejected", 0L));
     }
 

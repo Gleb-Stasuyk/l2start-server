@@ -132,6 +132,17 @@ public final class Director {
         cfg = c;
     }
 
+    private volatile double density = 1;
+
+    /** Overload guard: 0.7 = 30 % fewer bots in towns and on grounds (who is there already leaves as usual). */
+    public void setDensity(double d) {
+        density = Math.max(0.1, Math.min(1, d));
+    }
+
+    public double density() {
+        return density;
+    }
+
     public DirectorConfig config() {
         return cfg;
     }
@@ -239,7 +250,7 @@ public final class Director {
             int townSum = 0;
             for (Demand d : demand.values()) {
                 if (d.town()) {
-                    final int t = townTarget(c, d.id(), hour, curve);
+                    final int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density);
                     target.put(d.id(), t);
                     townSum += t;
                 }
@@ -251,9 +262,9 @@ public final class Director {
                 }
             }
             grounds.sort((a, b) -> Double.compare(a.nearest(), b.nearest()));
-            int huntCap = Math.min(c.huntPerCluster() + (c.huntPerExtraPlayer() * (cluster.size() - 1)), Math.max(0, c.maxPerCluster() - townSum));
+            int huntCap = (int) Math.round(Math.min(c.huntPerCluster() + (c.huntPerExtraPlayer() * (cluster.size() - 1)), Math.max(0, c.maxPerCluster() - townSum)) * density);
             for (Demand d : grounds) {
-                int t = groundTarget(c, d.groundRef(), curve) - d.players();
+                int t = (int) Math.round(groundTarget(c, d.groundRef(), curve) * density) - d.players();
                 t = Math.max(0, Math.min(t, huntCap));
                 huntCap -= t;
                 target.put(d.id(), t);
@@ -777,6 +788,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers;
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + (density < 1 ? " density=" + density : "");
     }
 }

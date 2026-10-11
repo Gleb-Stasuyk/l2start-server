@@ -80,6 +80,14 @@ public final class Ticker {
         return n;
     }
 
+    public long waves() {
+        long n = 0;
+        for (Shard s : shards) {
+            n += s.waves();
+        }
+        return n;
+    }
+
     public long overruns() {
         long n = 0;
         for (Shard s : shards) {
