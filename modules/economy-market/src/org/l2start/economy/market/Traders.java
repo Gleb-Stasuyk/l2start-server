@@ -13,24 +13,32 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.l2jmobius.gameserver.config.custom.OfflineTradeConfig;
+import org.l2jmobius.gameserver.entity.World;
+import org.l2jmobius.gameserver.entity.WorldObject;
+import org.l2jmobius.gameserver.entity.actor.Npc;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.actor.enums.player.PrivateStoreType;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.enums.ItemProcessType;
 import org.l2jmobius.gameserver.entity.zone.ZoneId;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
+import org.l2jmobius.gameserver.mechanics.stats.Stat;
+import org.l2jmobius.gameserver.mechanics.stats.functions.FuncAdd;
 import org.l2jmobius.gameserver.network.holders.RequestTrade;
 import org.l2jmobius.gameserver.network.holders.TradeItem;
 import org.l2jmobius.gameserver.network.holders.TradeList;
 import org.l2jmobius.gameserver.network.serverpackets.PrivateStoreMsgBuy;
 import org.l2jmobius.gameserver.network.serverpackets.PrivateStoreMsgSell;
+import org.l2jmobius.gameserver.network.serverpackets.RecipeShopMsg;
 import org.l2start.bots.trade.TraderPool;
 import org.l2start.economy.market.MarketRepository.StoreRow;
 import org.l2start.economy.market.model.Assortment;
 import org.l2start.economy.market.model.Assortment.Line;
+import org.l2start.economy.market.model.MarketAreas;
 import org.l2start.economy.market.model.MarketBook;
 import org.l2start.economy.market.model.MarketItem;
 import org.l2start.economy.market.model.PaperStore;
+import org.l2start.economy.market.model.SpotGenerator;
 import org.l2start.economy.market.model.StoreSpots;
 import org.l2start.economy.market.model.StoreSpots.Spot;
 import org.l2start.economy.market.model.StoreTitle;
@@ -38,76 +46,92 @@ import org.l2start.economy.market.model.TraderPresence;
 import org.l2start.platform.api.StoreDeal;
 
 /**
- * Phase 5b/5c: bot traders in the world. Each store place keeps one trader persona (bots-core service TraderPool,
- * status TRADER) with the same name, kind and sign; it stands at its place with a stock private store (SELL,
- * PACKAGE_SELL or BUY) while a real player is near the market (and a few minutes after), at night only part of them
- * stays with the grey name of an offline store. Away, the store lives "on paper" (model PaperStore). Goods and adena
- * are real items only while the trader stands: created on open, destroyed on close (the bag is empty in the database
- * while it is away), stock offline-trade rows of bots are removed. Loaded only when bots-core is there.
+ * Phase 5b/5c/5e: static bot traders (decision of 12.10.2026). Each store place of a town (generated once, scattered,
+ * kept in the database) has one trader persona (bots-core service TraderPool, status TRADER) with the same name, kind
+ * and sign. They come in at the server start, independent of players and of the presence director, sit with a stock
+ * store (SELL, PACKAGE_SELL, BUY, MANUFACTURE for the dwarf crafters) and stay; a fixed service trader (4UDO) sells
+ * shots at the NPC price. The store lives on in place: every {@code RestockMinutes} the invisible buyers of the paper
+ * life take their part and a store that sold most of its goods is refilled. At night part of the traders get the grey
+ * name of an offline store. Goods and adena are real items only while the trader stands: created on open, destroyed
+ * before any logout save, stock offline-trade rows of bots removed. Loaded only when bots-core is there.
  */
 final class Traders {
-    static final long REOPEN_AFTER_SOLD_OUT_MS = 10 * 60_000L;
-    static final long LEAVE_AFTER_SOLD_OUT_MS = 60_000L;
-    static final int OPEN_PER_TICK = 2;
+    static final long REOPEN_AFTER_LOGOUT_MS = 30_000L;
+    static final int OPEN_PER_TICK = 4;
+    static final int SERVICE_STOCK = 200_000;
+    static final int SERVICE_EXTRA_SLOTS = 2;
 
-    /** One store place: its trader and store (memory; the database has the same after every close and deal flush). */
+    /** One store place: its trader and store (memory; the database has the same after every change). */
     static final class Store {
         final Spot spot;
+        final int[] serviceItems; // a service trader: what it sells at the NPC price (null = a market place)
         StoreRow row;
         List<Line> lines = new ArrayList<>();
         volatile boolean open;
         volatile int charId;
         volatile long soldOutAt;
+        long reopenAt;
+        boolean forceRestock;
         long closedAt;
         int destroyed;
         boolean offlineLook;
         boolean geoLogged;
         final Map<Integer, Long> shown = new ConcurrentHashMap<>(); // pieces put in the stock list at the open
 
-        Store(Spot spot) {
+        Store(Spot spot, int[] serviceItems) {
             this.spot = spot;
+            this.serviceItems = serviceItems;
+        }
+
+        String kind() {
+            return (row != null) ? row.kind() : spot.kind();
         }
 
         boolean buy() {
-            return (row != null) && "BUY".equals(row.kind());
+            return "BUY".equals(kind());
+        }
+
+        boolean craft() {
+            return "CRAFT".equals(kind());
+        }
+
+        boolean service() {
+            return serviceItems != null;
         }
     }
 
     private final EconomyMarketModule m;
     private final MarketRepository repo;
     private final TraderPool pool;
-    private final StoreSpots spots;
+    private final StoreSpots legacy;
+    private final MarketAreas areas;
     private final Assortment assortment;
+    private final Crafts crafts;
     private final Random rnd = new Random();
     private final Map<String, Store> stores = new ConcurrentHashMap<>(); // spot id
     private final Map<Integer, Store> byChar = new ConcurrentHashMap<>();
-    private final Map<String, Long> lastWatched = new HashMap<>();
-    private final Map<String, Boolean> loadedTowns = new HashMap<>();
+    private final Map<String, List<Store>> towns = new HashMap<>();
+    private final Map<String, Integer> townWant = new HashMap<>(); // the quota the stores of a town were made for
     private final ConcurrentLinkedQueue<Runnable> writes = new ConcurrentLinkedQueue<>();
     private final Set<String> warned = new HashSet<>();
     private volatile boolean selfTested;
     private volatile boolean stopped;
+    private Boolean lastNight;
 
     private Traders(EconomyMarketModule m, TraderPool pool) throws Exception {
         this.m = m;
         this.repo = m.repo();
         this.pool = pool;
-        spots = StoreSpots.load(m.ctx().resources().path("data/store-spots.xml"));
+        legacy = StoreSpots.load(m.ctx().resources().path("data/store-spots.xml"));
+        areas = MarketAreas.load(m.ctx().resources().path("data/market-areas.xml"));
         assortment = Assortment.load(m.ctx().resources().path("data/trader-profiles.xml"));
+        crafts = new Crafts(m);
     }
 
     /** @return the runtime, or null without the bots-core service (module off, or not installed). */
     static Traders start(EconomyMarketModule m) throws Exception {
         final TraderPool pool = m.ctx().services().find(TraderPool.class).orElse(null);
         return (pool == null) ? null : new Traders(m, pool);
-    }
-
-    private long cfgMs(String key, long def) {
-        try {
-            return Math.max(0, m.ctx().config().getLong(key)) * 1000L;
-        } catch (RuntimeException e) {
-            return def;
-        }
     }
 
     // ---- the task (scheduler thread, every few seconds)
@@ -121,59 +145,58 @@ final class Traders {
             return;
         }
         final long now = System.currentTimeMillis();
-        final List<int[]> watchers = pool.watchers();
-        final int hour = LocalTime.now().getHour();
-        final boolean night = TraderPresence.night(hour);
+        final boolean night = TraderPresence.night(LocalTime.now().getHour());
         final long day = LocalDate.now().toEpochDay();
         final double nightStay = m.ctx().config().getDouble("NightStay");
-        final int radius = m.ctx().config().getInt("WatchRadius");
-        final long linger = cfgMs("TraderLingerSeconds", 180_000L);
-        final Set<String> wantedSpots = new HashSet<>();
+        final long restockMs = Math.max(1, m.ctx().config().getInt("RestockMinutes")) * 60_000L;
+        final Set<String> wanted = new HashSet<>();
+        int opened = 0;
+        boolean refreshed = false;
         for (String town : m.quota().active().keySet()) {
-            final List<Spot> active = spots.active(town, m.quota(), s -> true);
-            if (active.isEmpty()) {
-                continue;
-            }
-            loadTown(town);
-            long sx = 0;
-            long sy = 0;
-            for (Spot s : active) {
-                sx += s.x();
-                sy += s.y();
-            }
-            if (TraderPresence.watched((int) (sx / active.size()), (int) (sy / active.size()), watchers, radius)) {
-                lastWatched.put(town, now);
-            }
-            final boolean present = TraderPresence.present(now, lastWatched.getOrDefault(town, 0L), linger);
-            int opened = 0;
-            for (Spot spot : active) {
-                final Store s = stores.computeIfAbsent(spot.id(), k -> new Store(spot));
-                if (s.open && (s.soldOutAt > 0) && ((now - s.soldOutAt) >= LEAVE_AFTER_SOLD_OUT_MS)) {
-                    close(s, "sold out");
+            for (Store s : town(town)) {
+                wanted.add(s.spot.id());
+                final Player p = s.open ? pool.player(s.row.botId()) : null;
+                if (s.open && ((p == null) || !p.isOnline())) {
+                    // the stock store code logged it out (a player bought it empty: store NONE without a client)
+                    close(s, "sold out, logged out by the stock store code");
+                    s.reopenAt = now + REOPEN_AFTER_LOGOUT_MS;
+                    s.forceRestock = true;
                     continue;
                 }
-                final boolean stays = !night || ((s.row != null) && TraderPresence.staysAtNight(s.row.botId(), day, nightStay));
-                final boolean resting = !s.open && (s.soldOutAt > 0) && ((now - s.soldOutAt) < REOPEN_AFTER_SOLD_OUT_MS);
-                if (present && stays && !resting) {
-                    wantedSpots.add(spot.id());
-                    if (!s.open && (opened < OPEN_PER_TICK)) {
-                        opened++;
-                        try {
-                            open(s, now, night);
-                        } catch (Exception e) {
-                            // one bad place must not stop the others (nor trip the module's circuit breaker every tick)
-                            warnOnce("open " + spot.id() + " " + e.getClass().getSimpleName(), "trader store at " + spot.id() + " could not open: " + e);
-                            s.soldOutAt = now; // retried after the rest
-                        }
+                if (s.open && (s.soldOutAt > 0)) {
+                    s.forceRestock = true;
+                    refreshInPlace(s, p, now, "sold out");
+                    continue;
+                }
+                if (s.open && !refreshed && ((now - s.row.touchedAt()) >= restockMs)) {
+                    refreshed = true; // one refresh per tick: spread over time
+                    refreshInPlace(s, p, now, "restock timer");
+                    continue;
+                }
+                if (!s.open && (now >= s.reopenAt) && (opened < OPEN_PER_TICK)) {
+                    opened++;
+                    try {
+                        open(s, now, night, day, nightStay);
+                    } catch (Exception e) {
+                        // one bad place must not stop the others (nor trip the module's circuit breaker every tick)
+                        warnOnce("open " + s.spot.id() + " " + e.getClass().getSimpleName(), "trader store at " + s.spot.id() + " could not open: " + e);
+                        s.reopenAt = now + (10 * 60_000L);
                     }
                 }
             }
         }
         for (Store s : stores.values()) {
-            if (s.open && !wantedSpots.contains(s.spot.id()) && ((s.soldOutAt == 0) || ((now - s.soldOutAt) >= LEAVE_AFTER_SOLD_OUT_MS))) {
-                close(s, "nobody near");
-            } else if (s.open && (pool.player(s.row.botId()) == null)) {
-                close(s, "gone from the world");
+            if (s.open && !wanted.contains(s.spot.id())) {
+                close(s, "place no longer used (StoresPerTown)");
+            }
+        }
+        if ((lastNight == null) || (lastNight != night)) {
+            lastNight = night;
+            for (Store s : stores.values()) {
+                final Player p = s.open ? pool.player(s.row.botId()) : null;
+                if (p != null) {
+                    applyLook(s, p, night && TraderPresence.staysAtNight(s.row.botId(), day, nightStay));
+                }
             }
         }
         if (m.ctx().config().getBoolean("SelfTest") && !selfTested) {
@@ -181,44 +204,192 @@ final class Traders {
         }
     }
 
-    private void loadTown(String town) throws Exception {
-        if (loadedTowns.putIfAbsent(town, Boolean.TRUE) != null) {
+    private void applyLook(Store s, Player p, boolean offline) {
+        if (s.offlineLook == offline) {
             return;
         }
+        s.offlineLook = offline;
+        p.getAppearance().setNameColor(offline ? OfflineTradeConfig.OFFLINE_NAME_COLOR : 0xFFFFFF);
+        p.broadcastUserInfo();
+    }
+
+    /** The stores of a town: generated places (once, then from the database) plus its service traders. */
+    private List<Store> town(String town) throws Exception {
+        final List<Store> have = towns.get(town);
+        final int want = m.quota().stores(town);
+        if ((have != null) && townWant.getOrDefault(town, -1).equals(want)) {
+            return have;
+        }
+        final List<Spot> places = new ArrayList<>(repo.spots(town));
+        if (places.size() < want) {
+            places.addAll(generate(town, places, want - places.size()));
+        }
         final Map<String, StoreRow> rows = repo.stores(town);
-        for (Spot spot : spots.spots(town)) {
+        final List<Store> out = new ArrayList<>();
+        for (MarketAreas.Service sv : areas.services(town)) {
+            out.add(attach(sv.spot(), sv.items(), rows));
+        }
+        for (Spot spot : places.subList(0, Math.min(want, places.size()))) {
+            out.add(attach(spot, null, rows));
+        }
+        towns.put(town, out);
+        townWant.put(town, want);
+        m.ctx().log().info("traders: " + town + " has " + (out.size() - areas.services(town).size()) + " store places and " + areas.services(town).size() + " service traders");
+        return out;
+    }
+
+    /** The store of a place with its trader from the database (a trader whose theme changed keeps its persona). */
+    private Store attach(Spot spot, int[] serviceItems, Map<String, StoreRow> rows) throws Exception {
+        final Store s = stores.computeIfAbsent(spot.id(), k -> new Store(spot, serviceItems));
+        if (s.row == null) {
             final StoreRow r = rows.get(spot.id());
             if ((r != null) && pool.known(r.botId())) {
-                final Store s = stores.computeIfAbsent(spot.id(), k -> new Store(spot));
-                s.row = r;
-                s.lines = new ArrayList<>(repo.lines(r.botId(), m.book().items()));
+                if (r.profile().equals(spot.profile())) {
+                    s.row = r;
+                    s.lines = new ArrayList<>(repo.lines(r.botId(), m.book().items()));
+                } else {
+                    s.row = new StoreRow(r.botId(), spot.town(), spot.id(), TraderPresence.kind(spot.kind(), spot.profile(), rnd.nextDouble()), spot.profile(), "", r.openedAt(), r.touchedAt(), 0);
+                }
             } else if (r != null) {
-                repo.dropStore(r.botId()); // its persona is gone: the place gets a new trader
+                repo.dropStore(r.botId());
             }
-            geoZ(stores.computeIfAbsent(spot.id(), k -> new Store(spot))); // every place: file z against the ground, in the log
         }
+        geoZ(s);
+        return s;
+    }
+
+    /** New places for a town (seeded; kept in the database at once). */
+    private List<Spot> generate(String town, List<Spot> kept, int count) throws Exception {
+        final SpotGenerator.Area a = areas.area(town);
+        if (a == null) {
+            warnOnce("area " + town, "traders: no market area for " + town + " in data/market-areas.xml");
+            return List.of();
+        }
+        final GeoEngine geo = GeoEngine.getInstance();
+        final boolean hasGeo = geo.hasGeo(a.cx(), a.cy());
+        final SpotGenerator.Ground ground = new SpotGenerator.Ground() {
+            @Override
+            public Integer z(int x, int y, int z) {
+                return hasGeo ? (geo.hasGeo(x, y) ? Integer.valueOf(geo.getHeight(x, y, z)) : null) : Integer.valueOf(z);
+            }
+
+            @Override
+            public boolean walk(int x1, int y1, int z1, int x2, int y2, int z2) {
+                return !hasGeo || geo.canMoveToTarget(x1, y1, z1, x2, y2, z2, 0);
+            }
+        };
+        final List<SpotGenerator.Blocker> blockers = new ArrayList<>();
+        for (WorldObject o : World.getVisibleObjects()) {
+            if ((o instanceof Npc npc) && (o.getX() >= (a.minX() - a.doorGap())) && (o.getX() <= (a.maxX() + a.doorGap())) && (o.getY() >= (a.minY() - a.doorGap()))
+                && (o.getY() <= (a.maxY() + a.doorGap()))) {
+                final boolean door = (npc instanceof org.l2jmobius.gameserver.entity.actor.instance.Teleporter) || (npc instanceof org.l2jmobius.gameserver.entity.actor.instance.Warehouse);
+                blockers.add(new SpotGenerator.Blocker(o.getX(), o.getY(), door ? a.doorGap() : a.npcGap()));
+            }
+        }
+        for (MarketAreas.Service sv : areas.services(town)) {
+            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), a.spacing()));
+        }
+        final List<SpotGenerator.Point> keptPts = new ArrayList<>();
+        for (Spot s : kept) {
+            keptPts.add(new SpotGenerator.Point(s.x(), s.y(), s.z(), s.heading()));
+        }
+        final long seed = m.seedFor(town) + kept.size();
+        final Random r = new Random(seed);
+        final List<SpotGenerator.Point> pts = SpotGenerator.generate(a, keptPts, count, blockers, ground, r, 60_000);
+        final List<Spot> legacyLooks = legacy.spots(town).stream().filter(sp -> !"4UDO".equals(sp.legacy())).toList();
+        final List<Spot> plan = MarketAreas.plan(a.town(), pts, kept.size(), legacyLooks, r);
+        for (int k = 0; k < plan.size(); k++) {
+            repo.addSpot(plan.get(k), kept.size() + k);
+        }
+        m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + town + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
+            + ((plan.size() < count) ? ", only " + plan.size() + " of " + count + " fit" : "") + ")");
+        return plan;
     }
 
     // ---- open
 
-    private void open(Store s, long now, boolean night) throws Exception {
+    private void open(Store s, long now, boolean night, long day, double nightStay) throws Exception {
         final Spot spot = s.spot;
         if ((s.row == null) || !pool.known(s.row.botId())) {
-            final int botId = pool.create(new TraderPool.Look(spot.classId(), "FEMALE".equalsIgnoreCase(spot.sex()), spot.legacy()));
-            s.row = new StoreRow(botId, spot.town(), spot.id(), TraderPresence.kind(spot.kind(), spot.profile(), rnd.nextDouble()), spot.profile(), "", now, now, 0);
+            final int botId = adoptOrCreate(spot);
+            s.row = new StoreRow(botId, spot.town(), spot.id(), s.service() ? "SERVICE" : TraderPresence.kind(spot.kind(), spot.profile(), rnd.nextDouble()), spot.profile(), "", now, now, 0);
             s.lines = new ArrayList<>();
         }
         final int botId = s.row.botId();
-        final Assortment.Profile profile = assortment.profile(s.row.profile());
-        if (profile == null) {
-            warnOnce("profile " + s.row.profile(), "spot " + spot.id() + ": no trader profile '" + s.row.profile() + "'");
-            return;
+        if (!s.craft()) {
+            prepareLines(s, now);
+            if (s.lines.isEmpty()) {
+                warnOnce("empty " + spot.id(), "spot " + spot.id() + ": nothing to put in a " + s.row.profile() + " store at stage " + m.stage());
+                s.reopenAt = now + (10 * 60_000L);
+                return;
+            }
         }
+        repo.saveStore(s.row, s.craft() ? List.of() : s.lines); // the persona keeps its place even after a crash
+        final int z = geoZ(s);
+        final boolean offline = night && TraderPresence.staysAtNight(botId, day, nightStay);
+        s.offlineLook = false;
+        s.soldOutAt = 0;
+        final String why = pool.enter(botId, spot.x(), spot.y(), z, spot.heading(), TraderPresence.level(botId), p -> {
+            openStore(p, s);
+            applyLook(s, p, offline);
+        });
+        if (why != null) {
+            warnOnce("enter " + spot.id(), "trader of " + spot.id() + " could not come: " + why);
+            s.reopenAt = now + (10 * 60_000L);
+        }
+    }
+
+    /**
+     * A persona for a place: a trader with the wanted name that stands at another place (an older layout) gives it up,
+     * so 4UDO and the former Giran traders keep their names; else a new persona.
+     */
+    private int adoptOrCreate(Spot spot) throws Exception {
+        if ((spot.legacy() != null) && !spot.legacy().isEmpty()) {
+            for (StoreRow r : repo.allStores()) {
+                if (!r.spot().equals(spot.id()) && pool.known(r.botId()) && spot.legacy().equalsIgnoreCase(pool.name(r.botId()))) {
+                    final Store other = stores.get(r.spot());
+                    if ((other != null) && other.open) {
+                        continue;
+                    }
+                    if (other != null) {
+                        other.row = null;
+                        other.lines = new ArrayList<>();
+                    }
+                    repo.dropStore(r.botId());
+                    m.ctx().log().info("trader " + spot.legacy() + " moves from " + r.spot() + " to " + spot.id());
+                    return r.botId();
+                }
+            }
+        }
+        return pool.create(new TraderPool.Look(spot.classId(), "FEMALE".equalsIgnoreCase(spot.sex()), spot.legacy()));
+    }
+
+    /** Lines of a sell, package, buy or service store now: the paper life since the last look, refill when needed. */
+    private void prepareLines(Store s, long now) throws Exception {
+        final int botId = s.row.botId();
         final MarketBook book = m.book();
         final int stage = m.stage();
+        if (s.service()) {
+            final List<Line> lines = new ArrayList<>();
+            for (int id : s.serviceItems) {
+                final MarketItem it = book.items().get(id);
+                if ((it != null) && (it.price() > 0)) {
+                    lines.add(new Line(id, it.name(), SERVICE_STOCK, it.price())); // the NPC price, a full stock every time
+                }
+            }
+            s.lines = lines;
+            final String title = "RU".equals(pool.lang(botId)) ? "Соски, BSpS D-B по цене NPC" : "SS + BSpS D/C/B at NPC price";
+            s.row = new StoreRow(botId, s.row.town(), s.row.spot(), "SERVICE", s.row.profile(), StoreTitle.fit(title), s.row.openedAt(), now, lines.size());
+            return;
+        }
+        final Assortment.Profile profile = assortment.profile(s.row.profile());
+        if (profile == null) {
+            warnOnce("profile " + s.row.profile(), "spot " + s.spot.id() + ": no trader profile '" + s.row.profile() + "'");
+            s.lines = new ArrayList<>();
+            return;
+        }
         final double greed = pool.greed(botId);
         final boolean buy = s.buy();
-        // life on paper since the last look
         final double hours = Math.max(0, (now - s.row.touchedAt()) / 3_600_000.0);
         if (!s.lines.isEmpty() && (hours > 0.01)) {
             final long[] fresh = new long[s.lines.size()];
@@ -233,7 +404,8 @@ final class Traders {
         }
         String title = s.row.title();
         int linesStart = s.row.linesStart();
-        if (PaperStore.needsRestock(s.lines.size(), linesStart)) {
+        if (s.forceRestock || PaperStore.needsRestock(s.lines.size(), linesStart)) {
+            s.forceRestock = false;
             s.lines = new ArrayList<>(assortment.stock(profile, book, stage, greed, now, rnd, this::cheapestSeller));
             if (!buy) {
                 addResale(s, profile, greed, stage, now);
@@ -241,25 +413,32 @@ final class Traders {
             linesStart = s.lines.size();
             title = StoreTitle.of(profile, s.lines, book.items(), pool.lang(botId), rnd);
         }
-        if (s.lines.isEmpty()) {
-            warnOnce("empty " + spot.id(), "spot " + spot.id() + ": nothing to put in a " + s.row.profile() + " store at stage " + stage);
-            return;
-        }
-        if (title.isEmpty()) {
+        if (title.isEmpty() && !s.lines.isEmpty()) {
             title = StoreTitle.of(profile, s.lines, book.items(), pool.lang(botId), rnd);
         }
-        s.row = new StoreRow(botId, spot.town(), spot.id(), s.row.kind(), s.row.profile(), title, s.row.openedAt(), now, linesStart);
-        repo.saveStore(s.row, s.lines);
-        final int z = geoZ(s);
-        s.offlineLook = night;
-        s.soldOutAt = 0;
-        final String why = pool.enter(botId, spot.x(), spot.y(), z, spot.heading(), TraderPresence.level(botId), p -> openStore(p, s));
-        if (why != null) {
-            warnOnce("enter " + spot.id(), "trader of " + spot.id() + " could not come: " + why);
-        }
+        s.row = new StoreRow(botId, s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), title, s.row.openedAt(), now, linesStart);
     }
 
-    /** Height of the place from geodata (once per place in the log: the place z of the file against the ground). */
+    /** In place, without a logout: what was sold leaves the lines, the paper life runs, the store opens again refilled. */
+    private void refreshInPlace(Store s, Player p, long now, String why) throws Exception {
+        synchronized (s) {
+            if (!s.craft()) {
+                s.lines = remaining(s, p);
+            }
+        }
+        if (s.craft()) {
+            s.row = new StoreRow(s.row.botId(), s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), s.row.title(), s.row.openedAt(), now, s.row.linesStart());
+            s.lines = new ArrayList<>(); // recipes are chosen again (stage, level)
+        } else {
+            prepareLines(s, now);
+            repo.saveStore(s.row, s.lines);
+        }
+        s.soldOutAt = 0;
+        openStore(p, s);
+        m.ctx().log().info("trader " + p.getName() + " refilled at " + s.spot.id() + " (" + why + ", " + s.lines.size() + " lines)");
+    }
+
+    /** Height of the place from geodata (once per place in the log: the place z against the ground). */
     private int geoZ(Store s) {
         final Spot spot = s.spot;
         final GeoEngine geo = GeoEngine.getInstance();
@@ -267,31 +446,34 @@ final class Traders {
         final int z = has ? geo.getHeight(spot.x(), spot.y(), spot.z()) : spot.z();
         if (!s.geoLogged) {
             s.geoLogged = true;
-            final String msg = "spot " + spot.id() + " (" + spot.legacy() + ") at " + spot.x() + "," + spot.y() + ": file z " + spot.z() + ", " + (has ? ("geodata z " + z) : "no geodata");
+            final String msg = "spot " + spot.id() + " (" + (spot.legacy().isEmpty() ? spot.kind() + " " + spot.profile() : spot.legacy()) + ") at " + spot.x() + "," + spot.y() + ": z " + spot.z() + ", "
+                + (has ? ("geodata z " + z) : "no geodata");
             if (has && (Math.abs(z - spot.z()) > 32)) {
                 m.ctx().log().warn(msg + " - the place is off the ground by " + (z - spot.z()));
-            } else {
+            } else if (s.service() || (spot.id().endsWith("-01"))) {
                 m.ctx().log().info(msg);
             }
         }
         return z;
     }
 
-    /** World thread of the login: real goods, the stock store, the sign. */
+    /** World thread: real goods, the stock store, the sign. Also used to refill in place. */
     private void openStore(Player p, Store s) {
         try {
             final boolean buy = s.buy();
-            final boolean pkg = "PACKAGE".equals(s.row.kind());
+            final boolean pkg = "PACKAGE".equals(s.kind());
             emptyBag(p);
-            final int limit = buy ? p.getPrivateBuyStoreLimit() : p.getPrivateSellStoreLimit();
-            final List<Line> shown = new ArrayList<>(s.lines.subList(0, Math.min(limit, s.lines.size())));
+            p.getSellList().clear();
+            p.getBuyList().clear();
             s.shown.clear();
             int put = 0;
-            if (buy) {
+            if (s.craft()) {
+                put = crafts.open(p, s, pool.lang(s.row.botId()));
+            } else if (buy) {
+                final List<Line> shown = new ArrayList<>(s.lines.subList(0, Math.min(p.getPrivateBuyStoreLimit(), s.lines.size())));
                 final int day = (int) LocalDate.now().toEpochDay();
-                long wallet = walletFor(s);
+                final long wallet = walletFor(s);
                 final TradeList list = p.getBuyList();
-                list.clear();
                 long need = 0;
                 for (Line l : shown) {
                     final long room = Math.max(0, dayLimit(l.itemId()) - repo.playerDayMax(l.itemId(), day));
@@ -310,8 +492,12 @@ final class Traders {
                 }
                 list.setTitle(s.row.title());
             } else {
+                if (s.service()) {
+                    p.removeStatsOwner(this);
+                    p.addStatFunc(new FuncAdd(Stat.P_SELL_LIM, 0x40, this, SERVICE_EXTRA_SLOTS, null)); // six lines: SS and BSpS D, C, B
+                }
+                final List<Line> shown = new ArrayList<>(s.lines.subList(0, Math.min(p.getPrivateSellStoreLimit(), s.lines.size())));
                 final TradeList list = p.getSellList();
-                list.clear();
                 list.setPackaged(pkg);
                 for (Line l : shown) {
                     final MarketItem it = m.book().items().get(l.itemId());
@@ -330,33 +516,37 @@ final class Traders {
                 }
                 list.setTitle(s.row.title());
             }
-            if (put == 0) {
-                emptyBag(p);
-                s.charId = p.getObjectId();
-                s.open = true;
-                s.soldOutAt = System.currentTimeMillis() - LEAVE_AFTER_SOLD_OUT_MS; // leaves on the next tick
-                return;
-            }
-            p.sitDown();
-            p.setPrivateStoreType(buy ? PrivateStoreType.BUY : (pkg ? PrivateStoreType.PACKAGE_SELL : PrivateStoreType.SELL));
-            if (s.offlineLook) {
-                p.getAppearance().setNameColor(OfflineTradeConfig.OFFLINE_NAME_COLOR);
-            }
-            p.broadcastUserInfo();
-            p.broadcastPacket(buy ? new PrivateStoreMsgBuy(p) : new PrivateStoreMsgSell(p));
             s.charId = p.getObjectId();
             byChar.put(p.getObjectId(), s);
             s.open = true;
-            m.ctx().log().info("trader " + p.getName() + " opened " + s.row.kind() + " '" + s.row.title() + "' at " + s.spot.id() + " (" + put + " lines" + (s.offlineLook ? ", night: offline look" : "") + ")");
+            if (put == 0) {
+                emptyBag(p);
+                s.soldOutAt = 0;
+                s.forceRestock = true;
+                m.ctx().log().warn("trader " + p.getName() + " at " + s.spot.id() + " has nothing to show (" + s.row.profile() + "): refilled on the restock timer");
+                return;
+            }
+            p.sitDown();
+            if (s.craft()) {
+                p.setStoreName(s.row.title());
+                p.setPrivateStoreType(PrivateStoreType.MANUFACTURE);
+                p.broadcastUserInfo();
+                World.broadcastToSelfAndVisiblePlayers(p, new RecipeShopMsg(p));
+            } else {
+                p.setPrivateStoreType(buy ? PrivateStoreType.BUY : (pkg ? PrivateStoreType.PACKAGE_SELL : PrivateStoreType.SELL));
+                p.broadcastUserInfo();
+                p.broadcastPacket(buy ? new PrivateStoreMsgBuy(p) : new PrivateStoreMsgSell(p));
+            }
+            m.ctx().log().info("trader " + p.getName() + " opened " + s.row.kind() + " '" + s.row.title() + "' at " + s.spot.id() + " (" + put + " lines)");
             if (p.isInsideZone(ZoneId.NO_STORE)) {
                 m.ctx().log().warn("spot " + s.spot.id() + " is inside a no-store zone");
             }
             m.ctx().metrics().counter("stores opened").inc();
         } catch (Exception e) {
-            m.ctx().log().warn("trader store at " + s.spot.id() + " failed: " + e);
+            m.ctx().log().warn("trader store at " + s.spot.id() + " failed: " + e, e);
             s.open = true;
             s.charId = p.getObjectId();
-            s.soldOutAt = System.currentTimeMillis() - LEAVE_AFTER_SOLD_OUT_MS;
+            s.forceRestock = true;
         }
     }
 
@@ -400,7 +590,7 @@ final class Traders {
     private long cheapestSeller(int itemId) {
         long best = 0;
         for (Store s : stores.values()) {
-            if ((s.row == null) || s.buy()) {
+            if ((s.row == null) || s.buy() || s.craft()) {
                 continue;
             }
             for (Line l : s.lines) {
@@ -507,7 +697,12 @@ final class Traders {
         final Player p = pool.player(botId);
         if (p != null) {
             synchronized (s) {
-                s.lines = remaining(s, p);
+                if (!s.craft()) {
+                    s.lines = remaining(s, p);
+                }
+            }
+            if (s.craft()) {
+                crafts.close(p, s);
             }
             // goods first, store type untouched: the stock setPrivateStoreType(NONE) logs out a store owner without a
             // client at once (OfflineDisconnectFinished) and would save the goods into the database first
@@ -592,9 +787,10 @@ final class Traders {
         if (p != null) {
             final TradeList list = buy ? p.getBuyList() : p.getSellList();
             if (list.getItemCount() == 0) {
-                // the stock packet now sets the store to NONE, which logs a client-less owner out at once: close on
-                // the next tick (bag rows the stock save wrote are removed after the logout)
-                s.soldOutAt = System.currentTimeMillis() - LEAVE_AFTER_SOLD_OUT_MS;
+                // a client's purchase now makes the stock packet set the store to NONE, which logs a client-less owner
+                // out at once: the next tick sees it gone, removes the bag rows that save wrote and brings it back
+                // refilled; a deal without the packet (self-test) is refilled in place
+                s.soldOutAt = System.currentTimeMillis();
             }
         }
         m.ctx().metrics().counter(buy ? "trader buys" : "trader sales").inc();
@@ -631,7 +827,7 @@ final class Traders {
         final List<String> out = new ArrayList<>();
         for (Store s : stores.values()) {
             if (s.row != null) {
-                out.add(s.spot.id() + " " + pool.name(s.row.botId()) + " " + s.row.kind() + " " + s.row.profile() + " '" + s.row.title() + "' " + s.lines.size() + " lines" + (s.open ? " OPEN" : ""));
+                out.add(s.spot.id() + " " + s.spot.x() + "," + s.spot.y() + " " + pool.name(s.row.botId()) + " " + s.row.kind() + " " + s.row.profile() + " '" + s.row.title() + "' " + s.lines.size() + " lines" + (s.open ? " OPEN" : ""));
             }
         }
         out.sort(null);
@@ -651,7 +847,7 @@ final class Traders {
         Store buyS = null;
         Store other = null;
         for (Store s : stores.values()) {
-            if (!s.open || (s.soldOutAt > 0) || (pool.player(s.row.botId()) == null)) {
+            if (!s.open || (s.soldOutAt > 0) || s.service() || s.craft() || (pool.player(s.row.botId()) == null) || s.lines.isEmpty()) {
                 continue;
             }
             if ("SELL".equals(s.row.kind()) && (sell == null)) {

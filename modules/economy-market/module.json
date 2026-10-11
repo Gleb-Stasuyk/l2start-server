@@ -74,9 +74,9 @@
     },
     "StoresPerTown": {
       "type": "string",
-      "default": "Giran:20,Dion:0,Aden:0,Oren:0,Gludio:0,Heine:0,Rune:0,Goddard:0,Schuttgart:0,Floran:0,Hunters:0,Gludin:0",
+      "default": "Giran:60,Dion:0,Aden:0,Oren:0,Gludio:0,Heine:0,Rune:0,Goddard:0,Schuttgart:0,Floran:0,Hunters:0,Gludin:0",
       "reloadable": true,
-      "description": "Bot store places per town (step 5b). For now only Giran has stores; the other towns are ready and get places when their number is above 0."
+      "description": "Bot store places per town (steps 5b/5e): scattered places generated once (seeded, on the ground, clear of NPCs) and kept in the database; every 8th new place is a dwarf crafter. For now only Giran has stores; the other towns get places when their number is above 0 and they have an area in data/market-areas.xml."
     },
     "SimulatedDrift": {
       "type": "enum",
@@ -101,23 +101,23 @@
       "reloadable": false,
       "description": "Seed of the price drift; 0 = derived from the database."
     },
-    "TraderLingerSeconds": {
-      "type": "int",
-      "default": 180,
-      "reloadable": true,
-      "description": "Bot traders stay this long after the last player left the market (a player who steps out and back sees the same stores)."
-    },
-    "WatchRadius": {
-      "type": "int",
-      "default": 4500,
-      "reloadable": true,
-      "description": "A real player this close to the middle of a town's store places brings the traders."
-    },
     "NightStay": {
       "type": "double",
       "default": 0.6,
       "reloadable": true,
-      "description": "At night (1:00-7:59 server time) this share of the traders keeps the store open with the grey name of an offline store; the others are away."
+      "description": "Share of the traders that keep the normal name colour at night (22:00-08:00); the others get the grey name of an offline store. All of them stay."
+    },
+    "RestockMinutes": {
+      "type": "int",
+      "default": 30,
+      "reloadable": true,
+      "description": "Bot stores live on in place: every this many minutes one store after another gets the paper deals since its last look, and a store that sold most of its goods is refilled (no logout)."
+    },
+    "CraftFee": {
+      "type": "double",
+      "default": 0.05,
+      "reloadable": true,
+      "description": "Step 5e: the fee of a bot crafter as a share of the product's market price (at least 100 adena); the player brings the materials, the stock recipe chance applies."
     },
     "SelfTest": {
       "type": "bool",

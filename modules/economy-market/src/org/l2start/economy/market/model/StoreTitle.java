@@ -86,7 +86,7 @@ public final class StoreTitle {
     }
 
     /** "Recipe: Blue Wolf Breastplate (60%)" -> "Rec. Blue Wolf Breas"; "Scroll: Enchant Weapon (C)" -> "Enchant Weapon C"; at most 18 characters. */
-    static String shortName(String name) {
+    public static String shortName(String name) {
         String n = (name.startsWith("Recipe: ") ? "Rec. " + name.substring(8) : name).replace("(", "").replace(")", "").replace("Scroll: ", "").trim();
         if (n.length() > 18) {
             n = n.substring(0, 18).trim();
@@ -94,7 +94,7 @@ public final class StoreTitle {
         return n;
     }
 
-    static String fit(String t) {
+    public static String fit(String t) {
         return (t.length() <= MAX) ? t : t.substring(0, MAX).trim();
     }
 }

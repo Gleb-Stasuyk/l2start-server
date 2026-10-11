@@ -50,6 +50,9 @@ public final class TraderPresence {
         if ("BUY".equalsIgnoreCase(hint)) {
             return "BUY";
         }
+        if ("CRAFT".equalsIgnoreCase(hint)) {
+            return "CRAFT";
+        }
         if (("materials".equals(profile) || "shots".equals(profile)) && (roll < 0.2)) {
             return "PACKAGE";
         }

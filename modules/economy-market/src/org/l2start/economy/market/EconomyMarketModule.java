@@ -28,6 +28,7 @@ public final class EconomyMarketModule implements GameModule {
     private volatile TownQuota quota = TownQuota.parse("");
     /** Bot traders (5b/5c): only with the bots-core service; the class is never touched without it. */
     private Object traders;
+    private long seed;
 
     @Override
     public void onEnable(ModuleContext context) throws Exception {
@@ -38,6 +39,7 @@ public final class EconomyMarketModule implements GameModule {
         if (seed == 0) {
             seed = repo.seed();
         }
+        this.seed = seed;
         book = new MarketBook(items, model(), drift(), seed);
         final int restored = repo.loadIndex(book, System.currentTimeMillis());
         quota = TownQuota.parse(ctx.config().getString("StoresPerTown"));
@@ -191,6 +193,11 @@ public final class EconomyMarketModule implements GameModule {
 
     public MarketBook book() {
         return book;
+    }
+
+    /** A fixed seed per town (the market seed and the town name): the same store places on every generation. */
+    long seedFor(String town) {
+        return seed ^ (town.toLowerCase(java.util.Locale.ROOT).hashCode() * 0x9E3779B97F4A7C15L);
     }
 
     public TownQuota quota() {
