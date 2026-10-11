@@ -1,0 +1,37 @@
+# first part of two-part English names (EN, GAMER)
+# One entry per line; lines starting with # are comments. Read on server start and on //module reload bots-core.
+Iron
+Shadow
+Night
+Dark
+Storm
+Blood
+Silver
+Frost
+Fire
+Stone
+Wild
+Grim
+Swift
+Black
+Red
+Star
+Moon
+Sun
+Steel
+Ghost
+Raven
+Wolf
+Bear
+Hawk
+Thunder
+Rage
+Soul
+Dream
+Blade
+Ash
+Ember
+Mist
+Doom
+Holy
+Gold

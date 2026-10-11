@@ -1,0 +1,14 @@
+{
+  "id": "bots-brain-basic",
+  "name": "Bots: basic brain",
+  "description": "The minimal bot brain of phase 3 (step 3d): bots stroll in their starting village, walk to hunting grounds of their level (data/levelzones.xml, from stock spawns), kill monsters (warriors hit, mystics nuke), pick up their drops, rest, die and come back, learn skills for SP. Step 3e: follows the orders of the presence director (town errands and groups, hunting on the given ground, leaving out of sight or by the gatekeeper) and never takes a monster a real player fights or stands next to. Registers brain 'basic' with bots-core.",
+  "version": "0.3.0",
+  "kind": "jar",
+  "platform": "^1.2",
+  "entrypoint": "org.l2start.bots.brain.basic.BotsBrainBasicModule",
+  "defaultEnabled": { "solo": true, "online": false },
+  "config": {
+    "PvpFightBack": { "type": "string", "default": "0.5", "reloadable": true, "description": "When a real player attacks a bot: base chance that it fights back like a player in PvP (flag, karma rules), else it flees and leaves. Adjusted by level difference and persona aggression." }
+  },
+  "dependencies": [ { "id": "bots-core", "version": "^0.5" } ]
+}

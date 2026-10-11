@@ -99,6 +99,7 @@ public class ChatWhisper implements IChatHandler
 				return;
 			}
 			
+			if (!org.l2start.platform.hooks.CoreHooks.isBot(receiver)) // [HOOK:P3-BOT-WHISPER] a bot receives whispers like an online player
 			if ((receiver.getClient() == null) || receiver.getClient().isDetached())
 			{
 				activeChar.sendMessage("Player is in offline mode.");
