@@ -302,6 +302,7 @@ check "traders: >= 10 stores opened (SELL / PACKAGE / BUY)" test "$(gamelog | gr
 check "traders: buy stores among them" wait_log 'Module\[economy-market\]: trader .* opened BUY ' 30
 check "SELFTEST: a sale from a bot sell store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST sell deal ok' 120
 check "SELFTEST: a sale to a bot buy store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST buy deal ok' 30
+check "SELFTEST: paying with all adena works (hook P5-STORE-ADENA)" wait_log 'Module\[economy-market\]: SELFTEST all-adena deal (ok|skipped)' 30
 gamelog > "$OUT/8-traders.log"
 say "   trader lines:"; grep -E 'Module\[economy-market\]: (trader .* opened|spot giran-21 |SELFTEST)' "$OUT/8-traders.log" | head -8 | cut -c1-300
 check "traders: geodata height of every place logged (spot giran-21 = 4UDO)" grep -qE 'Module\[economy-market\]: spot giran-21 ' "$OUT/8-traders.log"

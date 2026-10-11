@@ -107,4 +107,27 @@ public final class CoreHooks {
             LOGGER.log(Level.WARNING, "Platform: store deal listener failed", t);
         }
     }
+
+    /**
+     * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
+     * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
+     * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing
+     * bought). With the platform active the line is skipped in that case (the buyer gets his full item list instead)
+     * and the deal completes; without the platform the stock behaviour is unchanged.
+     * @return true = run the stock line
+     */
+    public static boolean storeBuyerAdenaLeft(org.l2jmobius.gameserver.entity.actor.Player buyer, Object adenaItem) {
+        try {
+            if ((adenaItem != null) || !Platform.get().isActive()) {
+                return true;
+            }
+            if (buyer != null) {
+                buyer.sendItemList(false); // the client drops its adena line
+            }
+            return false;
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: store adena guard failed", t);
+            return adenaItem != null;
+        }
+    }
 }

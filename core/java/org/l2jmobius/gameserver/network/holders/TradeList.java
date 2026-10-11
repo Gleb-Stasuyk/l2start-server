@@ -763,6 +763,7 @@ public class TradeList
 		final InventoryUpdate ownerIU = new InventoryUpdate();
 		final InventoryUpdate playerIU = new InventoryUpdate();
 		final Item adenaItem = playerInventory.getAdenaInstance();
+		if (org.l2start.platform.hooks.CoreHooks.storeBuyerAdenaLeft(player, adenaItem)) // [HOOK:P5-STORE-ADENA]
 		playerIU.addItem(adenaItem);
 		ownerInventory.addAdena(ItemProcessType.SELL, totalPrice, _owner, player);
 		

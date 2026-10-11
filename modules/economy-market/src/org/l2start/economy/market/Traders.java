@@ -699,6 +699,22 @@ final class Traders {
         final int wantAfter = buyer.getBuyList().getItems().stream().filter(t -> t.getItem().getId() == bid).mapToInt(TradeItem::getCount).sum();
         final boolean buyOk = sold && (count(buyer, bid) == (buyerHad + 1)) && (wantAfter == (want - 1)) && (buyer.getAdena() == (adenaBefore - bi.getPrice())) && (count(visitor, bid) == 0 || visitor.getInventory().getItemByObjectId(piece.getObjectId()) == null);
         m.ctx().log().info("SELFTEST buy deal " + (buyOk ? "ok" : "FAILED") + ": item " + bid + " wants " + want + " -> " + wantAfter + ", buyer bag " + buyerHad + " -> " + count(buyer, bid) + ", adena " + adenaBefore + " -> " + buyer.getAdena());
+        // 3. a buyer pays with ALL his adena (stock bug fixed by hook P5-STORE-ADENA: the adena went, the item did not)
+        final TradeItem t3 = seller.getSellList().getItems().stream().filter(t -> t.getCount() > 0).findFirst().orElse(null);
+        if (t3 == null) {
+            m.ctx().log().info("SELFTEST all-adena deal skipped: the sell store is empty");
+            return;
+        }
+        final Item adena = visitor.getInventory().getAdenaInstance();
+        if (adena != null) {
+            visitor.getInventory().destroyItem(ItemProcessType.DESTROY, adena, visitor, null);
+        }
+        visitor.addAdena(ItemProcessType.REWARD, t3.getPrice(), null, false);
+        final int id3 = t3.getItem().getId();
+        final long had3 = count(visitor, id3);
+        final int res3 = seller.getSellList().privateStoreBuy(visitor, new HashSet<>(List.of(new RequestTrade(t3.getObjectId(), id3, 1, t3.getPrice()))));
+        final boolean allOk = (res3 == 0) && (count(visitor, id3) == (had3 + 1)) && (visitor.getAdena() == 0);
+        m.ctx().log().info("SELFTEST all-adena deal " + (allOk ? "ok" : "FAILED") + ": item " + id3 + ", buyer bag " + had3 + " -> " + count(visitor, id3) + ", buyer adena " + visitor.getAdena() + " (result " + res3 + ")");
     }
 
     private static long count(Player p, int itemId) {
