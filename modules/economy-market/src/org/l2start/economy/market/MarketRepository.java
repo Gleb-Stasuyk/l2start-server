@@ -94,6 +94,15 @@ final class MarketRepository {
         return out;
     }
 
+    List<StoreRow> allStores() throws SQLException {
+        final List<StoreRow> out = new ArrayList<>();
+        db.query("SELECT bot_id, town, spot, kind, profile, title, opened_at, touched_at, lines_start FROM " + db.table("store"), rs -> {
+            out.add(new StoreRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getString(6), rs.getLong(7), rs.getLong(8), rs.getInt(9)));
+            return null;
+        });
+        return out;
+    }
+
     void dropStore(int botId) throws SQLException {
         db.update("DELETE FROM " + db.table("store_item") + " WHERE bot_id = ?", botId);
         db.update("DELETE FROM " + db.table("store") + " WHERE bot_id = ?", botId);
@@ -173,6 +182,17 @@ final class MarketRepository {
     /** Bag rows of one trader character that is out of the world (worn items stay). */
     int clearBag(int charId) throws SQLException {
         return db.update("DELETE FROM items WHERE owner_id = ? AND loc = 'INVENTORY'", charId);
+    }
+
+    /** Generated places of a town, in their order. */
+    List<org.l2start.economy.market.model.StoreSpots.Spot> spots(String town) throws SQLException {
+        return db.query("SELECT town, spot, x, y, z, heading, kind, profile, legacy, race, sex, class_id FROM " + db.table("spot") + " WHERE town = ? ORDER BY idx", rs -> new org.l2start.economy.market.model.StoreSpots.Spot(
+            rs.getString(1), rs.getString(2), rs.getInt(3), rs.getInt(4), rs.getInt(5), rs.getInt(6), rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11), rs.getInt(12)), town);
+    }
+
+    void addSpot(org.l2start.economy.market.model.StoreSpots.Spot s, int idx) throws SQLException {
+        db.update("INSERT INTO " + db.table("spot") + " (town, spot, idx, x, y, z, heading, kind, profile, legacy, race, sex, class_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", s.town(), s.id(), idx, s.x(), s.y(), s.z(),
+            s.heading(), s.kind(), s.profile(), s.legacy(), s.race(), s.sex(), s.classId());
     }
 
     long seed() throws SQLException {
