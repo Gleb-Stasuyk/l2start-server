@@ -531,6 +531,11 @@ public final class FakeWorld {
         @Override
         public ActionResult attack(int objectId) {
             final Mob m = mobs.get(objectId);
+            if ((m == null) && !dead && !sitting && !peaceZone && players.stream().anyMatch(x -> x.objectId() == objectId)) {
+                targetId = objectId; // a player (PvP): the hit itself is not simulated
+                intention = "ATTACK";
+                return ActionResult.OK;
+            }
             if (dead || sitting || (m == null) || m.dead() || peaceZone) {
                 return ActionResult.INVALID;
             }

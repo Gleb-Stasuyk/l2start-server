@@ -175,4 +175,63 @@ class PresenceBrainTest {
             BasicBrain.fightBackBase = old;
         }
     }
+
+    /** A real player without a PvP flag yet (as in КТ5) who keeps hitting the bot every 2 s down to {@code hpShare}. */
+    private static void beatenBy(FakeWorld w, BrainHarness h, PlayerView p, double hpShare, long forMs) {
+        final double hp = w.maxHp() * hpShare;
+        for (long t = 0; t < forMs; t += 2000) {
+            w.event(new org.l2start.bots.api.BotEvent.Attacked(p.objectId(), true, 50));
+            w.setHp(hp); // held there (monsters around may hit too)
+            h.run(2000);
+        }
+    }
+
+    private static long sitsAfter(BrainHarness h, int from) {
+        return h.act().calls().subList(from, h.act().calls().size()).stream().filter(c -> c.action().equals("sit")).count();
+    }
+
+    @Test
+    void fightsAPlayerToTheEndWithoutSittingDown() {
+        final double old = BasicBrain.fightBackBase;
+        try {
+            BasicBrain.fightBackBase = 1;
+            final FakeWorld w = BasicBrainTest.world(12, false);
+            w.setLevel(5);
+            final BrainHarness h = BasicBrainTest.harness(w, false, 12);
+            h.setAssignment(hunt(1));
+            h.run(4 * MIN);
+            final PlayerView pk = new PlayerView(951, "NoFlag", 6, 0, new Pos(w.pos().x() + 150, w.pos().y(), 0), 0, 0, false, false, 0, false);
+            w.addPlayer(pk);
+            final int from = h.act().calls().size();
+            beatenBy(w, h, pk, 0.35, 60_000); // hurt (35 %), where a hunter would rest
+            assertEquals(0, sitsAfter(h, from), "sat down in a fight with a player: " + h.notes());
+            final long hits = h.act().calls().subList(from, h.act().calls().size()).stream().filter(c -> c.action().equals("attack") && c.arg().equals("951")).count();
+            assertTrue(hits >= 3, "stopped hitting the player: " + hits + " " + h.notes());
+            assertEquals(0, h.act().count("returnToTown"), "ran although it fights and is not badly hurt");
+        } finally {
+            BasicBrain.fightBackBase = old;
+        }
+    }
+
+    @Test
+    void badlyHurtInAPlayerFightItRunsInsteadOfSitting() {
+        final double old = BasicBrain.fightBackBase;
+        try {
+            BasicBrain.fightBackBase = 1;
+            final FakeWorld w = BasicBrainTest.world(13, false);
+            w.setLevel(5);
+            final BrainHarness h = BasicBrainTest.harness(w, false, 13);
+            h.setAssignment(hunt(1));
+            h.run(4 * MIN);
+            final PlayerView pk = new PlayerView(952, "Pk", 6, 0, new Pos(w.pos().x() + 150, w.pos().y(), 0), 0, 0, true, true, FakeWorld.SELF_ID, false);
+            w.addPlayer(pk);
+            final int from = h.act().calls().size();
+            beatenBy(w, h, pk, 0.6, 6000);
+            beatenBy(w, h, pk, 0.15, 12_000);
+            assertEquals(0, sitsAfter(h, from), "sat down in a fight with a player: " + h.notes());
+            assertTrue(h.act().count("returnToTown") >= 1, "no scroll of escape when badly hurt: " + h.notes());
+        } finally {
+            BasicBrain.fightBackBase = old;
+        }
+    }
 }

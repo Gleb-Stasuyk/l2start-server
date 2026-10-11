@@ -134,6 +134,11 @@ public final class BasicBrain implements Brain {
                     endFight();
                 }
                 case BotEvent.Teleported t -> revived = true;
+                case BotEvent.Attacked at -> {
+                    if (at.byPlayer()) {
+                        playerHits.put(at.attackerId(), now);
+                    }
+                }
                 case BotEvent.LevelUp l -> {
                     final int n = ctx.act().learnSkills();
                     ctx.note("level " + l.newLevel() + (n > 0 ? ", learned " + n + " skill(s)" : ""));
@@ -234,15 +239,35 @@ public final class BasicBrain implements Brain {
     private long pvpSince;
     private long pvpQuietSince;
     private final Map<Integer, Long> pvpDone = new HashMap<>();
+    /** Real players who hit this bot: id -> last hit (from the damage events). */
+    private final Map<Integer, Long> playerHits = new HashMap<>();
+    /** Fight or flight, kept per attacker while the bot is in the world (a person does not change its mind each hit). */
+    private final Map<Integer, Boolean> pvpDecision = new HashMap<>();
+    private int pvpRefused;
+    private long pvpFleeMs;
+    /** A hit by a player counts as "still fighting" this long. */
+    static final long PVP_HIT_MEMORY = 10_000;
+    /** After a fight the same player is left alone this long, unless it hits again. */
+    static final long PVP_IGNORE_MS = 60_000;
+    /** Below this HP a fight with a player turns into running away (and a scroll of escape). */
+    static final double PVP_FLEE_HP = 25;
 
-    /** A real player (not a bot) who attacks this bot: has it targeted, fights, and is flagged or has karma. */
-    static PlayerView playerAttacker(WorldView w, SelfView me) {
+    /** A real player (not a bot) who attacks this bot: hit it lately, or has it targeted in a fight while flagged or with karma. */
+    PlayerView playerAttacker(WorldView w, SelfView me, long now) {
         for (PlayerView p : w.players()) {
-            if (!p.bot() && (p.targetId() == me.objectId()) && p.inCombat() && (p.pvpFlag() || (p.karma() > 0)) && (p.pos().distance2d(me.pos()) <= 1200)) {
+            if (p.bot() || (p.pos().distance2d(me.pos()) > 1200)) {
+                continue;
+            }
+            if (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY) || ((p.targetId() == me.objectId()) && p.inCombat() && (p.pvpFlag() || (p.karma() > 0)))) {
                 return p;
             }
         }
         return null;
+    }
+
+    private boolean hitByRecently(int playerId, long now, long ms) {
+        final Long t = playerHits.get(playerId);
+        return (t != null) && ((now - t) <= ms);
     }
 
     /**
@@ -265,44 +290,49 @@ public final class BasicBrain implements Brain {
 
     /**
      * Reaction to a real player's attack, as a player would: fight back (stock PvP: the bot gets the flag, karma rules
-     * as for anybody) or run and use a scroll of escape. No chasing: a fight ends when the attacker is gone, far or
-     * quiet, or the bot would have to follow him. @return the delay, or 0 when there is nothing of the kind going on
+     * as for anybody) or run and use a scroll of escape. A fight goes on to the end: no sitting, no resting, no going
+     * back to monsters while the attacker is near and still fighting; only low HP turns it into running away. No chasing:
+     * it ends when the attacker is dead (the attack is refused), far, or has left the bot alone for a while.
+     * @return the delay, or 0 when there is nothing of the kind going on
      */
     private long pvp(BrainContext ctx, WorldView w, SelfView me, long now) {
         if (pvpId == 0) {
             if (me.inPeaceZone()) {
                 return 0;
             }
-            final PlayerView p = playerAttacker(w, me);
-            if ((p == null) || (pvpDone.getOrDefault(p.objectId(), 0L) > now)) {
+            final PlayerView p = playerAttacker(w, me, now);
+            if (p == null) {
                 return 0;
+            }
+            final long done = pvpDone.getOrDefault(p.objectId(), 0L);
+            final Long hit = playerHits.get(p.objectId());
+            if ((done > now) && ((hit == null) || (hit <= (done - PVP_IGNORE_MS)))) {
+                return 0; // we just parted, and it has not hit us again since
             }
             pvpId = p.objectId();
             pvpStart = me.pos();
             pvpSince = now;
-            pvpQuietSince = 0;
+            pvpRefused = 0;
+            final Boolean before = pvpDecision.get(p.objectId());
             final double chance = fightBackChance(fightBackBase, me.level(), p.level(), ctx.info().aggression(), ctx.info().patience(), me.hpPct());
-            pvpFight = ctx.rnd().nextDouble() < chance;
+            pvpFight = (me.hpPct() >= PVP_FLEE_HP) && (before != null ? before : ctx.rnd().nextDouble() < chance);
+            pvpDecision.put(p.objectId(), pvpFight);
             endFight();
             standIfSitting(ctx, me);
             ctx.note((pvpFight ? "fights back " : "runs from ") + p.name() + " lv " + p.level() + String.format(java.util.Locale.ROOT, " (chance to fight %.2f)", chance));
             if (!pvpFight) {
-                final double dx = me.pos().x() - p.pos().x();
-                final double dy = me.pos().y() - p.pos().y();
-                final double len = Math.max(1, Math.hypot(dx, dy));
-                pvpFlee = new Pos(me.pos().x() + (int) ((dx / len) * 1200), me.pos().y() + (int) ((dy / len) * 1200), me.pos().z());
-                ctx.act().moveTo(pvpFlee);
-                return 600;
+                return startFlee(ctx, me, p, now);
             }
         }
         final PlayerView p = w.players().stream().filter(x -> x.objectId() == pvpId).findFirst().orElse(null);
+        standIfSitting(ctx, me); // never sits while a player fights it
         if (!pvpFight) {
             // a few seconds of running, then a scroll of escape (logs out later in town, the director sends it away)
             detail = "runs from a player";
-            if (((now - pvpSince) > (3000 + ctx.rnd().nextInt(3000))) || (p == null) || (pvpFlee.distance2d(me.pos()) < 150)) {
+            if (((now - pvpSince) > pvpFleeMs) || (p == null) || (pvpFlee.distance2d(me.pos()) < 150)) {
                 ctx.note("scroll of escape");
                 ctx.act().returnToTown();
-                pvpOver(now, 120_000);
+                pvpOver(now);
                 return 3000;
             }
             if (!me.moving()) {
@@ -310,35 +340,76 @@ public final class BasicBrain implements Brain {
             }
             return 600;
         }
-        final boolean quiet = (p != null) && !((p.targetId() == me.objectId()) && p.inCombat());
-        if (quiet && (pvpQuietSince == 0)) {
-            pvpQuietSince = now;
-        } else if (!quiet) {
-            pvpQuietSince = 0;
+        if ((p != null) && (me.hpPct() < PVP_FLEE_HP)) {
+            ctx.note("hurt badly in the fight with " + p.name() + ": runs");
+            pvpFight = false;
+            pvpDecision.put(p.objectId(), false);
+            return startFlee(ctx, me, p, now);
         }
-        if ((p == null) || (p.pos().distance2d(me.pos()) > 1200) || (me.pos().distance2d(pvpStart) > PVP_LEASH) || (quiet && ((now - pvpQuietSince) > 5000))
-            || ((now - pvpSince) > 120_000) || me.inPeaceZone()) {
-            ctx.note("the fight with a player is over");
+        final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY) || ((p.targetId() == me.objectId()) && p.inCombat()));
+        final String over;
+        if (p == null) {
+            over = "the player is gone";
+        } else if (pvpRefused >= 4) {
+            over = "the player is dead or out of reach";
+        } else if (p.pos().distance2d(me.pos()) > 1500) {
+            over = "the player ran away";
+        } else if (!engaged) {
+            over = "the player left it alone";
+        } else if ((me.pos().distance2d(pvpStart) > PVP_LEASH) && !hitByRecently(p.objectId(), now, 4000)) {
+            over = "no chasing";
+        } else {
+            over = null;
+        }
+        if (over != null) {
+            ctx.note("the fight with a player is over: " + over);
             ctx.act().stop();
-            pvpOver(now, 60_000);
+            pvpOver(now);
             return 1000;
         }
         detail = "fights " + p.name();
         if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
             final SkillView nuke = nuke(me, 0, badSkills, now);
-            if ((nuke != null) && nuke.ready() && (nuke.mpCost() <= me.mp()) && ctx.act().cast(nuke.id(), p.objectId()).ok()) {
-                return 700;
+            if ((nuke != null) && nuke.ready() && (nuke.mpCost() <= me.mp())) {
+                final ActionResult r = ctx.act().cast(nuke.id(), p.objectId());
+                if (r.ok()) {
+                    pvpRefused = 0;
+                    return 700;
+                }
+                if (r == ActionResult.INVALID) {
+                    pvpRefused++;
+                }
             }
         }
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != p.objectId())) {
-            ctx.act().attack(p.objectId());
+            final ActionResult r = ctx.act().attack(p.objectId());
+            if (r == ActionResult.INVALID) {
+                pvpRefused++;
+            } else if (r.ok()) {
+                pvpRefused = 0;
+            }
         }
         return 500;
     }
 
-    private void pvpOver(long now, long ignoreMs) {
-        pvpDone.put(pvpId, now + ignoreMs);
+    private long startFlee(BrainContext ctx, SelfView me, PlayerView p, long now) {
+        pvpSince = now;
+        pvpFleeMs = 3000 + ctx.rnd().nextInt(3000);
+        final double dx = me.pos().x() - p.pos().x();
+        final double dy = me.pos().y() - p.pos().y();
+        final double len = Math.max(1, Math.hypot(dx, dy));
+        pvpFlee = new Pos(me.pos().x() + (int) ((dx / len) * 1200), me.pos().y() + (int) ((dy / len) * 1200), me.pos().z());
+        endFight();
+        ctx.act().moveTo(pvpFlee);
+        return 600;
+    }
+
+    private void pvpOver(long now) {
+        pvpDone.put(pvpId, now + PVP_IGNORE_MS);
         pvpDone.values().removeIf(t -> t < now);
+        if (pvpDecision.size() > 50) {
+            pvpDecision.clear();
+        }
         pvpId = 0;
     }
 
