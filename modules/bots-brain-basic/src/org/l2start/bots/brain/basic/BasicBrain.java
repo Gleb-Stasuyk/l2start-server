@@ -133,6 +133,9 @@ public final class BasicBrain implements Brain {
                 case BotEvent.Died d -> {
                     enter(ctx, Phase.DEAD, "waiting");
                     endFight();
+                    if (me.hasPet()) {
+                        ctx.act().unsummon(); // nobody to command it: it never stays behind alone
+                    }
                 }
                 case BotEvent.Teleported t -> revived = true;
                 case BotEvent.Attacked at -> {
@@ -410,6 +413,9 @@ public final class BasicBrain implements Brain {
         final Pos safe = safePoint(me.pos(), p.pos(), from + 1200, 1200, ctx.world().geo(), threats(ctx.world(), 0), FLEE_FAN, false);
         pvpFlee = safe != null ? safe : new Pos(me.pos().x() + (int) ((dx / len) * 1200), me.pos().y() + (int) ((dy / len) * 1200), me.pos().z());
         endFight();
+        if (dash(ctx, me)) {
+            return 700;
+        }
         ctx.act().moveTo(pvpFlee);
         return 600;
     }
@@ -425,12 +431,18 @@ public final class BasicBrain implements Brain {
 
     /** A living monster that is fighting this bot (self-defence comes before anything else). */
     private static NpcView attacker(WorldView w, SelfView me) {
+        NpcView onPet = null;
         for (NpcView n : w.npcs()) {
-            if (!n.dead() && n.monster() && (n.targetId() == me.objectId()) && n.attackable()) {
-                return n;
+            if (!n.dead() && n.monster() && n.attackable()) {
+                if (n.targetId() == me.objectId()) {
+                    return n;
+                }
+                if (me.hasPet() && (n.targetId() == me.petId()) && (onPet == null)) {
+                    onPet = n; // its own summon is attacked: defend it
+                }
             }
         }
-        return null;
+        return onPet;
     }
 
     // ------------------------------------------------------------------ TOWN_IDLE
@@ -536,14 +548,22 @@ public final class BasicBrain implements Brain {
         if (attacker != null) {
             return startFight(ctx, me, attacker, now);
         }
-        // 3. loot of the last kill
+        // 3. loot of the last kill (Sweeper first: the body does not wait)
+        final long swept = sweep(ctx, w, me, now);
+        if (swept > 0) {
+            return swept;
+        }
         if (now < lootUntil) {
             final long d = loot(ctx, w, me);
             if (d > 0) {
                 return d;
             }
         }
-        // 4. rest
+        // 4. heal itself, the summon; rest
+        final long cared = care(ctx, w, me, now, (zone != null) && (zone.center().distance2d(me.pos()) < (zone.radius() + 1500)));
+        if (cared > 0) {
+            return cared;
+        }
         if (needsRest(me)) {
             restTo = 80 + (ctx.info().patience() * 15);
             enter(ctx, Phase.REST, String.format(java.util.Locale.ROOT, "hp %.0f%%, mp %.0f%%", me.hpPct(), me.mpPct()));
@@ -962,11 +982,19 @@ public final class BasicBrain implements Brain {
         if (attacker != null) {
             return startFight(ctx, me, attacker, now);
         }
+        final long swept = sweep(ctx, w, me, now);
+        if (swept > 0) {
+            return swept;
+        }
         if (now < lootUntil) {
             final long d = loot(ctx, w, me);
             if (d > 0) {
                 return d;
             }
+        }
+        final long cared = care(ctx, w, me, now, a.center().distance2d(me.pos()) < (a.radius() + 1500));
+        if (cared > 0) {
+            return cared;
         }
         if (needsRest(me)) {
             final long away = awayFromAggro(ctx, w, me, now);
@@ -1054,6 +1082,10 @@ public final class BasicBrain implements Brain {
     private long fight(BrainContext ctx, WorldView w, SelfView me, long now) {
         final NpcView mob = w.npc(fightId);
         if ((mob == null) || mob.dead()) {
+            if ((mob != null) && mob.spoiled()) {
+                sweepId = mob.objectId();
+                sweepUntil = now + SWEEP_MS;
+            }
             claims.release(fightId, botId);
             fightId = 0;
             lootUntil = now + 8000;
@@ -1106,11 +1138,27 @@ public final class BasicBrain implements Brain {
 
     /** One combat decision: mystics cast their nuke while MP lasts (>= 20 %), everyone else hits. */
     private void hit(BrainContext ctx, WorldView w, SelfView me, NpcView mob) {
-        if (kite(ctx, w, me, mob, ctx.now())) {
+        petAttack(ctx, me, mob, ctx.now());
+        if (petHeal(ctx, me, 50, ctx.now())) {
+            return;
+        }
+        final boolean petTanks = me.hasPet() && (mob.targetId() == me.petId());
+        if (!petTanks && kite(ctx, w, me, mob, ctx.now())) {
             return;
         }
         if (stance(ctx, me, me.mpPct() >= 15, ctx.now())) {
             return; // the stance is switched (it targets the bot itself): the next tick attacks again
+        }
+        if (sneak(ctx, w, me, mob, ctx.now())) {
+            return;
+        }
+        if (petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
+            // the servitor holds the monster: a summoner keeps its MP for Servitor Heal instead of meleeing with a staff
+            if ("ATTACK".equals(me.intention())) {
+                ctx.act().stop();
+            }
+            detail = "fight " + fightName + ": servitor tanks";
+            return;
         }
         if (playstyle(ctx, w, me, mob, ctx.now())) {
             return;
@@ -1279,6 +1327,256 @@ public final class BasicBrain implements Brain {
         return false;
     }
 
+    // ------------------------------------------------------------------ roles (4c, second part): summons, sweep, heals, back
+
+    /** Config Summons of bots-brain-basic: summoners call and command their servitor. */
+    static volatile boolean summons = true;
+    /** A summoner whose servitor holds the monster casts only above this MP %; below it keeps MP for Servitor Heal. */
+    static final double SUMMONER_NUKE_MP = 60;
+    static final int SERVITOR_HEAL = 1127;
+    static final int DASH = 4;
+    static final int SWEEPER = 42;
+    /** The body of a spoiled monster waits this long for Sweeper. */
+    static final long SWEEP_MS = 6000;
+    /** Self heals, best first: Major Heal, Greater Battle Heal, Greater Heal, Battle Heal, Heal. */
+    static final int[] HEALS = { 1401, 1218, 1217, 1015, 1011 };
+    /** Out of a fight a healer heals itself below this HP % instead of sitting down. */
+    static final double SELF_HEAL_HP = 70;
+    private int sweepId;
+    private long sweepUntil;
+    private int petOrderedOn;
+    private long petOrderedAt;
+    private int sneakFor;
+    private long sneakUntil;
+    private Pos sneakTo;
+    private int summoned;
+    private int sweeps;
+    private int heals;
+    private int sneaks;
+
+    /** Servitors called (tests, //bots info). */
+    public int summoned() {
+        return summoned;
+    }
+
+    /** Spoiled bodies swept. */
+    public int sweeps() {
+        return sweeps;
+    }
+
+    /** Heals cast out of a fight (itself and the summon). */
+    public int heals() {
+        return heals;
+    }
+
+    /** Times it walked round to a monster's back. */
+    public int sneaks() {
+        return sneaks;
+    }
+
+    private static SkillView skill(SelfView me, int id) {
+        for (SkillView s : me.skills()) {
+            if (s.id() == id) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private static boolean usable(SelfView me, SkillView s) {
+        return (s != null) && s.ready() && (s.mpCost() <= me.mp());
+    }
+
+    /**
+     * Out of a fight: heal itself (a healer heals instead of sitting down while MP lasts), heal the summon, call the
+     * servitor when there is none (on the hunting ground, crystals at hand).
+     * @return the delay, 0 = nothing to do
+     */
+    private long care(BrainContext ctx, WorldView w, SelfView me, long now, boolean onGround) {
+        if (me.casting() || me.sitting() || me.inPeaceZone()) {
+            return 0;
+        }
+        if ((me.hpPct() < SELF_HEAL_HP) && (me.mpPct() >= 30) && (buffTried.getOrDefault(-1, 0L) <= now)) {
+            for (int id : HEALS) {
+                final SkillView s = skill(me, id);
+                if (usable(me, s)) {
+                    final ActionResult r = ctx.act().cast(id, me.objectId());
+                    buffTried.put(-1, now + (r.ok() ? 2500 : 10_000));
+                    if (r.ok()) {
+                        heals++;
+                        detail = "heals itself";
+                        return 2500;
+                    }
+                    break;
+                }
+            }
+        }
+        if (petHeal(ctx, me, 70, now)) {
+            return 2500;
+        }
+        if (onGround) {
+            return summon(ctx, w, me, now);
+        }
+        return 0;
+    }
+
+    /** Servitor Heal on its summon below {@code below} % HP. */
+    private boolean petHeal(BrainContext ctx, SelfView me, double below, long now) {
+        if (!summons || !me.hasPet() || (me.petHpPct() >= below) || me.casting() || (buffTried.getOrDefault(-SERVITOR_HEAL, 0L) > now)) {
+            return false;
+        }
+        final SkillView s = skill(me, SERVITOR_HEAL);
+        if (!usable(me, s)) {
+            return false;
+        }
+        final ActionResult r = ctx.act().cast(SERVITOR_HEAL, me.petId());
+        buffTried.put(-SERVITOR_HEAL, now + (r.ok() ? 2000 : 10_000));
+        if (r.ok()) {
+            heals++;
+            detail = "heals the servitor";
+        }
+        return r.ok();
+    }
+
+    /** The servitor summon it would call: the strongest tier it knows, within a tier by the bot's id. */
+    static SkillView servitorSkill(SelfView me, int botId) {
+        for (int t = SkillView.SERVITOR_TIERS.length - 1; t >= 0; t--) {
+            final List<SkillView> known = new ArrayList<>();
+            for (int id : SkillView.SERVITOR_TIERS[t]) {
+                final SkillView s = skill(me, id);
+                if ((s != null) && (s.kind() == SkillView.Kind.SUMMON)) {
+                    known.add(s);
+                }
+            }
+            if (!known.isEmpty()) {
+                return known.get(Math.floorMod(botId, known.size()));
+            }
+        }
+        return null;
+    }
+
+    private long summon(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!summons || me.hasPet() || (buffTried.getOrDefault(-2, 0L) > now)) {
+            return 0;
+        }
+        final SkillView s = servitorSkill(me, botId);
+        if ((s == null) || !usable(me, s) || (me.mpPct() < 40) || ((s.itemId() > 0) && (w.itemCount(s.itemId()) < s.itemCount()))) {
+            return 0;
+        }
+        final ActionResult r = ctx.act().cast(s.id(), me.objectId());
+        buffTried.put(-2, now + (r.ok() ? 20_000 : (r == ActionResult.COOLDOWN ? 10_000 : 600_000)));
+        if (!r.ok()) {
+            return 0;
+        }
+        summoned++;
+        ctx.note("summons " + s.id());
+        detail = "summons";
+        return 3000; // the call takes a while (stock hit time); the next ticks wait while it casts
+    }
+
+    /** Send the summon at the bot's fight target (again when it went back to following). */
+    private void petAttack(BrainContext ctx, SelfView me, NpcView mob, long now) {
+        if (!summons || !me.hasPet() || (me.petTargetId() == mob.objectId())) {
+            return;
+        }
+        if ((petOrderedOn == mob.objectId()) && ((now - petOrderedAt) < 4000)) {
+            return;
+        }
+        petOrderedOn = mob.objectId();
+        petOrderedAt = now;
+        ctx.act().petAttack(mob.objectId());
+    }
+
+    /** Sweeper on the body of the monster it spoiled and killed. */
+    private long sweep(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (sweepId == 0) {
+            return 0;
+        }
+        final NpcView body = w.npc(sweepId);
+        final SkillView s = skill(me, SWEEPER);
+        if ((now > sweepUntil) || (body == null) || !body.dead() || !body.spoiled() || (s == null)) {
+            sweepId = 0;
+            return 0;
+        }
+        if (me.casting() || !s.ready() || (s.mpCost() > me.mp())) {
+            return 500;
+        }
+        final ActionResult r = ctx.act().cast(SWEEPER, sweepId);
+        if (r == ActionResult.COOLDOWN) {
+            return 500;
+        }
+        sweepId = 0;
+        if (r.ok()) {
+            sweeps++;
+            detail = "sweep";
+            return 1200;
+        }
+        return 0;
+    }
+
+    /** Dash before running away (rogues, daggers). */
+    private boolean dash(BrainContext ctx, SelfView me) {
+        final SkillView s = skill(me, DASH);
+        return usable(me, s) && !me.casting() && ctx.act().cast(DASH, me.objectId()).ok();
+    }
+
+    /**
+     * A class whose playstyle has a skill from behind (Backstab) walks round to the back of a monster that does not
+     * look at it (not fighting the bot yet, or busy with someone else) before the first blow; once per target, at most
+     * 6 s, never into free aggressive monsters.
+     * @return true while walking round
+     */
+    private boolean sneak(BrainContext ctx, WorldView w, SelfView me, NpcView mob, long now) {
+        if (!usePlaystyles) {
+            return false;
+        }
+        if (sneakFor == mob.objectId()) {
+            if ((now > sneakUntil) || mob.behind(me.pos(), PlaystyleEngine.REAR_DEG) || (mob.targetId() == me.objectId())) {
+                sneakUntil = 0;
+                return false;
+            }
+            if (!me.moving()) {
+                if (me.pos().distance2d(sneakTo) < 40) {
+                    sneakUntil = 0; // there, but it turned
+                    return false;
+                }
+                if (!ctx.act().moveTo(sneakTo).ok()) {
+                    sneakUntil = 0;
+                    return false;
+                }
+            }
+            return true;
+        }
+        if ((mob.targetId() == me.objectId()) || mob.behind(me.pos(), PlaystyleEngine.REAR_DEG)) {
+            return false;
+        }
+        final Playstyles.Playstyle ps = playstyles.of(me.classId(), me.bow());
+        if (ps == null) {
+            return false;
+        }
+        boolean rear = false;
+        for (Playstyles.Entry e : ps.entries()) {
+            if (e.when().contains(Playstyles.Cond.REAR) && e.fitsLevel(me.level()) && usable(me, skill(me, e.skillId()))) {
+                rear = true;
+                break;
+            }
+        }
+        if (!rear) {
+            return false;
+        }
+        sneakFor = mob.objectId();
+        final Pos back = mob.behindPoint(50);
+        if (!w.geo().canMoveTo(me.pos(), back) || (clearance(me.pos(), back, threats(w, mob.objectId())) < 0) || !ctx.act().moveTo(back).ok()) {
+            sneakUntil = 0;
+            return false;
+        }
+        sneakTo = back;
+        sneakUntil = now + 6000;
+        sneaks++;
+        detail = "fight " + fightName + ": round to its back";
+        return true;
+    }
+
     // ------------------------------------------------------------------ survival (4a): potions, leaving a lost fight, kiting
 
     /** Config of bots-brain-basic (Potions, PotionHpPercent, FleeHpPercent, KiteDistance). */
@@ -1384,6 +1682,9 @@ public final class BasicBrain implements Brain {
         mobFleeSince = now;
         mobFleeMs = 3000 + ctx.rnd().nextInt(3000);
         standIfSitting(ctx, me);
+        if (dash(ctx, me)) {
+            return 700; // the next tick runs (mobFlee moves on when the bot stands still)
+        }
         ctx.act().moveTo(mobFleeTo);
         detail = "runs from " + mob.name();
         return 600;

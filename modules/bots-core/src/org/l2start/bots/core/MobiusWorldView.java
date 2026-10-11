@@ -70,10 +70,10 @@ final class MobiusWorldView implements WorldView {
                     kind = SkillView.Kind.STRIKE;
                 }
             }
-            if ((kind == SkillView.Kind.OTHER) && (s.hasEffectType(EffectType.SUMMON) || s.hasEffectType(EffectType.SUMMON_PET))) {
+            if ((kind == SkillView.Kind.OTHER) && corpse(s)) {
+                kind = SkillView.Kind.CORPSE; // Sweeper; also the necromancer's summons from a body
+            } else if ((kind == SkillView.Kind.OTHER) && (s.hasEffectType(EffectType.SUMMON) || s.hasEffectType(EffectType.SUMMON_PET))) {
                 kind = SkillView.Kind.SUMMON;
-            } else if ((kind == SkillView.Kind.OTHER) && corpse(s)) {
-                kind = SkillView.Kind.CORPSE;
             }
             if ((kind == SkillView.Kind.OTHER) && !s.isDebuff()) {
                 if (s.isToggle()) {

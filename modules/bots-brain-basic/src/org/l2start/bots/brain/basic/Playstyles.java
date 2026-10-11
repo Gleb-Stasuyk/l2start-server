@@ -26,12 +26,20 @@ public final class Playstyles {
 
     public enum Cond {
         ALWAYS, TARGET_HP_BELOW, TARGET_HP_ABOVE, SELF_HP_BELOW, MP_ABOVE, MOBS_NEAR, MOBS_UNSPOILED, REAR, CHARGES, CHARGES_BELOW, DEBUFF_MISSING,
-        SELF_ABNORMAL_FREE, NOT_SPOILED, DURABLE_TARGET, HEALER_READY, ONCE_PER_TARGET, UNDER_ATTACK, PVP, FOCUS_ON_ME, UNKNOWN
+        SELF_ABNORMAL_FREE, NOT_SPOILED, DURABLE_TARGET, HEALER_READY, ONCE_PER_TARGET, UNDER_ATTACK, PVP, FOCUS_ON_ME,
+        /** l2start: the target is undead (holy skills, Turn Undead); not in LW. */
+        TARGET_UNDEAD, UNKNOWN
     }
 
     /** One skill line; numbers not given are 0 (levels: 0..999). */
     public record Entry(int skillId, String name, Use use, Set<Cond> when, double mpAbove, double hpBelow, double hpAbove, double selfHpBelow, int mobsAtLeast,
-        int minLevel, int maxLevel, long paceMs, int order) {
+        int minLevel, int maxLevel, long paceMs, int order, int chargesAtLeast, int chargesBelow) {
+        /** Without charges (before phase 4c, second part). */
+        public Entry(int skillId, String name, Use use, Set<Cond> when, double mpAbove, double hpBelow, double hpAbove, double selfHpBelow, int mobsAtLeast, int minLevel,
+            int maxLevel, long paceMs, int order) {
+            this(skillId, name, use, when, mpAbove, hpBelow, hpAbove, selfHpBelow, mobsAtLeast, minLevel, maxLevel, paceMs, order, 0, 0);
+        }
+
         public boolean fitsLevel(int level) {
             return (level >= minLevel) && (level <= maxLevel);
         }
@@ -100,7 +108,7 @@ public final class Playstyles {
                     }
                     entries.add(new Entry(Integer.parseInt(s.getAttribute("id")), s.getAttribute("name"), Use.valueOf(s.getAttribute("use").trim().toUpperCase(Locale.ROOT)), when,
                         num(s, "mpAbove", 0), num(s, "hpBelow", 0), num(s, "hpAbove", 0), num(s, "selfHpBelow", 0), (int) num(s, "mobsAtLeast", 0), (int) num(s, "minLevel", 0),
-                        (int) num(s, "maxLevel", 999), (long) num(s, "paceMs", -1), j));
+                        (int) num(s, "maxLevel", 999), (long) num(s, "paceMs", -1), j, (int) num(s, "chargesAtLeast", 0), (int) num(s, "chargesBelow", 0)));
                 }
                 final String role = e.getAttribute("role").isBlank() ? null : e.getAttribute("role").trim().toUpperCase(Locale.ROOT);
                 l.add(new Playstyle(e.getAttribute("name"), Set.copyOf(ids), role, List.copyOf(entries)));

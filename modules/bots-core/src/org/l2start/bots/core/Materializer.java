@@ -10,8 +10,8 @@ import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.item.enums.ItemProcessType;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.type.EtcItemType;
-import org.l2jmobius.gameserver.mechanics.effects.EffectType;
 import org.l2jmobius.gameserver.mechanics.skill.Skill;
+import org.l2start.bots.api.SkillView;
 import org.l2start.bots.director.GearTable;
 import org.l2start.bots.persona.Persona;
 
@@ -144,24 +144,26 @@ final class Materializer {
         return POTIONS + " potions " + id;
     }
 
-    /** Casts of each summon skill a bot carries the crystals for (phase 4c); they vanish with the rest on logout. */
+    /** Calls of each servitor summon a bot carries the crystals for (phase 4c); they vanish with the rest on logout. */
     static final int SUMMON_CASTS = 20;
+    /** Crystals on top for the servitor's upkeep (a few every 4 minutes while it is out). */
+    static final int SUMMON_UPKEEP = 100;
 
-    /** Crystals for the summon skills it knows (Summon Kat the Cat etc. need D-grade crystals), like a summoner farming. */
+    /** Crystals for the servitor summons it knows (Summon Kat the Cat: D-grade crystals), like a summoner farming. */
     private static String summonItems(Player p) {
-        final java.util.Map<Integer, Long> need = new java.util.TreeMap<>();
+        final java.util.Map<Integer, Integer> need = new java.util.TreeMap<>();
         for (Skill s : p.getSkills().values()) {
-            if (s.isActive() && (s.getItemConsumeId() > 0) && (s.getItemConsumeCount() > 0) && (s.hasEffectType(EffectType.SUMMON) || s.hasEffectType(EffectType.SUMMON_PET))) {
-                need.merge(s.getItemConsumeId(), (long) s.getItemConsumeCount() * SUMMON_CASTS, Math::max);
+            if (SkillView.servitorSummon(s.getId()) && (s.getItemConsumeId() > 0)) {
+                need.merge(s.getItemConsumeId(), (Math.max(1, s.getItemConsumeCount()) * SUMMON_CASTS) + SUMMON_UPKEEP, Math::max);
             }
         }
         if (need.isEmpty()) {
             return null;
         }
-        for (java.util.Map.Entry<Integer, Long> e : need.entrySet()) {
-            p.getInventory().addItem(ItemProcessType.REWARD, e.getKey(), e.getValue().intValue(), p, null);
+        for (java.util.Map.Entry<Integer, Integer> e : need.entrySet()) {
+            p.getInventory().addItem(ItemProcessType.REWARD, e.getKey(), e.getValue(), p, null);
         }
-        return "summon items " + need;
+        return "summon crystals " + need;
     }
 
     private static boolean jewel(Item it) {

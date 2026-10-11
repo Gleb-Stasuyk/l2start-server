@@ -69,13 +69,19 @@ class PlaystyleTest {
             }
         }
         assertTrue(n >= 200, "lines " + n);
-        // every class from the starting ones up to the 3rd professions has a style, except support classes and summoners
+        // every class from the starting ones up to the 3rd professions has a style (support and summoners: the l2start block)
         assertEquals("Human Fighter (base)", data.of(0, false).name());
         assertNotNull(data.of(10, false));
         assertNotNull(data.of(88, false)); // Duelist
         assertEquals("ARCHER", data.of(7, true).role());
         assertEquals("DAGGER", data.of(7, false).role());
-        assertNull(data.of(16, false)); // Bishop: support, LW leaves it to the support logic
+        assertNotNull(data.of(16, false)); // Bishop: l2start block (LW leaves support classes to its support logic)
+        for (int id = 0; id <= 118; id++) {
+            if (((id > 57) && (id < 88)) || (id == 0)) {
+                continue;
+            }
+            assertTrue((data.of(id, false) != null) || (data.of(id, true) != null), "class " + id + " has no playstyle");
+        }
     }
 
     static String norm(String s) {

@@ -2,6 +2,7 @@
 <!--
 	bots-brain-basic, phase 4c: per-class combat tactics of the bots.
 	Source: Living Worlds dist/game/data/PhantomPlaystyles.xml (Gleb's fork, E:\L2-Living-Worlds), taken as is.
+	At the end: an l2start block for the support and summoner classes LW leaves out (same format).
 	Every skill id was checked against the CT0 skill data (PlaystylesDataTest: id exists, name matches).
 	What our engine (Playstyles / BasicBrain) reads and supports is in modules/bots-brain-basic/MODULE.md;
 	the LW notes below describe LW's own controller and are kept for reference.
@@ -558,6 +559,45 @@
 		<skill id="36"  name="Whirlwind"    use="AOE"      when="MOBS_NEAR" mobsAtLeast="2" />
 		<skill id="100" name="Stun Attack"  use="CONTROL"  when="DEBUFF_MISSING" paceMs="6000" maxLevel="45" />
 		<skill id="245" name="Wild Sweep"   use="AOE"      when="MOBS_NEAR" mobsAtLeast="2" maxLevel="45" />
+	</playstyle>
+
+	<!-- ================================================================================================
+	     l2start (not in LW): support and summoner classes, which LW leaves to its support logic. Compact
+	     solo tactics, every id checked against CT0 like the rest. Skills a bot has not learned are skipped,
+	     so one style spans the career:
+	     - self heal at low HP in a fight, the best heal it knows first (out of a fight BasicBrain heals the
+	       bot below 70 % instead of sitting down, and heals its servitor);
+	     - holy skills (Turn Undead, Might of Heaven, Disrupt Undead) only on undead (TARGET_UNDEAD);
+	     - a cheap nuke or drain while MP is plenty, keeping the rest for heals.
+	     Summoners: the servitor does the fighting (BasicBrain calls it, sends it, heals it); they nuke only
+	     with MP to spare. ================================================================================ -->
+
+	<playstyle name="Healer (Cleric, Oracle, Shillien Oracle lines)" classIds="15,16,97,17,98,29,30,105,42,43,112">
+		<skill id="1401" name="Major Heal"          use="PANIC"    when="SELF_HP_BELOW" selfHpBelow="45" />
+		<skill id="1218" name="Greater Battle Heal" use="PANIC"    when="SELF_HP_BELOW,UNDER_ATTACK" selfHpBelow="45" />
+		<skill id="1217" name="Greater Heal"        use="PANIC"    when="SELF_HP_BELOW" selfHpBelow="45" />
+		<skill id="1015" name="Battle Heal"         use="PANIC"    when="SELF_HP_BELOW,UNDER_ATTACK" selfHpBelow="45" />
+		<skill id="1011" name="Heal"                use="PANIC"    when="SELF_HP_BELOW" selfHpBelow="45" />
+		<skill id="1400" name="Turn Undead"         use="CONTROL"  when="TARGET_UNDEAD,ONCE_PER_TARGET" />
+		<skill id="1028" name="Might of Heaven"     use="ROTATION" when="TARGET_UNDEAD,MP_ABOVE" mpAbove="30" />
+		<skill id="1031" name="Disrupt Undead"      use="ROTATION" when="TARGET_UNDEAD,MP_ABOVE" mpAbove="30" />
+		<skill id="1147" name="Vampiric Touch"      use="ROTATION" when="SELF_HP_BELOW,MP_ABOVE" selfHpBelow="80" mpAbove="40" />
+		<skill id="1177" name="Wind Strike"         use="ROTATION" when="MP_ABOVE" mpAbove="50" />
+	</playstyle>
+
+	<!-- Orc support (Shaman, Overlord, Warcryer): no heals; Life Drain when hurt, Freezing Flame on durable
+	     targets, Steal Essence / Chill Flame while MP lasts. -->
+	<playstyle name="Orc support (Shaman lines)" classIds="50,51,115,52,116">
+		<skill id="1244" name="Freezing Flame"      use="DEBUFF"   when="DEBUFF_MISSING,DURABLE_TARGET" />
+		<skill id="1090" name="Life Drain"          use="ROTATION" when="SELF_HP_BELOW,MP_ABOVE" selfHpBelow="60" mpAbove="20" />
+		<skill id="1245" name="Steal Essence"       use="ROTATION" when="MP_ABOVE" mpAbove="40" />
+		<skill id="1100" name="Chill Flame"         use="ROTATION" when="MP_ABOVE" mpAbove="50" />
+	</playstyle>
+
+	<!-- Summoners (Warlock, Elemental Summoner, Phantom Summoner lines). -->
+	<playstyle name="Summoner" classIds="14,96,28,104,41,111">
+		<skill id="1147" name="Vampiric Touch"      use="ROTATION" when="SELF_HP_BELOW,MP_ABOVE" selfHpBelow="70" mpAbove="30" />
+		<skill id="1177" name="Wind Strike"         use="ROTATION" when="MP_ABOVE" mpAbove="60" />
 	</playstyle>
 
 </list>

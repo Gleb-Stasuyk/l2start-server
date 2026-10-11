@@ -392,8 +392,23 @@ public final class FakeWorld {
             }
             case "CAST" -> {
                 final Mob m = mobs.get(targetId);
+                final Extra ex = extras.get(castSkill);
+                if ((ex != null) && (m != null) && (ex.kind() == SkillView.Kind.CORPSE)) {
+                    if (moveTowards(m.pos, sec, MELEE_RANGE - 10)) {
+                        applyExtra(ex, m);
+                        intention = "ACTIVE";
+                    }
+                    break;
+                }
                 if ((m == null) || m.dead()) {
                     intention = "ACTIVE";
+                    break;
+                }
+                if (ex != null) { // like the stock AI: walk up, then the skill goes off
+                    if (moveTowards(m.pos, sec, (ex.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : MELEE_RANGE) - 10)) {
+                        applyExtra(ex, m);
+                        intention = m.dead() ? "ACTIVE" : "ATTACK";
+                    }
                     break;
                 }
                 if (castSkill == STRIKE_ID) {
@@ -899,6 +914,9 @@ public final class FakeWorld {
         }
     };
 
+    /** Casts of added skills that failed when they went off (Backstab from the front, a skill without its charges). */
+    public int extraFailures;
+
     private ActionResult castExtra(Extra e, int objectId) {
         if (dead || sitting) {
             return ActionResult.INVALID;
@@ -918,61 +936,91 @@ public final class FakeWorld {
                 petId = nextId++;
                 petHp = petMaxHp();
                 petTargetId = 0;
+                spend(e, objectId);
+                return ActionResult.OK;
             }
             case CORPSE -> {
-                if ((m == null) || !m.dead() || !m.spoiled || (m.pos.distance2d(pos) > (MELEE_RANGE * 2))) {
+                if ((m == null) || !m.dead() || !m.spoiled) {
                     return ActionResult.INVALID;
                 }
-                m.spoiled = false;
-                sweeps++;
-                giveItem(SWEEP_ITEM, 1);
             }
             default -> {
                 if (objectId == SELF_ID) {
                     if (HEALS.contains(e.id())) {
                         hp = Math.min(maxHp(), hp + (maxHp() * 0.3));
                     }
-                } else if ((petId != 0) && (objectId == petId)) {
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                if ((petId != 0) && (objectId == petId)) {
                     if (HEALS.contains(e.id())) {
                         petHp = Math.min(petMaxHp(), petHp + (petMaxHp() * 0.3));
                     }
-                } else {
-                    if ((m == null) || m.dead() || peaceZone) {
-                        return ActionResult.INVALID;
-                    }
-                    final int range = e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : MELEE_RANGE;
-                    if (m.pos.distance2d(pos) > range) {
-                        return ActionResult.NOT_REACHABLE;
-                    }
-                    if ((e.id() == BACKSTAB_ID) && !npcView(m).behind(pos, 120)) {
-                        return ActionResult.INVALID; // stock: only from behind
-                    }
-                    if (e.chargesUsed() > charges) {
-                        return ActionResult.INVALID;
-                    }
-                    charges -= e.chargesUsed();
-                    if (CHARGE_GAIN.contains(e.id())) {
-                        charges = Math.min(MAX_CHARGES, charges + 1);
-                    }
-                    if (e.id() == SPOIL_ID) {
-                        m.spoiled = true;
-                    }
-                    targetId = objectId;
-                    if ((e.kind() == SkillView.Kind.STRIKE) || (e.kind() == SkillView.Kind.NUKE)) {
-                        hit(m, 2 * (6 + (level * 2)));
-                    } else if (m.targetId == 0) {
-                        m.targetId = SELF_ID;
-                    }
-                    if (!m.dead() && !"ATTACK".equals(intention)) {
-                        intention = "ATTACK"; // like the stock AI after a skill: back to hitting
-                    }
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                if ((m == null) || m.dead() || peaceZone) {
+                    return ActionResult.INVALID;
+                }
+                if (blocked(pos, m.pos)) {
+                    return ActionResult.NOT_REACHABLE;
                 }
             }
         }
+        targetId = objectId;
+        final int range = e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : MELEE_RANGE;
+        if (m.pos.distance2d(pos) <= range) {
+            applyExtra(e, m);
+            if ((e.kind() != SkillView.Kind.CORPSE) && !m.dead()) {
+                intention = "ATTACK"; // like the stock AI after a skill: back to hitting
+            }
+        } else {
+            castSkill = e.id(); // walks up first (step: CAST)
+            intention = "CAST";
+        }
+        return ActionResult.OK;
+    }
+
+    private void spend(Extra e, int objectId) {
         mp -= e.mp();
         skillReadyAt.put(e.id(), now + e.reuseMs());
         casts.add(e.id() + "->" + objectId);
-        return ActionResult.OK;
+    }
+
+    /** The skill goes off on the monster (in range now); a failed one still costs MP and reuse, like stock. */
+    private void applyExtra(Extra e, Mob m) {
+        if (mp < e.mp()) {
+            return;
+        }
+        if (e.kind() == SkillView.Kind.CORPSE) {
+            if (m.dead() && m.spoiled) {
+                m.spoiled = false;
+                sweeps++;
+                giveItem(SWEEP_ITEM, 1);
+                spend(e, m.objectId);
+            } else {
+                extraFailures++;
+            }
+            return;
+        }
+        if (((e.id() == BACKSTAB_ID) && !npcView(m).behind(pos, 120)) || (e.chargesUsed() > charges)) {
+            extraFailures++; // stock: Backstab only from behind; charge skills need their charges
+            mp -= e.mp();
+            return;
+        }
+        spend(e, m.objectId);
+        charges -= e.chargesUsed();
+        if (CHARGE_GAIN.contains(e.id())) {
+            charges = Math.min(MAX_CHARGES, charges + 1);
+        }
+        if (e.id() == SPOIL_ID) {
+            m.spoiled = true;
+        }
+        if ((e.kind() == SkillView.Kind.STRIKE) || (e.kind() == SkillView.Kind.NUKE)) {
+            hit(m, 2 * (6 + (level * 2)));
+        } else if (m.targetId == 0) {
+            m.targetId = SELF_ID;
+        }
     }
 
     public Actuators actuators() {

@@ -15,6 +15,29 @@ public record SkillView(int id, int level, Kind kind, int mpCost, int castRange,
         NUKE, STRIKE, BUFF, TOGGLE, SUMMON, CORPSE, OTHER
     }
 
+    /**
+     * Servitor summons of the three summoner lines a bot may call, weakest tier first (phase 4c). Within a tier the
+     * bots pick by their id; dwarven golems and cannons, cubics and the necromancer's corpse summons are not here.
+     */
+    public static final int[][] SERVITOR_TIERS = {
+        { 1111, 1225, 1226, 1227, 1128, 1228 }, // Kat / Mew the Cat, Boxer / Mirage the Unicorn, Shadow / Silhouette
+        { 1276, 1277, 1278 }, // Kai the Cat, Merrow the Unicorn, Soulless
+        { 1331, 1332, 1333 }, // Feline Queen, Unicorn Seraphim, Nightshade
+        { 1406, 1407, 1408 }, // Feline King, Magnus the Unicorn, Spectral Lord
+    };
+
+    /** One of {@link #SERVITOR_TIERS}. */
+    public static boolean servitorSummon(int skillId) {
+        for (int[] tier : SERVITOR_TIERS) {
+            for (int id : tier) {
+                if (id == skillId) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** Before phase 4c (no item consumed). */
     public SkillView(int id, int level, Kind kind, int mpCost, int castRange, boolean ready, int buffLeft) {
         this(id, level, kind, mpCost, castRange, ready, buffLeft, 0, 0);
