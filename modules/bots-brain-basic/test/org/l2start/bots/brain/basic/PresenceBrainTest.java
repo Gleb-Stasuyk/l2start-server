@@ -228,8 +228,17 @@ class PresenceBrainTest {
             final int from = h.act().calls().size();
             beatenBy(w, h, pk, 0.6, 6000);
             beatenBy(w, h, pk, 0.15, 12_000);
-            assertEquals(0, sitsAfter(h, from), "sat down in a fight with a player: " + h.notes());
-            assertTrue(h.act().count("returnToTown") >= 1, "no scroll of escape when badly hurt: " + h.notes());
+            final var calls = h.act().calls().subList(from, h.act().calls().size());
+            int escape = -1;
+            for (int i = 0; i < calls.size(); i++) {
+                if (calls.get(i).action().equals("returnToTown")) {
+                    escape = i;
+                    break;
+                }
+            }
+            assertTrue(escape >= 0, "no scroll of escape when badly hurt: " + h.notes());
+            // resting in town after the scroll is fine; sitting down before it, in the fight, is not
+            assertEquals(0, calls.subList(0, escape).stream().filter(c -> c.action().equals("sit")).count(), "sat down in a fight with a player: " + h.notes());
         } finally {
             BasicBrain.fightBackBase = old;
         }
