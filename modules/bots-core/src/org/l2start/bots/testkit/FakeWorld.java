@@ -205,6 +205,8 @@ public final class FakeWorld {
     /** "skillId>objectId" of every skill cast on a party member. */
     public final List<String> partyCasts = new ArrayList<>();
     public static final int RESURRECTION = 1016;
+    public static final int AGGRESSION = 28;
+    public int taunts;
 
     public void setParty(PartyMember... members) {
         party.clear();
@@ -619,7 +621,7 @@ public final class FakeWorld {
 
     private NpcView npcView(Mob m) {
         return new NpcView(m.objectId, m.npcId, "Mob" + m.npcId, m.level, m.pos, m.pos.distance(pos), m.dead() ? 0 : (m.hp * 100) / m.maxHp, m.dead(), true, m.aggressive, true,
-            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID) && (m.targetId != petId)), m.attackRange, now < m.swingUntil,
+            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID) && (m.targetId != petId) && (partyIndex(m.targetId) < 0)), m.attackRange, now < m.swingUntil,
             m.aggressive ? m.aggroRange : 0, m.heading, m.undead, m.spoiled);
     }
 
@@ -977,6 +979,12 @@ public final class FakeWorld {
             return ActionResult.COOLDOWN;
         }
         final Mob m = mobs.get(objectId);
+        if ((e.id() == AGGRESSION) && (m != null) && !m.dead()) {
+            m.targetId = SELF_ID; // pulled onto the bot
+            taunts++;
+            spend(e, objectId);
+            return ActionResult.OK;
+        }
         switch (e.kind()) {
             case SUMMON -> {
                 if ((petId != 0) || (itemCount(e.itemId()) < e.itemCount())) {

@@ -754,8 +754,10 @@ public final class BasicBrain implements Brain {
             badAnchors.clear();
             enter(ctx, Phase.TOWN_IDLE, "errands in " + a.place());
         } else if (a.leaving()) {
-            endFight();
-            ctx.act().stop();
+            if (!partyPlay || ctx.world().party().isEmpty()) {
+                endFight();
+                ctx.act().stop();
+            }
             standIfSitting(ctx, me);
             enter(ctx, Phase.LEVEL, a.kind() == Assignment.Kind.LEAVE_GK ? "to the gatekeeper" : "running off");
             leaveAt = 0;
@@ -799,6 +801,13 @@ public final class BasicBrain implements Brain {
     /** Run to the exit; at the gatekeeper "teleport" (log out) after a moment, else the director logs it out unseen. */
     private long leaving(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a) {
         standIfSitting(ctx, me);
+        if (partyPlay && !w.party().isEmpty()) {
+            // a party does not run off while monsters are on one of them: they are finished first, together
+            final long d = defendParty(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
         final Pos exit = a.exit();
         if ((exit == null) || (me.pos().distance2d(exit) <= 150)) {
             if (arrivedAt == 0) {
@@ -1030,6 +1039,12 @@ public final class BasicBrain implements Brain {
             detail = "in town after the scroll"; // the director logs it out unseen or sends it on errands
             return 2000;
         }
+        if (partyPlay && !w.party().isEmpty() && (soeAt == 0)) {
+            final long d = defendParty(ctx, w, me, now); // nobody reads a scroll while a partner is beaten
+            if (d > 0) {
+                return d;
+            }
+        }
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
             if (d > 0) {
@@ -1058,6 +1073,13 @@ public final class BasicBrain implements Brain {
 
     /** Logs out right here, sitting (like a restart): the fight on hand first; nobody is near (the director checked). */
     private long logoutHere(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
+        if (partyPlay && !w.party().isEmpty()) {
+            final long d = defendParty(ctx, w, me, now);
+            if (d > 0) {
+                spotLogoutAt = 0;
+                return d;
+            }
+        }
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
             if (d > 0) {
@@ -1189,6 +1211,10 @@ public final class BasicBrain implements Brain {
         final long pc = partyCare(ctx, w, me, now, attacker);
         if (pc > 0) {
             return pc;
+        }
+        final long peeled = peel(ctx, w, me, now);
+        if (peeled > 0) {
+            return peeled;
         }
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
@@ -1673,6 +1699,136 @@ public final class BasicBrain implements Brain {
         return 0;
     }
 
+    /** Healers and buffers: the party protects them first (peel). Second and third professions of the support lines. */
+    static final java.util.Set<Integer> SUPPORT_CLASSES = java.util.Set.of(15, 16, 17, 29, 30, 42, 43, 49, 50, 51, 52, 21, 34, 97, 98, 100, 105, 107, 112, 115, 116);
+    /** Aggression (single target) and Aura of Hate: a tank pulls a monster off the support. */
+    static final int AGGRESSION = 28;
+    static final int HATE_AURA = 18;
+    private long tauntNext;
+    private int peels;
+
+    public int peels() {
+        return peels;
+    }
+
+    static boolean support(int classId) {
+        return SUPPORT_CLASSES.contains(classId);
+    }
+
+    /** A living party member that can heal (a support class) within 1500. */
+    private static boolean healerNear(WorldView w) {
+        for (PartyMember m : w.party()) {
+            if (!m.dead() && support(m.classId()) && (m.distance() < 1500)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** How much a monster matters to the party: 3 = on a support, 2 = on another member, 1 = on this bot, 0 = on nobody of ours. */
+    private static int peelRank(WorldView w, SelfView me, NpcView n) {
+        if ((n == null) || n.dead() || !n.monster() || (n.targetId() == 0)) {
+            return 0;
+        }
+        if (n.targetId() == me.objectId()) {
+            return 1;
+        }
+        for (PartyMember m : w.party()) {
+            if (!m.dead() && (m.objectId() == n.targetId())) {
+                return support(m.classId()) ? 3 : 2;
+            }
+        }
+        return 0;
+    }
+
+    /** The monster on a partner that matters most (supports first), nearest of a rank; null = nobody of the party is attacked. */
+    private static NpcView onPartner(WorldView w) {
+        if (w.party().isEmpty()) {
+            return null;
+        }
+        final SelfView me = w.self();
+        NpcView best = null;
+        int bestRank = 1;
+        for (NpcView n : w.npcs()) {
+            final int r = peelRank(w, me, n);
+            if ((r > bestRank) && (n.distance() < 1500) && n.attackable()) {
+                best = n;
+                bestRank = r;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Phase 4g, KT8: a monster on a party member is our fight. Supports first, then the others, then its own: it
+     * switches to the monster that matters more and a tank pulls it off with Aggression / Aura of Hate.
+     */
+    private long peel(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!partyPlay || w.party().isEmpty()) {
+            return 0;
+        }
+        final NpcView mob = onPartner(w);
+        if (mob == null) {
+            return 0;
+        }
+        final NpcView current = fightId == 0 ? null : w.npc(fightId);
+        if ((current != null) && (peelRank(w, me, current) >= peelRank(w, me, mob))) {
+            return 0; // already on something that matters as much
+        }
+        if (support(me.classId()) && (current == null) && (me.hpPct() < 50)) {
+            return 0; // a hurt support heals (partyCare) rather than melees
+        }
+        standIfSitting(ctx, me);
+        if (current != null) {
+            claims.release(fightId, botId);
+            fightId = 0;
+        }
+        peels++;
+        ctx.note("defends the party from " + mob.name() + (peelRank(w, me, mob) == 3 ? " (on the support)" : ""));
+        final long d = startFight(ctx, me, mob, now, true);
+        taunt(ctx, me, mob, now);
+        return d;
+    }
+
+    /** Pull the monster's aggro onto itself when the class can (Aggression, else Aura of Hate). */
+    private void taunt(BrainContext ctx, SelfView me, NpcView mob, long now) {
+        if ((now < tauntNext) || me.mage()) {
+            return;
+        }
+        for (int id : new int[] { AGGRESSION, HATE_AURA }) {
+            final SkillView s = skill(me, id);
+            if (usable(me, s) && ctx.act().cast(id, mob.objectId()).ok()) {
+                ctx.note("pulls " + mob.name() + " off its partner");
+                tauntNext = now + 4000;
+                return;
+            }
+        }
+    }
+
+    /** While leaving or in a fight of its own: monsters on itself or a partner are fought first. */
+    private long defendParty(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (fightId != 0) {
+            final NpcView cur = w.npc(fightId);
+            if ((cur != null) && (peelRank(w, me, cur) > 0)) {
+                final long d = fight(ctx, w, me, now);
+                if (d > 0) {
+                    return d;
+                }
+            } else {
+                endFight();
+            }
+        }
+        final long peeled = peel(ctx, w, me, now);
+        if (peeled > 0) {
+            return peeled;
+        }
+        final NpcView a = attacker(w, me);
+        if (a != null) {
+            return startFight(ctx, me, a, now, true);
+        }
+        return 0;
+    }
+
     /** The party keeps together: a follower by the leader and on its monster, the leader waits a little for the rest. */
     private long together(BrainContext ctx, WorldView w, SelfView me, long now) {
         final List<PartyMember> pm = w.party();
@@ -2063,6 +2219,10 @@ public final class BasicBrain implements Brain {
         if ((me.hpPct() >= fleeHp) || potionSoon(w, now)) {
             return false;
         }
+        if (partyPlay && !w.party().isEmpty()) {
+            // in a party it stays with the others: only at a critical HP and with no healer alive to keep it up
+            return (me.hpPct() < (fleeHp * 0.5)) && !healerNear(w);
+        }
         return (onMe(w, me) >= 2) || (mob.hpPct() > 20) || (me.hpPct() < (fleeHp * 0.5));
     }
 
@@ -2166,6 +2326,9 @@ public final class BasicBrain implements Brain {
             return false;
         }
         final double close = mob.attackRange() + kiteClose;
+        if (partyPlay && !w.party().isEmpty() && ((mob.targetId() != me.objectId()) || (onPartner(w) != null))) {
+            return false; // stepping back would leave a partner tanking alone
+        }
         if (onMe(w, me) >= 2) {
             return false; // several on it: stepping back only drags them along; fight here (or leave the fight)
         }
