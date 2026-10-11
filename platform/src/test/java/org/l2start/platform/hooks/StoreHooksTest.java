@@ -18,9 +18,11 @@ class StoreHooksTest {
         StoreHooks.add("economy-market", l);
         try {
             assertEquals(1, StoreHooks.size());
-            StoreHooks.deal(new StoreDeal(1, 2, 1061, 5, 120, false));
+            StoreHooks.deal(new StoreDeal(1, 2, 1061, 5, 120, false, true, false));
             assertEquals(1, heard.size());
             assertEquals(600, heard.get(0).total());
+            assertEquals(1, heard.get(0).ownerId());
+            assertEquals(false, heard.get(0).ownerReal(), "a bot's sell store");
             CoreHooks.storeDeal(null, null, 57, 1, 1, false); // null players never reach the listener
             assertEquals(1, heard.size());
             StoreHooks.remove("other", l); // not the owner

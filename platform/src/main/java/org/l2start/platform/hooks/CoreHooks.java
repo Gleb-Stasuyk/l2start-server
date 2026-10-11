@@ -102,7 +102,7 @@ public final class CoreHooks {
             if ((StoreHooks.size() == 0) || (seller == null) || (buyer == null)) {
                 return;
             }
-            StoreHooks.deal(new org.l2start.platform.api.StoreDeal(seller.getObjectId(), buyer.getObjectId(), itemId, count, price, buyStore));
+            StoreHooks.deal(new org.l2start.platform.api.StoreDeal(seller.getObjectId(), buyer.getObjectId(), itemId, count, price, buyStore, isBot(seller), isBot(buyer)));
         } catch (Throwable t) {
             LOGGER.log(Level.WARNING, "Platform: store deal listener failed", t);
         }
