@@ -1,4 +1,4 @@
-# Рантайм ботов и API мозгов (фаза 3, шаг 3c)
+# Рантайм ботов и API мозгов (фаза 3, шаг 3c; дополнено в фазе 4)
 
 Код: `modules/bots-core` — пакеты `org.l2start.bots.api` (API, без классов Mobius), `org.l2start.bots.runtime`
 (тикер, почта, LOD — без Mobius, покрыто тестами), `org.l2start.bots.core` (`BrainHost`, `MobiusWorldView`,
@@ -59,3 +59,41 @@
 `levelUps`, `brainErrors`, `lodChanges`, `logins`, … Строка в лог раз в `StatsLogInterval` (60 с):
 
     BOTS world=25 ticking=25 active=6 present=19 brain=basic noBrain=0 ticks=… p50=0.08ms p99=0.9ms overrun=0 errors=0 safeIdle=0 paused=false moves=… attacks=… kills=… deaths=… levelUps=… rejected=… ticks/s=… shardCpu=…% walking=0
+
+## Фаза 4: роли, пати и LOD
+
+### LOD и нагрузка
+LOD не менялся: ACTIVE (живой игрок ближе `PromoteRadius`) / PRESENT. Боевые роли (плейстайлы, кайт, бафы,
+пати) работают только у ACTIVE-ботов рядом с игроком, поэтому стоимость тика растёт только там, где на бота
+смотрят. При перегрузе (`Overload`, 3f) активные боты дальше 2500 от живых думают вдвое реже, затем режиссёр
+хочет на 30 % меньше ботов. Метрики `p50/p99` тика — в строке `BOTS`.
+
+### Роли (как мозг `basic` выбирает поведение)
+| Роль | Кто | Что делает |
+|---|---|---|
+| Воин / танк | бойцы ближнего боя | удар + плейстайл класса (стойки, заряды, контроль); в пати сдёргивает мобов с саппорта Aggression / Aura of Hate |
+| Даггер | Treasure Hunter, Plainswalker, Abyss Walker и 3-и | заход со спины + Backstab, Dash при бегстве, Ultimate Evasion |
+| Спойлер | Scavenger / Bounty Hunter | Spoil, после убийства Sweeper по трупу |
+| Лучник | лук в руках | кайт: отходит, когда моб подошёл, и снова стреляет |
+| Маг | мистики с нюком | нюки по ротации, кайт, при MP < 20 % — оружием |
+| Саммонер | Warlock, Elemental / Phantom Summoner | вызывает слугу (кристаллы), шлёт на цель, лечит его, бережёт MP |
+| Хилер / саппорт | Cleric-линия, Oracle-линии, Shaman-линия, Swordsinger, Bladedancer | лечит себя (а в пати — напарника), ресает напарника, бафает пати |
+
+Общие для всех: банки ниже личного порога, бегство при низком HP (в пати — только если нет живого хилера),
+свои бафы вне боя, AFK, конец охоты по приказам режиссёра (SoE, выход на месте, ГК, дела в городе).
+
+### API, добавленное в фазе 4
+- `SelfView`: CP, дальность атаки, лук, заряды, свой слуга (id, HP %, цель); `SkillView.kind` BUFF/TOGGLE/SUMMON/CORPSE,
+  `buffLeft`, расход кристаллов.
+- `NpcView`: `heading` (куда смотрит), `undead`, `spoiled`, радиус агра, дальность атаки; `engagedByOther` не
+  считает «чужими» членов своей пати.
+- `WorldView.party()` → `PartyMember` (класс, уровень, позиция, расстояние, HP/MP %, мёртв ли, цель, лидер ли);
+  `partyLeader()`; `itemCount(id)`.
+- `Actuators`: `petAttack`, `petFollow`, `unsummon`; `cast` по мёртвому игроку для Resurrection.
+- `Assignment`: LEAVE_SOE, LEAVE_SPOT, ERRANDS (4d) вдобавок к TOWN/HUNT/LEAVE_RUN/LEAVE_GK/TRANSIT/PASS.
+
+### Тесты
+`FakeWorld` умеет: SoE (каст 20 с), выходы, напарников по пати (`setParty`, хил/рес/баф по ним, `partyCasts`),
+Aggression (моб переключается на бота). Набор: `LifeBrainTest` (4d), `PartyBrainTest` (4g и защита пати по КТ8),
+`DirectorTest` (концы охоты, возвраты, пары, ожидание после смерти), `CatalogDataTest` (экипировка по грейду),
+`PaperLevelTest` (рост по часам игры).
