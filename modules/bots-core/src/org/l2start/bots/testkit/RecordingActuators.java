@@ -58,6 +58,9 @@ public final class RecordingActuators implements Actuators {
     @Override public ActionResult returnToTown() { return rec("returnToTown", "", next::returnToTown); }
     @Override public ActionResult setWalking(boolean walk) { return rec("setWalking", walk, () -> next.setWalking(walk)); }
     @Override public ActionResult stop() { return rec("stop", "", next::stop); }
+    @Override public ActionResult petAttack(int id) { return rec("petAttack", id, () -> next.petAttack(id)); }
+    @Override public ActionResult petFollow() { return rec("petFollow", "", next::petFollow); }
+    @Override public ActionResult unsummon() { return rec("unsummon", "", next::unsummon); }
     @Override public ActionResult logout() { return rec("logout", "", next::logout); }
 
     @Override

@@ -10,6 +10,8 @@ import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.item.enums.ItemProcessType;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.type.EtcItemType;
+import org.l2jmobius.gameserver.mechanics.effects.EffectType;
+import org.l2jmobius.gameserver.mechanics.skill.Skill;
 import org.l2start.bots.director.GearTable;
 import org.l2start.bots.persona.Persona;
 
@@ -68,6 +70,10 @@ final class Materializer {
         cleanup(p);
         sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
         sb.append(", ").append(potions(p, target));
+        final String crystals = summonItems(p);
+        if (crystals != null) {
+            sb.append(", ").append(crystals);
+        }
         if (p.isDead()) { // logged out dead (left unseen before "To village"): never arrive as a corpse
             p.setDead(false);
             p.setIsPendingRevive(false);
@@ -136,6 +142,26 @@ final class Materializer {
         final int id = potionFor(level);
         p.getInventory().addItem(ItemProcessType.REWARD, id, POTIONS, p, null);
         return POTIONS + " potions " + id;
+    }
+
+    /** Casts of each summon skill a bot carries the crystals for (phase 4c); they vanish with the rest on logout. */
+    static final int SUMMON_CASTS = 20;
+
+    /** Crystals for the summon skills it knows (Summon Kat the Cat etc. need D-grade crystals), like a summoner farming. */
+    private static String summonItems(Player p) {
+        final java.util.Map<Integer, Long> need = new java.util.TreeMap<>();
+        for (Skill s : p.getSkills().values()) {
+            if (s.isActive() && (s.getItemConsumeId() > 0) && (s.getItemConsumeCount() > 0) && (s.hasEffectType(EffectType.SUMMON) || s.hasEffectType(EffectType.SUMMON_PET))) {
+                need.merge(s.getItemConsumeId(), (long) s.getItemConsumeCount() * SUMMON_CASTS, Math::max);
+            }
+        }
+        if (need.isEmpty()) {
+            return null;
+        }
+        for (java.util.Map.Entry<Integer, Long> e : need.entrySet()) {
+            p.getInventory().addItem(ItemProcessType.REWARD, e.getKey(), e.getValue().intValue(), p, null);
+        }
+        return "summon items " + need;
     }
 
     private static boolean jewel(Item it) {

@@ -10,17 +10,29 @@ import java.util.List;
  * @param intention stock AI intention name (IDLE, ACTIVE, MOVE_TO, ATTACK, CAST, PICK_UP, FOLLOW, REST, INTERACT)
  * @param attackRange physical attack range of the weapon (bow about 500, melee about 40)
  * @param bow a bow is in the hands
+ * @param charges sonic or force charges the bot holds now (Gladiator, Tyrant lines)
+ * @param petId object id of its own summon (servitor or pet) in the world, 0 = none
+ * @param petHpPct hit points of that summon in percent (0 when none or dead)
+ * @param petTargetId object id of what that summon is fighting or going to (0 = nothing)
  */
 public record SelfView(int objectId, String name, int classId, boolean mage, int level, double expPercent, long sp,
     double hp, int maxHp, double mp, int maxMp, Pos pos, boolean dead, boolean sitting, boolean moving, boolean inCombat,
     boolean attacking, boolean casting, int targetId, boolean inPeaceZone, boolean teleporting, String intention, boolean hasWeapon,
-    List<SkillView> skills, double cp, int maxCp, int attackRange, boolean bow) {
+    List<SkillView> skills, double cp, int maxCp, int attackRange, boolean bow, int charges, int petId, double petHpPct, int petTargetId) {
+    /** Before phase 4c (no charges, no summon). */
+    public SelfView(int objectId, String name, int classId, boolean mage, int level, double expPercent, long sp, double hp, int maxHp, double mp, int maxMp, Pos pos,
+        boolean dead, boolean sitting, boolean moving, boolean inCombat, boolean attacking, boolean casting, int targetId, boolean inPeaceZone, boolean teleporting,
+        String intention, boolean hasWeapon, List<SkillView> skills, double cp, int maxCp, int attackRange, boolean bow) {
+        this(objectId, name, classId, mage, level, expPercent, sp, hp, maxHp, mp, maxMp, pos, dead, sitting, moving, inCombat, attacking, casting, targetId, inPeaceZone,
+            teleporting, intention, hasWeapon, skills, cp, maxCp, attackRange, bow, 0, 0, 0, 0);
+    }
+
     /** Before phase 4 (no CP, melee weapon). */
     public SelfView(int objectId, String name, int classId, boolean mage, int level, double expPercent, long sp, double hp, int maxHp, double mp, int maxMp, Pos pos,
         boolean dead, boolean sitting, boolean moving, boolean inCombat, boolean attacking, boolean casting, int targetId, boolean inPeaceZone, boolean teleporting,
         String intention, boolean hasWeapon, List<SkillView> skills) {
         this(objectId, name, classId, mage, level, expPercent, sp, hp, maxHp, mp, maxMp, pos, dead, sitting, moving, inCombat, attacking, casting, targetId, inPeaceZone,
-            teleporting, intention, hasWeapon, skills, 0, 0, NpcView.MELEE, false);
+            teleporting, intention, hasWeapon, skills, 0, 0, NpcView.MELEE, false, 0, 0, 0, 0);
     }
 
     public double hpPct() {
@@ -33,5 +45,10 @@ public record SelfView(int objectId, String name, int classId, boolean mage, int
 
     public double cpPct() {
         return maxCp <= 0 ? 0 : (cp * 100) / maxCp;
+    }
+
+    /** It has its own summon in the world. */
+    public boolean hasPet() {
+        return petId != 0;
     }
 }

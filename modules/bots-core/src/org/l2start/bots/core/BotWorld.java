@@ -2,10 +2,12 @@ package org.l2start.bots.core;
 
 import java.util.concurrent.ThreadLocalRandom;
 
+import org.l2jmobius.gameserver.data.sql.CharSummonTable;
 import org.l2jmobius.gameserver.data.xml.MapRegionData;
 import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2jmobius.gameserver.entity.actor.Summon;
 import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportWhereType;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
 import org.l2jmobius.gameserver.network.Disconnection;
@@ -126,6 +128,10 @@ public final class BotWorld {
             p.spawnMe(x, y, z);
             p.restoreEffects();
             p.onPlayerEnter();
+            final String stale = dismissSummon(p); // a servitor row stored by an older run is never restored for a bot
+            if (stale != null) {
+                log.warn(stale);
+            }
             p.setOnlineStatus(true, true); // online=0 in the database anyway: no client (hidden from site counters)
             p.broadcastUserInfo();
             repo.login(r.botId(), now);
@@ -149,6 +155,36 @@ public final class BotWorld {
         }
     }
 
+    /**
+     * Send the bot's summon away for good: not stored for a later login (stock deleteMe stores a servitor for
+     * RestoreServitorOnReconnect, and only a client's first action would bring it back - a bot would never see it
+     * again, the row would just stay). Also drops such a row left by an older run or a crash.
+     */
+    static String dismissSummon(Player p) {
+        String error = null;
+        final Summon s = p.getSummon();
+        if (s != null) {
+            try {
+                s.setRestoreSummon(false);
+                if (s.isDead() && s.isServitor()) {
+                    s.deleteMe(p);
+                } else {
+                    s.unSummon(p);
+                }
+            } catch (Exception e) {
+                error = "cannot unsummon the servitor of " + p.getName() + ": " + e;
+            }
+        }
+        try {
+            if (CharSummonTable.getInstance().getServitors().containsKey(p.getObjectId())) {
+                CharSummonTable.getInstance().removeServitor(p);
+            }
+        } catch (Exception e) {
+            error = "cannot drop the stored servitor of " + p.getName() + ": " + e;
+        }
+        return error;
+    }
+
     /** Log a bot out (saved like a player who logs out). */
     /** @param comeBack keep it marked "in the world" so the next start brings it back (shutdown, module stop) */
     public synchronized boolean leave(BotRecord r, boolean comeBack) {
@@ -163,6 +199,10 @@ public final class BotWorld {
         try {
             if (p.isSitting()) {
                 p.standUp();
+            }
+            final String unsummoned = dismissSummon(p); // a bot's servitor is never kept for a later login (stock would store and restore it)
+            if (unsummoned != null) {
+                log.warn(unsummoned);
             }
             Disconnection.of(p).storeAndDelete();
         } catch (Exception e) {

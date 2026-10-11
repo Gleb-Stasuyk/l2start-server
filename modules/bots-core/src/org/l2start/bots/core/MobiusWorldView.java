@@ -11,6 +11,7 @@ import org.l2jmobius.gameserver.entity.actor.Attackable;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Npc;
 import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2jmobius.gameserver.entity.actor.Summon;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.type.WeaponType;
 import org.l2jmobius.gameserver.entity.zone.ZoneId;
@@ -69,6 +70,11 @@ final class MobiusWorldView implements WorldView {
                     kind = SkillView.Kind.STRIKE;
                 }
             }
+            if ((kind == SkillView.Kind.OTHER) && (s.hasEffectType(EffectType.SUMMON) || s.hasEffectType(EffectType.SUMMON_PET))) {
+                kind = SkillView.Kind.SUMMON;
+            } else if ((kind == SkillView.Kind.OTHER) && corpse(s)) {
+                kind = SkillView.Kind.CORPSE;
+            }
             if ((kind == SkillView.Kind.OTHER) && !s.isDebuff()) {
                 if (s.isToggle()) {
                     kind = SkillView.Kind.TOGGLE;
@@ -79,7 +85,8 @@ final class MobiusWorldView implements WorldView {
                     left = on == null ? 0 : Math.max(1, on.getTime());
                 }
             }
-            skills.add(new SkillView(s.getId(), s.getLevel(), kind, s.getMpConsume(), s.getCastRange(), !p.isSkillDisabled(s), left));
+            skills.add(new SkillView(s.getId(), s.getLevel(), kind, s.getMpConsume(), s.getCastRange(), !p.isSkillDisabled(s), left, Math.max(0, s.getItemConsumeId()),
+                Math.max(0, s.getItemConsumeCount())));
         }
         skills.sort(Comparator.comparingInt(SkillView::id));
         final int level = p.getLevel();
@@ -92,10 +99,14 @@ final class MobiusWorldView implements WorldView {
             // max level
         }
         final WorldObject t = p.getTarget();
+        final Summon pet = p.getSummon();
+        final boolean petUp = (pet != null) && pet.isSpawned() && !pet.isDead();
+        final WorldObject petTarget = petUp ? pet.getTarget() : null;
         return new SelfView(p.getObjectId(), p.getName(), p.getPlayerClass().getId(), p.isMageClass(), level, expPct, p.getSp(), p.getCurrentHp(), p.getMaxHp(),
             p.getCurrentMp(), p.getMaxMp(), pos(p), p.isDead(), p.isSitting(), p.isMoving(), p.isInCombat(), p.isAttackingNow(), p.isCastingNow(), t == null ? 0 : t.getObjectId(),
             p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills),
-            p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW));
+            p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW),
+            p.getCharges(), petUp ? pet.getObjectId() : 0, petUp && (pet.getMaxHp() > 0) ? (pet.getCurrentHp() * 100) / pet.getMaxHp() : 0, petTarget == null ? 0 : petTarget.getObjectId());
     }
 
     @Override
@@ -107,13 +118,14 @@ final class MobiusWorldView implements WorldView {
         boolean engaged = false;
         int targetId = 0;
         final WorldObject t = n.getTarget();
+        final Summon own = p.getSummon(); // the bot's own summon fights for the bot: not "someone else"
         if (t != null) {
             targetId = t.getObjectId();
-            engaged = (t != p) && t.isPlayable();
+            engaged = (t != p) && (t != own) && t.isPlayable();
         }
         if (!engaged && (n instanceof Attackable a)) {
             for (Creature c : a.getAggroList().keySet()) {
-                if ((c != p) && c.isPlayable()) {
+                if ((c != p) && (c != own) && c.isPlayable()) {
                     engaged = true;
                     break;
                 }
@@ -121,7 +133,8 @@ final class MobiusWorldView implements WorldView {
         }
         final Pos at = pos(n);
         return new NpcView(n.getObjectId(), n.getId(), n.getName(), n.getLevel(), at, at.distance(self.pos()), n.getMaxHp() <= 0 ? 0 : (n.getCurrentHp() * 100) / n.getMaxHp(), n.isDead(),
-            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow(), aggroRange(n));
+            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow(), aggroRange(n),
+            n.getHeading(), n.isUndead(), (n instanceof Attackable a) && a.isSpoiled());
     }
 
     @Override
@@ -195,6 +208,14 @@ final class MobiusWorldView implements WorldView {
         }
         final int r = n.getTemplate().getAggroRange();
         return r > 0 ? r : NpcView.AGGRO;
+    }
+
+    /** Used on a dead monster's body (Sweeper). */
+    static boolean corpse(Skill s) {
+        return switch (s.getTargetType()) {
+            case CORPSE_MOB -> true;
+            default -> false;
+        };
     }
 
     /**
