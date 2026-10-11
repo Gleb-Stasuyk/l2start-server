@@ -86,6 +86,7 @@ final class Traders {
     private final ConcurrentLinkedQueue<Runnable> writes = new ConcurrentLinkedQueue<>();
     private final Set<String> warned = new HashSet<>();
     private volatile boolean selfTested;
+    private volatile boolean stopped;
 
     private Traders(EconomyMarketModule m, TraderPool pool) throws Exception {
         this.m = m;
@@ -111,7 +112,10 @@ final class Traders {
 
     // ---- the task (scheduler thread, every few seconds)
 
-    void tick() throws Exception {
+    synchronized void tick() throws Exception {
+        if (stopped) {
+            return;
+        }
         if (!m.marketOn()) {
             closeAll("market off");
             return;
@@ -461,7 +465,13 @@ final class Traders {
      * database, so all of them are out before bots-core stops even on a slow database (the platform gives a module
      * a few seconds for its stop).
      */
-    void closeAll(String reason) {
+    /** Server stop: no tick opens a store again (the platform stops the module's tasks only after its stop). */
+    synchronized void stop() {
+        stopped = true;
+        closeAll("server stop");
+    }
+
+    synchronized void closeAll(String reason) {
         final long start = System.currentTimeMillis();
         final List<Store> closed = new ArrayList<>();
         for (Store s : stores.values()) {

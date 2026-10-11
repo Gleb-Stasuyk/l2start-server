@@ -73,7 +73,7 @@ public final class EconomyMarketModule implements GameModule {
     @Override
     public void onShutdown(ModuleContext context) throws Exception {
         if (traders != null) {
-            ((Traders) traders).closeAll("server stop"); // before bots-core logs the traders out
+            ((Traders) traders).stop(); // before bots-core logs the traders out
         }
         flush();
     }
