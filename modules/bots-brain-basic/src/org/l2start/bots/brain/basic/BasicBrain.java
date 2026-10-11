@@ -1112,6 +1112,9 @@ public final class BasicBrain implements Brain {
         if (stance(ctx, me, me.mpPct() >= 15, ctx.now())) {
             return; // the stance is switched (it targets the bot itself): the next tick attacks again
         }
+        if (playstyle(ctx, w, me, mob, ctx.now())) {
+            return;
+        }
         if (me.mage() && (me.mpPct() >= 20)) {
             final SkillView nuke = nuke(me, mob.npcId(), badSkills, ctx.now());
             if (nuke != null) {
@@ -1163,6 +1166,50 @@ public final class BasicBrain implements Brain {
             }
         }
         return null;
+    }
+
+    // ------------------------------------------------------------------ roles (4c): class playstyles
+
+    /** data/playstyles.xml (set by the module; tests set their own). */
+    static volatile Playstyles playstyles = Playstyles.EMPTY;
+    /** Config Playstyles of bots-brain-basic. */
+    static volatile boolean usePlaystyles = true;
+    private final PlaystyleEngine engine = new PlaystyleEngine();
+    private int playstyleCasts;
+
+    /** Skills cast by the class playstyle (tests, //bots info). */
+    public int playstyleCasts() {
+        return playstyleCasts;
+    }
+
+    /** Last playstyle line used ("ROTATION 3 Power Strike"). */
+    public String playstyleLast() {
+        return engine.last();
+    }
+
+    /**
+     * One combat decision by the class playstyle (phase 4c).
+     * @return true when a skill was cast (no plain hit this tick)
+     */
+    private boolean playstyle(BrainContext ctx, WorldView w, SelfView me, NpcView mob, long now) {
+        if (!usePlaystyles || me.casting()) {
+            return false;
+        }
+        final PlaystyleEngine.Pick pick = engine.pick(playstyles.of(me.classId(), me.bow()), me, mob, w, badSkills, now);
+        if (pick == null) {
+            return false;
+        }
+        final ActionResult r = ctx.act().cast(pick.skill().id(), pick.self() ? me.objectId() : mob.objectId());
+        if (r == ActionResult.INVALID) {
+            badSkills.put(badKey(pick.skill().id(), mob.npcId()), now + BAD_SKILL_MS);
+        }
+        engine.cast(pick, r.ok(), me.mage(), now);
+        if (!r.ok()) {
+            return false;
+        }
+        playstyleCasts++;
+        detail = "fight " + fightName + ": " + pick.entry().name();
+        return true;
     }
 
     // ------------------------------------------------------------------ buffs (4b)

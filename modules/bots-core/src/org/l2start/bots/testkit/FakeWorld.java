@@ -37,6 +37,9 @@ public final class FakeWorld {
     public static final int BUFF_MP = 10;
     public static final long BUFF_MS = 1_200_000;
     public static final int TOGGLE_ID = 312;
+    /** Phase 4c (with {@link #strikeSkill}): a fighter's Power Strike - double damage in melee, 10 MP, reuse 3 s. */
+    public static final int STRIKE_ID = 3;
+    public static final int STRIKE_MP = 10;
     public static final double SPEED = 120; // units per second
     public static final int MELEE_RANGE = 80;
     public static final int NUKE_RANGE = 600;
@@ -322,7 +325,17 @@ public final class FakeWorld {
                     intention = "ACTIVE";
                     break;
                 }
-                if (moveTowards(m.pos, sec, NUKE_RANGE - 20)) {
+                if (castSkill == STRIKE_ID) {
+                    if (moveTowards(m.pos, sec, MELEE_RANGE - 10)) {
+                        if (mp >= STRIKE_MP) {
+                            mp -= STRIKE_MP;
+                            skillReadyAt.put(STRIKE_ID, now + 3000);
+                            strikes++;
+                            hit(m, 2 * (6 + (level * 2)));
+                        }
+                        intention = "ATTACK"; // like the stock AI: back to hitting the target
+                    }
+                } else if (moveTowards(m.pos, sec, NUKE_RANGE - 20)) {
                     if (mp >= NUKE_MP) {
                         mp -= NUKE_MP;
                         skillReadyAt.put(castSkill, now + 1500);
@@ -473,6 +486,9 @@ public final class FakeWorld {
     public boolean undeadOnlyNuke;
     /** Phase 4b: the bot knows {@link #BUFF_ID} (and a fighter {@link #TOGGLE_ID}). */
     public boolean selfBuffs;
+    /** Phase 4c: a fighter knows {@link #STRIKE_ID}. */
+    public boolean strikeSkill;
+    public int strikes;
     /** Self buff on until (ms of the fake clock). */
     public long buffUntil;
     public boolean toggleOn;
@@ -489,6 +505,9 @@ public final class FakeWorld {
             skills.add(new SkillView(NUKE_ID, 1, SkillView.Kind.NUKE, NUKE_MP, NUKE_RANGE, now >= skillReadyAt.getOrDefault(NUKE_ID, 0L)));
         }
         skills.add(new SkillView(1012, 1, SkillView.Kind.OTHER, 5, 0, true));
+        if (strikeSkill && !mage) {
+            skills.add(new SkillView(STRIKE_ID, 1, SkillView.Kind.STRIKE, STRIKE_MP, 40, now >= skillReadyAt.getOrDefault(STRIKE_ID, 0L)));
+        }
         if (selfBuffs) {
             skills.add(new SkillView(BUFF_ID, 3, SkillView.Kind.BUFF, BUFF_MP, 0, true, now < buffUntil ? (int) Math.max(1, (buffUntil - now) / 1000) : 0));
             if (!mage) {
@@ -629,6 +648,18 @@ public final class FakeWorld {
                 return ActionResult.OK;
             }
             final Mob m = mobs.get(objectId);
+            if (strikeSkill && !mage && (skillId == STRIKE_ID)) {
+                if (dead || sitting || (m == null) || m.dead() || peaceZone) {
+                    return ActionResult.INVALID;
+                }
+                if ((now < skillReadyAt.getOrDefault(STRIKE_ID, 0L)) || (mp < STRIKE_MP)) {
+                    return ActionResult.COOLDOWN;
+                }
+                targetId = objectId;
+                castSkill = STRIKE_ID;
+                intention = "CAST";
+                return ActionResult.OK;
+            }
             if (dead || sitting || (m == null) || m.dead() || peaceZone || !mage || (skillId != NUKE_ID)) {
                 return ActionResult.INVALID;
             }

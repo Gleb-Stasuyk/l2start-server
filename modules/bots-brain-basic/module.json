@@ -13,7 +13,8 @@
     "PotionHpPercent": { "type": "string", "default": "40,60", "reloadable": true, "description": "HP percent below which a bot drinks a potion: min,max; each persona has its own threshold in this range." },
     "FleeHpPercent": { "type": "string", "default": "25", "reloadable": true, "description": "Below this HP percent with no potion at hand (and a fight it is losing) a bot runs out of the fight; still chased, it reads a scroll of escape." },
     "KiteDistance": { "type": "string", "default": "120,400", "reloadable": true, "description": "Archers and mages against melee monsters: close,to. When the monster is within its own reach + close, the bot steps back to 'to' (archers: at most bow range - 50) and shoots or casts again. 0 = no kiting." },
-    "SelfBuffs": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4b: bots keep their own class buffs on while hunting (renewed before they run out) and switch stances (Vicious Stance, Accuracy) on in a fight and off before resting." }
+    "SelfBuffs": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4b: bots keep their own class buffs on while hunting (renewed before they run out) and switch stances (Vicious Stance, Accuracy) on in a fight and off before resting." },
+    "Playstyles": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4c: bots fight with the skills of their class by data/playstyles.xml (from Living Worlds): panic skills at low HP, openers, stances, control and debuffs on durable targets, the class rotation; area skills only on monsters already on the bot. Off = plain hits and the first nuke." }
   },
   "dependencies": [ { "id": "bots-core", "version": "^0.5" } ]
 }

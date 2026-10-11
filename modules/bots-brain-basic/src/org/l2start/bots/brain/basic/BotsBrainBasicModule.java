@@ -11,6 +11,7 @@ public final class BotsBrainBasicModule implements GameModule {
     @Override
     public void onEnable(ModuleContext ctx) throws Exception {
         final LevelZones zones = LevelZones.load(ctx.resources().path("data/levelzones.xml"));
+        BasicBrain.playstyles = Playstyles.load(ctx.resources().path("data/playstyles.xml"));
         applyConfig(ctx);
         registry = ctx.services().require(BrainRegistry.class);
         registry.register(new BasicBrainFactory(zones, Village.STARTING));
@@ -28,6 +29,7 @@ public final class BotsBrainBasicModule implements GameModule {
         apply(ctx.config().getString("PvpFightBack"), ctx.config().getBoolean("Potions"), ctx.config().getString("PotionHpPercent"),
             ctx.config().getString("FleeHpPercent"), ctx.config().getString("KiteDistance"));
         BasicBrain.selfBuffs = ctx.config().getBoolean("SelfBuffs");
+        BasicBrain.usePlaystyles = ctx.config().getBoolean("Playstyles");
     }
 
     /** Parses the brain settings into BasicBrain (bad values: the defaults stay). */
@@ -46,7 +48,8 @@ public final class BotsBrainBasicModule implements GameModule {
     static String describe() {
         return String.format(java.util.Locale.ROOT, "fights back real players with base chance %.2f, potions %s at hp %.0f-%.0f%%, flees below %.0f%%, kiting %s",
             BasicBrain.fightBackBase, BasicBrain.potions ? "on" : "off", BasicBrain.potionLo, BasicBrain.potionHi, BasicBrain.fleeHp,
-            BasicBrain.kiteClose <= 0 ? "off" : ("reach+" + BasicBrain.kiteClose + " -> " + BasicBrain.kiteTo)) + ", self buffs " + (BasicBrain.selfBuffs ? "on" : "off");
+            BasicBrain.kiteClose <= 0 ? "off" : ("reach+" + BasicBrain.kiteClose + " -> " + BasicBrain.kiteTo)) + ", self buffs " + (BasicBrain.selfBuffs ? "on" : "off") + ", class playstyles "
+            + (BasicBrain.usePlaystyles ? BasicBrain.playstyles.all().size() : "off");
     }
 
     private static double num(String s, double def) {
