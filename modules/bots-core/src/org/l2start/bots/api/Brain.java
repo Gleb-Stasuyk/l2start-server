@@ -11,6 +11,11 @@ public interface Brain {
     /** Short state for //bots info and the stats (e.g. LEVEL/fight). */
     String state();
 
+    /** More lines for //bots info (class tactics, counters); empty = nothing more. Phase 4c. */
+    default String details() {
+        return "";
+    }
+
     /** The bot leaves the world or the brain is replaced. */
     default void stop(BrainContext ctx) {
     }

@@ -315,6 +315,42 @@ class DirectorTest {
     }
 
     @Test
+    void aBotLeavingADungeonVanishesRoundACorner() {
+        final DirectorConfig c = DirectorConfig.defaults();
+        final WorldCatalog.Ground cave = new WorldCatalog.Ground("cave", "town", new Pos(31_000, 0, 0), 800, 30, 34, 40, 0, true, List.of());
+        final WorldCatalog.Ground field = new WorldCatalog.Ground("open", "town", new Pos(31_000, 0, 0), 800, 30, 34, 40, 0, false, List.of());
+        final Pos player = new Pos(30_000, 0, 0);
+        final Pos bot = new Pos(30_900, 0, 0); // well inside the unseen radius
+        final Director.Terrain walls = new Director.Terrain() {
+            @Override
+            public Pos ground(Pos approx) {
+                return approx;
+            }
+
+            @Override
+            public boolean canSee(Pos from, Pos to) {
+                return false;
+            }
+        };
+        for (WorldCatalog.Ground g : List.of(cave, field)) {
+            for (boolean wall : new boolean[] { true, false }) {
+                final Director d = new Director(new WorldCatalog(List.of(catalog().town("town")), List.of(g)), c, new Random(4));
+                final Assignment hunt = new Assignment(1, Assignment.Kind.HUNT, g.id(), g.center(), g.radius(), 30, 34, List.of(), List.of(), null);
+                final Assignment leave = hunt.leave(2, Assignment.Kind.LEAVE_RUN, new Pos(33_000, 0, 0));
+                final List<Director.BotNow> bots = List.of(new Director.BotNow(7, bot, leave, false, 1));
+                boolean gone = false;
+                for (long now = 1000; now <= 10_000; now += 2000) {
+                    for (Director.Command cmd : d.tick(now, 20, at(player), bots, (lo, hi, t) -> List.of(), wall ? walls : p -> p)) {
+                        gone |= (cmd instanceof Director.Command.Logout l) && (l.botId() == 7);
+                    }
+                }
+                assertEquals(g.indoor() && wall, gone, g.id() + (wall ? " behind a wall" : " in sight"));
+                assertTrue(d.kindLines().get(3).startsWith("Leaving: "), d.kindLines().toString());
+            }
+        }
+    }
+
+    @Test
     void unreachableTownNpcsAreLeftOut() {
         final List<String> dropped = new ArrayList<>();
         final List<String> warnings = new ArrayList<>();

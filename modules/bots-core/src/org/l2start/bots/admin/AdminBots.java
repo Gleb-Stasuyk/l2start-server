@@ -269,6 +269,10 @@ public final class AdminBots implements IAdminCommandHandler {
             final double live = core.brains().nearestLive(r);
             sb.append("<br><font color=\"LEVEL\">Brain</font> ").append(slot.brain() == null ? "none" : escape(slot.brain().state())).append(", LOD ").append(slot.lod().level())
                 .append(Double.isInfinite(live) ? "" : " (live player " + (int) live + ")").append("<br>");
+            final String more = slot.brain() == null ? "" : slot.brain().details();
+            if ((more != null) && !more.isEmpty()) {
+                sb.append(escape(more).replace("\n", "<br>")).append("<br>");
+            }
             sb.append(String.format(java.util.Locale.ROOT, "Ticks %d, last tick %.2f ms, next in %d ms, mailbox %d", slot.ticks(), slot.lastTickNanos() / 1e6, Math.max(0, slot.nextTickAt() - now), slot.mailbox().size())).append("<br>");
             sb.append("Errors ").append(slot.totalErrors()).append(slot.safeIdle(now) ? " <font color=\"FF6666\">SAFE_IDLE</font>" : "").append(slot.lastError() == null ? "" : ", last: " + escape(slot.lastError())).append("<br>");
             final SimpleDateFormat hm = new SimpleDateFormat("HH:mm:ss");
@@ -339,7 +343,11 @@ public final class AdminBots implements IAdminCommandHandler {
     private void showDirector(Player gm, org.l2start.bots.core.DirectorRunner d) {
         final StringBuilder sb = new StringBuilder("<html><title>Bots: presence director</title><body>");
         sb.append("<font color=\"LEVEL\">Director</font>").append(d.paused() ? " <font color=\"FF6666\">PAUSED</font>" : "").append("<br>");
-        sb.append("<font color=\"808080\">").append(escape(d.statsLine())).append("</font><br><br>");
+        sb.append("<font color=\"808080\">").append(escape(d.statsLine())).append("</font><br>");
+        for (String line : d.director().kindLines()) {
+            sb.append(escape(line)).append("<br>");
+        }
+        sb.append("<br>");
         sb.append("<table width=280><tr><td width=130>Place</td><td width=50>players</td><td width=50>bots</td><td width=50>target</td></tr>");
         int n = 0;
         for (org.l2start.bots.director.Director.PlaceState p : d.director().places()) {

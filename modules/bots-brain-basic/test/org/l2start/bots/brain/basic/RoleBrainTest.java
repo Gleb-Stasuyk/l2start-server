@@ -133,6 +133,9 @@ class RoleBrainTest {
         assertTrue(casts(w, 8) >= 3, "Sonic Focus " + casts(w, 8));
         assertTrue(casts(w, 6) >= 1, "Sonic Blaster " + casts(w, 6) + " " + w.casts);
         assertEquals(0, w.extraFailures, "never without the charges");
+        assertTrue(r.b().details().contains("Style: Duelist"), r.b().details());
+        assertTrue(r.b().details().contains("Last skill: ROTATION"), r.b().details());
+        assertTrue(r.b().details().contains("CHARGES"), r.b().details());
     }
 
     @Test

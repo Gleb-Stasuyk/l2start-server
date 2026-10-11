@@ -1230,7 +1230,21 @@ public final class BasicBrain implements Brain {
         return playstyleCasts;
     }
 
-    /** Last playstyle line used ("ROTATION 3 Power Strike"). */
+    private String styleName = "";
+
+    @Override
+    public String details() {
+        final StringBuilder sb = new StringBuilder();
+        sb.append("Style: ").append(!usePlaystyles ? "off" : styleName.isEmpty() ? "(no fight yet)" : styleName);
+        if (!engine.last().isEmpty()) {
+            sb.append("\nLast skill: ").append(engine.last());
+        }
+        sb.append("\nSkills cast ").append(playstyleCasts).append(", buffs ").append(buffs).append(", heals ").append(heals).append(", summoned ").append(summoned)
+            .append(", swept ").append(sweeps).append(", round to the back ").append(sneaks);
+        return sb.toString();
+    }
+
+    /** Last playstyle line used ("ROTATION 3 Power Strike (ALWAYS)"). */
     public String playstyleLast() {
         return engine.last();
     }
@@ -1243,7 +1257,9 @@ public final class BasicBrain implements Brain {
         if (!usePlaystyles || me.casting()) {
             return false;
         }
-        final PlaystyleEngine.Pick pick = engine.pick(playstyles.of(me.classId(), me.bow()), me, mob, w, badSkills, now);
+        final Playstyles.Playstyle style = playstyles.of(me.classId(), me.bow());
+        styleName = style == null ? "none" : style.name();
+        final PlaystyleEngine.Pick pick = engine.pick(style, me, mob, w, badSkills, now);
         if (pick == null) {
             return false;
         }

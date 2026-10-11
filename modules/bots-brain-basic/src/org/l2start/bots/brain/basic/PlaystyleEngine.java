@@ -134,7 +134,30 @@ final class PlaystyleEngine {
         onceOnTarget.add(e.skillId());
         triesOnTarget.merge(e.skillId(), 1, Integer::sum);
         opened = true;
-        last = e.use() + " " + e.skillId() + " " + e.name();
+        last = e.use() + " " + e.skillId() + " " + e.name() + " (" + why(e) + ")";
+    }
+
+    /** The conditions of a line with their numbers, for //bots info ("SELF_HP_BELOW 45, UNDER_ATTACK"). */
+    static String why(Entry e) {
+        final StringBuilder sb = new StringBuilder();
+        for (Cond c : e.when()) {
+            if (sb.length() > 0) {
+                sb.append(", ");
+            }
+            sb.append(c);
+            switch (c) {
+                case MP_ABOVE -> sb.append(' ').append((int) e.mpAbove());
+                case TARGET_HP_BELOW -> sb.append(' ').append((int) e.hpBelow());
+                case TARGET_HP_ABOVE -> sb.append(' ').append((int) e.hpAbove());
+                case SELF_HP_BELOW -> sb.append(' ').append((int) e.selfHpBelow());
+                case MOBS_NEAR, MOBS_UNSPOILED -> sb.append(' ').append(Math.max(2, e.mobsAtLeast()));
+                case CHARGES -> sb.append(' ').append(Math.max(1, e.chargesAtLeast()));
+                case CHARGES_BELOW -> sb.append(' ').append(e.chargesBelow());
+                default -> {
+                }
+            }
+        }
+        return sb.toString();
     }
 
     private static SkillView known(SelfView me, int id) {

@@ -85,6 +85,9 @@ public final class Director {
     public record PlaceState(String id, boolean town, int players, int target, int present, int pending) {
     }
 
+    /** A bot leaving a dungeon farther than this from every player and out of their line of sight is gone from view. */
+    static final int INDOOR_OUT_OF_SIGHT = 600;
+
     private static final class Track {
         long seenSince;
         long unseenSince;
@@ -121,6 +124,11 @@ public final class Director {
     private long noPersona;
     private long transits;
     private long passers;
+    // right now (last tick)
+    private volatile int roadNow;
+    private volatile int transitNow;
+    private volatile int leavingNow;
+    private volatile int indoorNow;
 
     public Director(WorldCatalog catalog, DirectorConfig cfg, Random rnd) {
         this.catalog = catalog;
@@ -172,6 +180,30 @@ public final class Director {
         // 2. who sees whom: unseen bots leave, leaving bots vanish once unseen, lingering bots get a leave order
         final Map<String, List<BotNow>> byPlace = new HashMap<>();
         final List<BotNow> lingering = new ArrayList<>();
+        int road = 0;
+        int transit = 0;
+        int leavingCount = 0;
+        int indoors = 0;
+        for (BotNow b : bots) {
+            final Assignment k = b.assignment();
+            if (k != null) {
+                switch (k.kind()) {
+                    case PASS -> road++;
+                    case TRANSIT -> transit++;
+                    case LEAVE_RUN, LEAVE_GK -> leavingCount++;
+                    default -> {
+                        final WorldCatalog.Ground g = catalog.ground(k.place());
+                        if ((g != null) && g.indoor()) {
+                            indoors++;
+                        }
+                    }
+                }
+            }
+        }
+        roadNow = road;
+        transitNow = transit;
+        leavingNow = leavingCount;
+        indoorNow = indoors;
         for (BotNow b : bots) {
             final Track t = tracks.computeIfAbsent(b.botId(), k -> {
                 final Track n = new Track();
@@ -179,7 +211,11 @@ public final class Director {
                 return n;
             });
             final double d = nearest(live, b.pos());
-            if (d > c.unseenRadius()) {
+            final Assignment a0 = b.assignment();
+            final WorldCatalog.Ground g0 = (a0 == null) || !a0.passing() ? null : catalog.ground(a0.place());
+            // leaving a dungeon: round a corner or onto another floor is out of sight, not only past the radius
+            final boolean hiddenIndoors = (g0 != null) && g0.indoor() && (d > INDOOR_OUT_OF_SIGHT) && !inSight(c, live, b.pos(), terrain);
+            if ((d > c.unseenRadius()) || hiddenIndoors) {
                 if (t.unseenSince == 0) {
                     t.unseenSince = now;
                 }
@@ -779,6 +815,12 @@ public final class Director {
 
     public synchronized int pendingCount() {
         return pending.size();
+    }
+
+    /** Separate lines for //bots director: road, transit, dungeons, leaving - now and since the start. */
+    public List<String> kindLines() {
+        return List.of("Road (passers-by): " + roadNow + " now, " + passers + " since start", "Transit (gatekeeper): " + transitNow + " now, " + transits + " since start",
+            "Dungeons: " + indoorNow + " bots on indoor grounds now", "Leaving: " + leavingNow + " now, " + leaves + " leave orders since start");
     }
 
     public synchronized String statsLine() {
