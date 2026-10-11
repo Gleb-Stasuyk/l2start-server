@@ -158,6 +158,13 @@ public final class BasicBrain implements Brain {
             }
             return 2000; // bots-core brings it back to town after 5-40 s
         }
+        if (!me.teleporting()) {
+            drink(ctx, w, me, now);
+            final long fl = mobFlee(ctx, w, me, now);
+            if (fl > 0) {
+                return fl;
+            }
+        }
         if (order != null) {
             if (phase == Phase.DEAD) {
                 enter(ctx, Phase.TOWN_IDLE, "revived"); // in town now: the director sends it away
@@ -315,7 +322,7 @@ public final class BasicBrain implements Brain {
             pvpRefused = 0;
             final Boolean before = pvpDecision.get(p.objectId());
             final double chance = fightBackChance(fightBackBase, me.level(), p.level(), ctx.info().aggression(), ctx.info().patience(), me.hpPct());
-            pvpFight = (me.hpPct() >= PVP_FLEE_HP) && (before != null ? before : ctx.rnd().nextDouble() < chance);
+            pvpFight = (me.hpPct() >= fleeHp) && (before != null ? before : ctx.rnd().nextDouble() < chance);
             pvpDecision.put(p.objectId(), pvpFight);
             endFight();
             standIfSitting(ctx, me);
@@ -340,7 +347,7 @@ public final class BasicBrain implements Brain {
             }
             return 600;
         }
-        if ((p != null) && (me.hpPct() < PVP_FLEE_HP)) {
+        if ((p != null) && (me.hpPct() < fleeHp)) {
             ctx.note("hurt badly in the fight with " + p.name() + ": runs");
             pvpFight = false;
             pvpDecision.put(p.objectId(), false);
@@ -477,6 +484,12 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             enter(ctx, Phase.LEVEL, "rested");
             return ctx.reactionDelay();
+        }
+        final NpcView aggro = aggroNear(w, me, AGGRO_NEAR);
+        if (aggro != null) {
+            standIfSitting(ctx, me);
+            final long away = awayFromAggro(ctx, w, me, now);
+            return away > 0 ? away : 1500;
         }
         if (!me.sitting()) {
             if (me.moving() || me.attacking() || me.casting()) {
@@ -950,6 +963,10 @@ public final class BasicBrain implements Brain {
             }
         }
         if (needsRest(me)) {
+            final long away = awayFromAggro(ctx, w, me, now);
+            if (away > 0) {
+                return away;
+            }
             restTo = 80 + (ctx.info().patience() * 15);
             enter(ctx, Phase.REST, String.format(java.util.Locale.ROOT, "hp %.0f%%, mp %.0f%%", me.hpPct(), me.mpPct()));
             return rest(ctx, w, me, now, null);
@@ -1012,9 +1029,13 @@ public final class BasicBrain implements Brain {
         fightSince = now;
         fightHp = mob.hpPct();
         fightHpAt = now;
+        kiteOff = false;
+        kiteFails = 0;
+        kiteUntil = 0;
+        kiteNext = 0;
         ctx.note("fight " + mob.name() + " lv " + mob.level() + (mob.targetId() == me.objectId() ? " (it attacked)" : ""));
         detail = "fight " + fightName;
-        hit(ctx, me, mob);
+        hit(ctx, ctx.world(), me, mob);
         return 400;
     }
 
@@ -1048,8 +1069,13 @@ public final class BasicBrain implements Brain {
             abandon(now, 60_000);
             return 0;
         }
+        if (shouldFlee(w, me, mob, now)) {
+            ctx.note(String.format(java.util.Locale.ROOT, "hurt badly by %s (hp %.0f%%, no potion at hand): runs", fightName, me.hpPct()));
+            abandon(now, BLACKLIST_MS);
+            return startMobFlee(ctx, me, mob, now);
+        }
         detail = "fight " + fightName;
-        hit(ctx, me, mob);
+        hit(ctx, w, me, mob);
         return 400 + ctx.rnd().nextInt(300);
     }
 
@@ -1068,7 +1094,10 @@ public final class BasicBrain implements Brain {
     }
 
     /** One combat decision: mystics cast their nuke while MP lasts (>= 20 %), everyone else hits. */
-    private void hit(BrainContext ctx, SelfView me, NpcView mob) {
+    private void hit(BrainContext ctx, WorldView w, SelfView me, NpcView mob) {
+        if (kite(ctx, w, me, mob, ctx.now())) {
+            return;
+        }
         if (me.mage() && (me.mpPct() >= 20)) {
             final SkillView nuke = nuke(me, mob.npcId(), badSkills, ctx.now());
             if (nuke != null) {
@@ -1117,6 +1146,234 @@ public final class BasicBrain implements Brain {
         for (SkillView s : me.skills()) {
             if ((s.kind() == SkillView.Kind.NUKE) && (bad.getOrDefault(badKey(s.id(), npcId), 0L) <= now)) {
                 return s;
+            }
+        }
+        return null;
+    }
+
+    // ------------------------------------------------------------------ survival (4a): potions, leaving a lost fight, kiting
+
+    /** Config of bots-brain-basic (Potions, PotionHpPercent, FleeHpPercent, KiteDistance). */
+    static volatile boolean potions = true;
+    static volatile double potionLo = 40;
+    static volatile double potionHi = 60;
+    static volatile double fleeHp = 25;
+    /** A melee monster closer than its attack range + this is hitting (or about to): step back. 0 = no kiting. */
+    static volatile int kiteClose = 120;
+    /** ... to this far from it (at most the cast range / bow range minus 50). */
+    static volatile int kiteTo = 400;
+    /** Aggressive monsters this close: no sitting down. */
+    static final int AGGRO_NEAR = 450;
+    /** HP potions, best first (Greater Healing, Healing, Lesser Healing). */
+    static final int[] HP_POTIONS = { 1539, 1061, 1060 };
+    static final long POTION_REUSE = 10_000;
+
+    private long nextPotion;
+    private long kiteUntil;
+    private long kiteNext;
+    private int kiteFails;
+    private boolean kiteOff;
+    private int kites;
+    private Pos mobFleeTo;
+    private int mobFleeFrom;
+    private long mobFleeSince;
+    private long mobFleeMs;
+
+    /** How many times this bot stepped back from a monster (tests, //bots info). */
+    public int kites() {
+        return kites;
+    }
+
+    /** Below this HP share the bot drinks (its own, between PotionHpPercent min and max by persona). */
+    static double potionAt(long seed, double lo, double hi) {
+        final double f = ((seed * 0x9E3779B97F4A7C15L) >>> 11) / (double) (1L << 53);
+        return lo + ((hi - lo) * f);
+    }
+
+    /** In a fight (a monster or a player on it) and HP below its threshold: an HP potion, its reuse respected. */
+    private void drink(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!potions || me.sitting() || (now < nextPotion) || (me.hpPct() >= potionAt(ctx.info().seed(), potionLo, potionHi))) {
+            return;
+        }
+        if ((fightId == 0) && (pvpId == 0) && (attacker(w, me) == null)) {
+            return;
+        }
+        for (int id : HP_POTIONS) {
+            if (w.itemCount(id) > 0) {
+                final ActionResult r = ctx.act().useItem(id);
+                nextPotion = now + (r.ok() ? POTION_REUSE : 2000);
+                if (r.ok()) {
+                    ctx.note(String.format(java.util.Locale.ROOT, "potion %d (hp %.0f%%)", id, me.hpPct()));
+                }
+                return;
+            }
+        }
+        nextPotion = now + 5000; // none left
+    }
+
+    private boolean potionSoon(WorldView w, long now) {
+        if (!potions || (nextPotion - now) > 2000) {
+            return false;
+        }
+        for (int id : HP_POTIONS) {
+            if (w.itemCount(id) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Low HP, no potion at hand, and the fight is not almost won: leave it. */
+    private boolean shouldFlee(WorldView w, SelfView me, NpcView mob, long now) {
+        if ((me.hpPct() >= fleeHp) || potionSoon(w, now)) {
+            return false;
+        }
+        int onMe = 0;
+        for (NpcView n : w.npcs()) {
+            if (!n.dead() && n.monster() && (n.targetId() == me.objectId())) {
+                onMe++;
+            }
+        }
+        return (onMe >= 2) || (mob.hpPct() > 20) || (me.hpPct() < (fleeHp * 0.5));
+    }
+
+    private long startMobFlee(BrainContext ctx, SelfView me, NpcView mob, long now) {
+        final Pos away = me.pos().toward(mob.pos(), -1200);
+        mobFleeTo = new Pos(away.x(), away.y(), me.pos().z());
+        mobFleeFrom = mob.objectId();
+        mobFleeSince = now;
+        mobFleeMs = 3000 + ctx.rnd().nextInt(3000);
+        standIfSitting(ctx, me);
+        ctx.act().moveTo(mobFleeTo);
+        detail = "runs from " + mob.name();
+        return 600;
+    }
+
+    /** Running from a monster: a few seconds away; still chased -> scroll of escape, else rest (away from aggressive ones). */
+    private long mobFlee(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (mobFleeTo == null) {
+            return 0;
+        }
+        if (me.dead()) {
+            mobFleeTo = null;
+            return 0;
+        }
+        final NpcView chaser = attacker(w, me);
+        if (((now - mobFleeSince) < mobFleeMs) && (mobFleeTo.distance2d(me.pos()) > 150)) {
+            if (!me.moving()) {
+                ctx.act().moveTo(mobFleeTo);
+            }
+            return 600;
+        }
+        mobFleeTo = null;
+        if ((chaser != null) && (chaser.distance() < 600)) {
+            ctx.note("still chased by " + chaser.name() + ": scroll of escape");
+            endFight();
+            ctx.act().returnToTown();
+            return 3000;
+        }
+        ctx.note("got away");
+        return 0;
+    }
+
+    /** A living aggressive monster near that is not fighting anybody yet. */
+    private static NpcView aggroNear(WorldView w, SelfView me, int radius) {
+        for (NpcView n : w.npcs()) {
+            if (!n.dead() && n.monster() && n.aggressive() && n.attackable() && (n.distance() <= radius) && (n.targetId() == 0)) {
+                return n;
+            }
+        }
+        return null;
+    }
+
+    /** Wants to rest but aggressive monsters are near: walk off a bit first (once in a while), never sit among them. */
+    private long awayFromAggro(BrainContext ctx, WorldView w, SelfView me, long now) {
+        final NpcView aggro = aggroNear(w, me, AGGRO_NEAR);
+        if (aggro == null) {
+            return 0;
+        }
+        detail = "rest away from " + aggro.name();
+        if (!me.moving()) {
+            final Pos p = kitePoint(me.pos(), aggro.pos(), AGGRO_NEAR + 300, w.geo());
+            if ((p == null) || !ctx.act().moveTo(p).ok()) {
+                return 0; // nowhere to go: rest here after all
+            }
+        }
+        return 1500;
+    }
+
+    /**
+     * Archers and mages against a melee monster: when it comes into its reach (it swings or is about to), step back to the
+     * working distance, then shoot or cast again while it walks up (LW CasterPositioning, VP mage: no melee). A monster
+     * that keeps up (faster than the bot) twice in a row: no more kiting in this fight.
+     * @return true while stepping back (no attack this tick)
+     */
+    private boolean kite(BrainContext ctx, WorldView w, SelfView me, NpcView mob, long now) {
+        if ((kiteClose <= 0) || kiteOff || !mob.melee()) {
+            return false;
+        }
+        final int range;
+        if (me.bow()) {
+            range = me.attackRange();
+        } else if (me.mage() && (me.mpPct() >= 20)) {
+            final SkillView nuke = nuke(me, mob.npcId(), badSkills, now);
+            if (nuke == null) {
+                return false;
+            }
+            range = nuke.castRange() > 0 ? nuke.castRange() : 600;
+        } else {
+            return false;
+        }
+        final double close = mob.attackRange() + kiteClose;
+        if (kiteUntil > 0) {
+            if (me.moving() && (now < kiteUntil)) {
+                return true;
+            }
+            kiteUntil = 0;
+            if (mob.distance() <= close) {
+                if (++kiteFails >= 2) {
+                    kiteOff = true;
+                    ctx.note("kiting " + fightName + " does not work (it keeps up)");
+                }
+            } else {
+                kiteFails = 0;
+            }
+            return false; // now shoot / cast
+        }
+        if ((mob.distance() > close) || (now < kiteNext) || me.casting() || me.attacking()) {
+            return false;
+        }
+        final int to = Math.max(150, Math.min(kiteTo, range - 50));
+        final Pos p = kitePoint(me.pos(), mob.pos(), to, w.geo());
+        if ((p == null) || !ctx.act().moveTo(p).ok()) {
+            kiteNext = now + 3000;
+            if (++kiteFails >= 2) {
+                kiteOff = true;
+            }
+            return false;
+        }
+        kites++;
+        kiteUntil = now + 4000;
+        kiteNext = now + 2000 + ctx.reactionDelay();
+        detail = "kite " + fightName;
+        return true;
+    }
+
+    /**
+     * A point {@code dist} away from the monster on the bot's side (straight back, then 30 and 60 degrees aside, then
+     * shorter), walkable from the bot and with the monster in sight (LW PhantomCasterPositioning.destination).
+     * @return null when there is no such point
+     */
+    static Pos kitePoint(Pos me, Pos mob, int dist, org.l2start.bots.api.Geo geo) {
+        final double now = Math.max(1, me.distance2d(mob));
+        final double angle = Math.atan2(me.y() - mob.y(), me.x() - mob.x());
+        for (int offset : new int[] { 0, 30, -30, 60, -60 }) {
+            final double a = angle + Math.toRadians(offset);
+            for (int r = dist; r >= Math.max(now + 80, 150); r -= 80) {
+                final Pos c = new Pos(mob.x() + (int) (Math.cos(a) * r), mob.y() + (int) (Math.sin(a) * r), me.z());
+                if ((c.distance2d(me) > 40) && geo.canMoveTo(me, c) && geo.canSee(c, mob)) {
+                    return c;
+                }
             }
         }
         return null;
