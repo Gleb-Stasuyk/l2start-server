@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Bot store places (phase 5b). Giran: the 21 places of the former FakePlayer traders (GiranFakeTraders.xml of the
+     Mobius CT0 dist, with their store kind and theme as a hint, and the former trader as "legacy": name, race, sex, class).
+     A town gets bot stores only when StoresPerTown gives it a number above 0; places must stay out of the stock
+     NoStoreZone zones (zones/custom_no_store.xml), tested by StoreSpotsTest. -->
+<spots>
+	<town name="Giran">
+		<spot id="giran-01" x="82320" y="148350" z="-3464" heading="0" kind="SELL" profile="weapons" legacy="Xevoq" race="HUMAN" sex="MALE" classId="2" /> <!-- S Grade Duals!! -->
+		<spot id="giran-02" x="82410" y="148350" z="-3464" heading="8192" kind="BUY" profile="buy-dyes" legacy="Nyxira" race="DARK_ELF" sex="FEMALE" classId="34" /> <!-- BUY Dye / LifeStone -->
+		<spot id="giran-03" x="82500" y="148350" z="-3464" heading="16384" kind="SELL" profile="weapons" legacy="Krowlix" race="HUMAN" sex="MALE" classId="9" /> <!-- BOWs + Arrows -->
+		<spot id="giran-04" x="82590" y="148350" z="-3464" heading="24576" kind="BUY" profile="buy-books" legacy="Vexmora" race="HUMAN" sex="FEMALE" classId="12" /> <!-- BUY Spellbooks -->
+		<spot id="giran-05" x="82680" y="148350" z="-3464" heading="32768" kind="SELL" profile="weapons" legacy="Drukthar" race="ORC" sex="MALE" classId="46" /> <!-- 2H Weapons SALE -->
+		<spot id="giran-06" x="82320" y="148440" z="-3464" heading="40960" kind="BUY" profile="buy-scrolls" legacy="Sylphara" race="ELF" sex="FEMALE" classId="27" /> <!-- BUY Enchant Scrolls -->
+		<spot id="giran-07" x="82410" y="148440" z="-3464" heading="49152" kind="SELL" profile="jewels" legacy="Qorvex" race="HUMAN" sex="MALE" classId="8" /> <!-- Daggers + Jewels -->
+		<spot id="giran-08" x="82500" y="148440" z="-3464" heading="57344" kind="BUY" profile="buy-potions" legacy="Zenthia" race="HUMAN" sex="FEMALE" classId="16" /> <!-- BUY Greater Heal Pot -->
+		<spot id="giran-09" x="82590" y="148440" z="-3464" heading="0" kind="SELL" profile="armor" legacy="Grimlock" race="HUMAN" sex="MALE" classId="6" /> <!-- Heavy Sets B/A -->
+		<spot id="giran-10" x="82680" y="148440" z="-3464" heading="8192" kind="BUY" profile="buy-materials" legacy="Aeonix" race="HUMAN" sex="MALE" classId="14" /> <!-- BUY Spirit Ore -->
+		<spot id="giran-11" x="82320" y="148530" z="-3464" heading="16384" kind="SELL" profile="weapons" legacy="Brakka" race="ORC" sex="MALE" classId="48" /> <!-- Fists + Belts -->
+		<spot id="giran-12" x="82410" y="148530" z="-3464" heading="24576" kind="BUY" profile="buy-scrolls" legacy="Liraelle" race="ELF" sex="FEMALE" classId="30" /> <!-- BUY Blessed Scrolls -->
+		<spot id="giran-13" x="82500" y="148530" z="-3464" heading="32768" kind="SELL" profile="armor" legacy="Morthex" race="HUMAN" sex="MALE" classId="13" /> <!-- Necro Gear + Bone -->
+		<spot id="giran-14" x="82590" y="148530" z="-3464" heading="40960" kind="BUY" profile="buy-parts" legacy="Shaelryn" race="DARK_ELF" sex="FEMALE" classId="37" /> <!-- BUY A Grade Parts -->
+		<spot id="giran-15" x="82680" y="148530" z="-3464" heading="49152" kind="SELL" profile="weapons" legacy="Torvak" race="HUMAN" sex="MALE" classId="3" /> <!-- Spears + C Grade -->
+		<spot id="giran-16" x="82320" y="148620" z="-3464" heading="57344" kind="BUY" profile="buy-crystals" legacy="Ysmina" race="DARK_ELF" sex="FEMALE" classId="43" /> <!-- BUY Crystal C/B/A -->
+		<spot id="giran-17" x="82410" y="148620" z="-3464" heading="0" kind="SELL" profile="materials" legacy="Pulgrix" race="DWARF" sex="MALE" classId="55" /> <!-- Mats / Recipes -->
+		<spot id="giran-18" x="82500" y="148620" z="-3464" heading="8192" kind="BUY" profile="buy-misc" legacy="Celvryn" race="ELF" sex="MALE" classId="28" /> <!-- BUY Pet Food -->
+		<spot id="giran-19" x="82590" y="148620" z="-3464" heading="16384" kind="SELL" profile="misc" legacy="Orthax" race="ORC" sex="MALE" classId="51" /> <!-- Totems + Clan Items -->
+		<spot id="giran-20" x="82680" y="148620" z="-3464" heading="24576" kind="BUY" profile="buy-scrolls" legacy="Mirenya" race="HUMAN" sex="FEMALE" classId="17" /> <!-- BUY Buff Scrolls -->
+		<spot id="giran-21" x="82230" y="148485" z="-3464" heading="32768" kind="SELL" profile="shots" legacy="4UDO" race="DWARF" sex="MALE" classId="57" /> <!-- SS C B A S grade (the 4UDO NPC stood at 82770,148485, inside the temple NoStoreZone: moved west of the rows) -->
+	</town>
+</spots>
