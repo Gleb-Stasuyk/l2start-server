@@ -106,7 +106,7 @@ public final class DirectorRunner {
         final List<Director.BotNow> bots = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
-            if ((p != null) && !busy.contains(r.botId())) {
+            if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER)) { // store traders belong to economy-market
                 bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
             }
         }
@@ -374,7 +374,7 @@ public final class DirectorRunner {
     void cleanupAll() {
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
-            if (p == null) {
+            if ((p == null) || (r.status() == BotRecord.Status.TRADER)) {
                 continue;
             }
             try {
