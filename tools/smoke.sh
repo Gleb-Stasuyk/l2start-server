@@ -283,7 +283,8 @@ check "director: 2 players in 2 clusters, bots brought in" wait_log 'DIRECTOR pl
 check "director bots hunt (attacks)" wait_log 'BOTS world=[1-9][0-9]* .* attacks=[1-9]' 300
 gamelog > "$OUT/8-director.log"
 grep -E 'DIRECTOR players=|BOTS world=' "$OUT/8-director.log" | tail -4 | tee -a "$SUMMARY" >/dev/null
-check "director: no bots-core errors" bash -c "! grep -qE 'Module\[bots-(core|brain-basic)\]: .*(ERROR|cannot)|Platform: module bots-(core|brain-basic) |brain of ' \"\$0\"" "$OUT/8-director.log"
+# "slow call" = a timing warning of the platform (a materialize on a slow CI runner), not an error
+check "director: no bots-core errors" bash -c "! grep -E 'Module\[bots-(core|brain-basic)\]: .*(ERROR|cannot)|Platform: module bots-(core|brain-basic) |brain of ' \"\$0\" | grep -qv 'slow call'" "$OUT/8-director.log"
 docker stop -t 120 l2s-game >/dev/null
 docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
 check "director: bots logged out on shutdown, nobody marked to come back" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_state WHERE in_world<>0")" = 0
