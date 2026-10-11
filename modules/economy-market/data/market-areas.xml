@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Market areas of towns (decision of 12.10.2026): store places are generated once inside the box (minX..maxX,
+     minY..maxY) around the market centre cx, cy at the square's height z (+- dz), at least `spacing` apart, `npcGap`
+     from any NPC and `doorGap` from gatekeepers and warehouses (their doors stay free), and kept in the database
+     (mod_economy_market_spot): after a restart the same places. The first places get the looks of the former Giran
+     traders (data/store-spots.xml). <service> = a fixed service trader (sells at NPC price, large stock, refills). -->
+<areas>
+	<town name="Giran" cx="82800" cy="148500" z="-3464" minX="81300" maxX="84300" minY="147300" maxY="149700" dz="64" spacing="75" npcGap="160" doorGap="320" reach="600">
+		<service id="giran-4udo" x="82703" y="147932" z="-3464" heading="49152" legacy="4UDO" race="DWARF" sex="MALE" classId="57" items="1463,1464,1465,3948,3949,3950" />
+	</town>
+</areas>
