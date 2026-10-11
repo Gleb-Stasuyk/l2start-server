@@ -108,7 +108,7 @@ final class MobiusWorldView implements WorldView {
         }
         final Pos at = pos(n);
         return new NpcView(n.getObjectId(), n.getId(), n.getName(), n.getLevel(), at, at.distance(self.pos()), n.getMaxHp() <= 0 ? 0 : (n.getCurrentHp() * 100) / n.getMaxHp(), n.isDead(),
-            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow());
+            n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow(), aggroRange(n));
     }
 
     @Override
@@ -173,5 +173,14 @@ final class MobiusWorldView implements WorldView {
     @Override
     public NpcView npc(int objectId) {
         return World.findObject(objectId) instanceof Npc n ? view(n) : null;
+    }
+
+    /** Aggro range of an aggressive monster (NPC data; the usual 300 when the data has none), else 0. */
+    static int aggroRange(Npc n) {
+        if (!n.isAggressive()) {
+            return 0;
+        }
+        final int r = n.getTemplate().getAggroRange();
+        return r > 0 ? r : NpcView.AGGRO;
     }
 }

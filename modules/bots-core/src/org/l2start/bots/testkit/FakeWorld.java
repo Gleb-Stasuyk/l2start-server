@@ -55,6 +55,8 @@ public final class FakeWorld {
         public int engagedBy;
         /** Physical attack range: melee 40 (stops at {@link #MELEE_RANGE}), an archer monster 500. */
         public int attackRange = 40;
+        /** An aggressive monster attacks the bot when it comes this close. */
+        public int aggroRange = NpcView.AGGRO;
         long respawnAt = -1;
         long nextHitAt;
         long swingUntil;
@@ -174,6 +176,7 @@ public final class FakeWorld {
     public void teleport(Pos p) {
         pos = p;
         moveDest = null;
+        peaceZone = pos.distance2d(town) <= townRadius;
     }
 
     public void setLevel(int l) {
@@ -259,7 +262,7 @@ public final class FakeWorld {
             if (m.dead()) {
                 continue;
             }
-            if (m.aggressive && (m.targetId == 0) && (m.engagedBy == 0) && (m.pos.distance2d(pos) < 300)) {
+            if (m.aggressive && (m.targetId == 0) && (m.engagedBy == 0) && (m.pos.distance2d(pos) < m.aggroRange)) {
                 m.targetId = SELF_ID;
             }
             if (m.targetId == SELF_ID) {
@@ -453,7 +456,7 @@ public final class FakeWorld {
 
     private NpcView npcView(Mob m) {
         return new NpcView(m.objectId, m.npcId, "Mob" + m.npcId, m.level, m.pos, m.pos.distance(pos), m.dead() ? 0 : (m.hp * 100) / m.maxHp, m.dead(), true, m.aggressive, true,
-            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID)), m.attackRange, now < m.swingUntil);
+            m.targetId, (m.engagedBy != 0) || ((m.targetId != 0) && (m.targetId != SELF_ID)), m.attackRange, now < m.swingUntil, m.aggressive ? m.aggroRange : 0);
     }
 
     /** Give the mage an undead-only nuke with a lower id than the real one (it is listed first). */
