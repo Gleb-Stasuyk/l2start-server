@@ -796,6 +796,7 @@ public class TradeList
 			}
 			
 			removeItem(item.getObjectId(), -1, item.getCount());
+			org.l2start.platform.hooks.CoreHooks.storeDeal(_owner, player, newItem.getId(), item.getCount(), item.getPrice(), false); // [HOOK:P5-STORE-DEAL]
 			
 			// Add changes to inventory update packets.
 			if ((oldItem.getCount() > 0) && (oldItem != newItem))
@@ -964,6 +965,7 @@ public class TradeList
 			
 			removeItem(-1, item.getItemId(), item.getCount());
 			ok = true;
+			org.l2start.platform.hooks.CoreHooks.storeDeal(player, _owner, item.getItemId(), item.getCount(), item.getPrice(), true); // [HOOK:P5-STORE-DEAL]
 			
 			// Increase total price only after successful transaction.
 			totalPrice = _totalPrice;

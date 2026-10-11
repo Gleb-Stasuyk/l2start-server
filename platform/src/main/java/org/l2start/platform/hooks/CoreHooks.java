@@ -90,4 +90,21 @@ public final class CoreHooks {
             return false;
         }
     }
+
+    /**
+     * [HOOK:P5-STORE-DEAL] One line of a successful private store deal (TradeList.privateStoreBuy / privateStoreSell):
+     * the item has moved. Tells the listening modules; never changes the deal.
+     * @param buyStore true for a "buy" store (the owner bought), false for a sell / package store
+     */
+    public static void storeDeal(org.l2jmobius.gameserver.entity.actor.Player seller, org.l2jmobius.gameserver.entity.actor.Player buyer, int itemId, long count, long price,
+        boolean buyStore) {
+        try {
+            if ((StoreHooks.size() == 0) || (seller == null) || (buyer == null)) {
+                return;
+            }
+            StoreHooks.deal(new org.l2start.platform.api.StoreDeal(seller.getObjectId(), buyer.getObjectId(), itemId, count, price, buyStore));
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: store deal listener failed", t);
+        }
+    }
 }

@@ -37,4 +37,12 @@ public interface ModuleContext {
      * the world itself (e.g. bots logged in by the module).
      */
     void cleanup(String name, Runnable action);
+
+    /**
+     * Since API 1.3. Told about every line of a successful deal in a stock private store (hook P5-STORE-DEAL),
+     * bots included. Guarded like every listener; removed when the module is disabled.
+     */
+    default void onStoreDeal(StoreDealListener listener) {
+        throw new UnsupportedOperationException("onStoreDeal needs platform API 1.3");
+    }
 }
