@@ -32,6 +32,8 @@ services:
       L2_MOD_BOTS_CORE__DIRECTORPOOLWARMUP: "${SMOKE_BOTS_WARMUP:-0}"
       # economy-market (scenario 8): one sale to and one from bot stores through the stock store code
       L2_MOD_ECONOMY_MARKET__SELFTEST: "${SMOKE_MARKET_SELFTEST:-false}"
+      # rates-floating: 3000 simulated kills at level 20/40/60, stock against floating averages (every scenario, cheap)
+      L2_MOD_RATES_FLOATING__SELFTEST: "${SMOKE_RATES_SELFTEST:-true}"
       # static bot traders only in scenario 8 (60 of them would change the bot counts of scenarios 6-7)
       L2_MOD_ECONOMY_MARKET__STORESPERTOWN: "${SMOKE_MARKET_STORES:-Giran:0}"
       L2_MODULE_FX_CORE: "${SMOKE_FIXTURES:-on}"

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  rates-floating (docs/RATES_PLAN.md §0): item exceptions on top of the rules by item type.
+  By type (no need to list): weapons, armour and jewellery, recipes, enchant scrolls (normal and blessed) and pet collars
+  are EXACT (always 1, only the chance floats); herbs stay stock; other stackable items float (amount x1..x3).
+  exact     ids or name parts that are always exactly 1 piece (only the chance floats)
+  keep      ids that stay completely stock (not rolled again, amount as is)
+  questX1   quest reward items kept x1 although RateQuestReward = 2 (valuable chain rewards); EXACT items are x1 too
+-->
+<rates>
+	<exact name="Life Stone" />           <!-- 8723-8762, all four sorts -->
+	<exact name="Soul Crystal" />         <!-- red / green / blue, all stages -->
+	<questX1 ids="1458,1459,1460,1461,1462" /> <!-- Crystal: D..S Grade -->
+	<questX1 ids="2130,2131,2132,2133,2134" /> <!-- Gemstone D..S -->
+	<questX1 ids="7562" />                <!-- Dimensional Diamond (3rd class chains) -->
+	<questX1 ids="5575" />                <!-- Ancient Adena -->
+</rates>
