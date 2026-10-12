@@ -122,6 +122,32 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onDrops(org.l2start.platform.api.DropListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.DropListener guarded = (spoil, victim, killer, roll) -> {
+            final Object[] out = { null };
+            guard.run("drops", () -> out[0] = listener.onDrops(spoil, victim, killer, roll));
+            @SuppressWarnings("unchecked")
+            final java.util.List<org.l2jmobius.gameserver.entity.item.holders.ItemHolder> list = (java.util.List<org.l2jmobius.gameserver.entity.item.holders.ItemHolder>) out[0];
+            return list;
+        };
+        org.l2start.platform.hooks.DropHooks.addDrop(entry.id(), guarded);
+        ownership.add("drops", entry.id(), () -> org.l2start.platform.hooks.DropHooks.removeDrop(entry.id(), guarded));
+    }
+
+    @Override
+    public void onQuestReward(org.l2start.platform.api.QuestRewardListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.QuestRewardListener guarded = (p, id, base, rated) -> {
+            final long[] out = { rated };
+            guard.run("quest reward", () -> out[0] = listener.onQuestReward(p, id, base, rated));
+            return out[0];
+        };
+        org.l2start.platform.hooks.DropHooks.addQuest(entry.id(), guarded);
+        ownership.add("questReward", entry.id(), () -> org.l2start.platform.hooks.DropHooks.removeQuest(entry.id(), guarded));
+    }
+
+    @Override
     public void onBotTradeRequest(org.l2start.platform.api.BotTradeListener listener) {
         java.util.Objects.requireNonNull(listener, "listener");
         final org.l2start.platform.api.BotTradeListener guarded = (r, b) -> {

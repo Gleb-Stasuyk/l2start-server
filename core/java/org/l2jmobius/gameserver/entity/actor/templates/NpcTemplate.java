@@ -672,6 +672,13 @@ public class NpcTemplate extends CreatureTemplate
 	
 	public List<ItemHolder> calculateDrops(DropType dropType, Creature victim, Creature killer)
 	{
+		// >>> [HOOK:P7-DROP-FLOAT] rates-floating: chance by extra stock rolls, amounts; null = stock
+		final List<ItemHolder> floated = org.l2start.platform.hooks.CoreHooks.drops(dropType == DropType.SPOIL, victim, killer, () -> calculateDrops(dropType, victim, killer));
+		if (floated != null)
+		{
+			return floated.isEmpty() ? null : floated;
+		}
+		// <<< [HOOK:P7-DROP-FLOAT]
 		if (dropType == DropType.DROP)
 		{
 			// calculate group drops
