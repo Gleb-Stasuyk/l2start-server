@@ -4,6 +4,8 @@
 
 > **Ответы Глеба на вопросы — 12.10.2026 (≈ 17:05 МСК), учтены ниже (раздел 6).** Друзья-боты, хук `P6-BOT-FRIEND`, ответ на /socials (`P6-SOCIAL`), подарки вещей и любая инициатива ботов в личку игроку убраны (бэклог, раздел 7). Пати ищут в городах через шаут/трейд-чат.
 
+> **Ход работ (ветка `phase6`, PR #6, draft):** 6a, 6b, 6c сделаны 12.10.2026 → **КТ12** (проверка Глебом в клиенте). 6d–6g — после КТ12. Отступления от плана: движок чата — пакет `org.l2start.bots.chat` внутри `bots-core`, а не отдельный модуль `bots-chat` (отдельный модуль появится с LLM, этап 10); события `ReviveOffer` и `PartyChanged` не понадобились (рес принимает `bots-core`, состав пати мозг сверяет каждый тик); бот, которого ты бросил телепортом, ждёт на месте (не «догоняет» через режиссёра) — догон отложен в 6g.
+
 *11.10.2026, черновик для Глеба. Основа: `ARCHITECTURE.md` §8.7 (чат), §8.8 (реализм), §8.9 (взаимодействие с живыми), §8.10 (`bot_memory`), §14 (фаза 6 «Социалка и чат-шаблоны», размер L). Учтены `PHASE4_PLAN.md` (4g «пары ботов»), утверждённый `PHASE5_PLAN.md` (вопрос 4: окно трейда перенесено сюда), код `phase4` (`bots-core`: `BotEvent.Whisper`, черты `sociability`/`chattiness`, `Chronotype`; хук `P3-BOT-WHISPER`), сток Mobius CT0 (`RequestJoinParty`, `RequestAnswerJoinParty`, `TradeRequest`, `RequestFriendInvite`, `RequestSocialAction`, `Party`), твой `virtualplayer` (`E:\L2J_Mobius_CT_0_Interlude\java\org\l2jmobius\gameserver\virtualplayer`) и Living Worlds (`managers/PhantomParty*`, `FakePlayerChat*`, `TownFakeInviteRules`, `PhantomManager.befriendPhantom`).*
 
 ## 0. Коротко
