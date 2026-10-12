@@ -317,6 +317,11 @@ say "   places: $(sql "SELECT kind='CRAFT', COUNT(*), MIN(x), MAX(x), MIN(y), MA
 # 5f: bot ads in the trade chat (SelfTest: also without a real player)
 check "trade chat: bot traders write WTS/WTB ads" wait_log 'Module\[economy-market\]: trade chat ad: ' 150
 gamelog | grep -E 'trade chat ad: ' | head -4 | cut -c1-200 | tee -a "$SUMMARY"
+# 5f: whispered deals in the stock trade window (hook P6-BOT-TRADE)
+check "trade window: hook P6-BOT-TRADE in the core trade request" grep -q 'HOOK:P6-BOT-TRADE' core/java/org/l2jmobius/gameserver/network/clientpackets/TradeRequest.java
+check "trade window: Giran meeting places found (gatekeeper / warehouse / priest of dawn)" wait_log 'Module\[economy-market\]: SELFTEST trade meet points Giran: gatekeepers [1-9][0-9]*, warehouse keepers [1-9]' 120
+check "trade window: SELFTEST bot-to-bot exchange (wrong amount refused, exact deal done, no dupes)" wait_log 'Module\[economy-market\]: SELFTEST trade window: OK' 30
+check "trade window: no store hold left (5f old flow removed)" bash -c "! grep -rq 'traders.hold(' modules/economy-market/src"
 sleep 20
 gamelog > "$OUT/8-traders.log"
 say "   trader lines:"; grep -E 'Module\[economy-market\]: (trader .* opened|spot giran-|traders: |SELFTEST)' "$OUT/8-traders.log" | head -12 | cut -c1-300

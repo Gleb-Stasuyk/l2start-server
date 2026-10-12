@@ -2,7 +2,6 @@ package org.l2start.economy.market;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -21,20 +20,18 @@ import org.l2start.economy.market.model.Assortment.Line;
 import org.l2start.economy.market.model.MarketBook;
 import org.l2start.economy.market.model.MarketItem;
 import org.l2start.economy.market.model.TradeTalk;
-import org.l2start.platform.api.StoreDeal;
 
 /**
  * Step 5f: WTS/WTB in the trade chat. Bot traders now and then write what is in their store ({@code TradeChatAds} per
  * minute for the whole world, by their chattiness; RU/EN templates). A real player's WTB/WTS (LW parser, RU words too)
  * gets a whisper from a trader that has the item (or a buyer): count and price inside the market corridors (5a) and
- * the players' day budget (5d); two items fit = "which one?". The player answers "ok": the trader puts the line first
- * in its store at that price for 3 minutes (the deal goes through the stock store window); "no" or silence ends it.
+ * the players' day budget (5d); two items fit = "which one?". The player answers "ok": the deal is done face to face
+ * in the stock trade window ({@link Meetings}); "no" or silence ends it.
  * Limits: offers per minute for the world and per player, one answer per player and item in 2 minutes.
  * Chat events come on game threads and are queued; all work runs in the traders' tick.
  */
 final class TradeChat {
     static final long OFFER_MS = 2 * 60_000L;
-    static final long HOLD_MS = 3 * 60_000L;
     static final long SAME_AD_MS = 2 * 60_000L;
 
     private record Heard(int playerId, ChatType type, String text, int targetId) {
@@ -57,29 +54,6 @@ final class TradeChat {
         }
     }
 
-    private static final class Hold {
-        final Store s;
-        final int playerId;
-        final int itemId;
-        final String name;
-        final long oldPrice;
-        final long price;
-        final boolean weSell;
-        final long until;
-        volatile boolean dealt;
-
-        Hold(Store s, int playerId, int itemId, String name, long oldPrice, long price, boolean weSell, long until) {
-            this.s = s;
-            this.playerId = playerId;
-            this.itemId = itemId;
-            this.name = name;
-            this.oldPrice = oldPrice;
-            this.price = price;
-            this.weSell = weSell;
-            this.until = until;
-        }
-    }
-
     private final EconomyMarketModule m;
     private final Traders traders;
     private final Random rnd = new Random();
@@ -88,13 +62,14 @@ final class TradeChat {
     private final Map<Integer, TradeTalk.Limit> playerOffers = new HashMap<>();
     private final Map<String, Long> recent = new HashMap<>();
     private final Map<Integer, Pending> pending = new HashMap<>();
-    private final List<Hold> holds = new ArrayList<>();
+    private final Meetings meetings;
     private double adCredit;
     private long lastTick;
 
-    TradeChat(EconomyMarketModule m, Traders traders) {
+    TradeChat(EconomyMarketModule m, Traders traders, Meetings meetings) {
         this.m = m;
         this.traders = traders;
+        this.meetings = meetings;
     }
 
     /** Game thread of the chat packet: real players' trade lines and whispers to traders, queued. */
@@ -111,21 +86,9 @@ final class TradeChat {
         }
     }
 
-    /** Game thread of a store deal on a bot store: a held line was taken. */
-    void onDeal(Store s, StoreDeal d) {
-        synchronized (holds) {
-            for (Hold h : holds) {
-                if ((h.s == s) && (h.itemId == d.itemId()) && ((d.buyerId() == h.playerId) || (d.sellerId() == h.playerId))) {
-                    h.dealt = true;
-                }
-            }
-        }
-    }
-
     void tick(long now) throws Exception {
         final long dt = (lastTick == 0) ? 0 : Math.min(60_000L, now - lastTick);
         lastTick = now;
-        holds(now);
         pending.values().removeIf(p -> now > p.until);
         recent.values().removeIf(t -> (now - t) > SAME_AD_MS);
         Heard h;
@@ -242,6 +205,9 @@ final class TradeChat {
             whisperLater(bot, p, TradeTalk.which(ad.items().get(0), ad.items().get(1), lang, rnd));
             return;
         }
+        if (meetings.busy(p.getObjectId())) {
+            return; // one deal at a time
+        }
         if (offer(pd, ad.items().get(0), ad.count(), ad.price())) {
             pending.put(p.getObjectId(), pd);
             whisperLater(bot, p, TradeTalk.offer(weSell, pd.item.name(), pd.count, pd.price, lang, rnd));
@@ -339,40 +305,14 @@ final class TradeChat {
             return;
         }
         pending.remove(p.getObjectId());
-        final long old = traders.hold(pd.s, pd.item.id(), pd.item.name(), pd.count, pd.price);
-        if (old < 0) {
+        final String meet = meetings.start(p, pd.s, pd.weSell, pd.item, pd.count, pd.price, lang);
+        if (meet == null) {
+            whisperLater(bot, p, TradeTalk.declined(lang, rnd));
+            m.ctx().log().info("trade chat: no meeting possible for " + p.getName() + " now");
             return;
         }
-        synchronized (holds) {
-            holds.add(new Hold(pd.s, p.getObjectId(), pd.item.id(), pd.item.name(), old, pd.price, pd.weSell, now + HOLD_MS));
-        }
-        whisperLater(bot, p, TradeTalk.held(pd.weSell, pd.item.name(), pd.price, lang, rnd));
-        m.ctx().metrics().counter("trade chat deals held").inc();
-        m.ctx().log().info("trade chat: " + bot.getName() + " holds " + pd.count + " x " + pd.item.name() + " @" + pd.price + " for " + p.getName() + " (3 min, " + (pd.weSell ? "sell" : "buy") + " store)");
-    }
-
-    /** Held lines: taken = thanks and the old price back; run out = off the store. */
-    private void holds(long now) throws Exception {
-        final List<Hold> done = new ArrayList<>();
-        synchronized (holds) {
-            for (Iterator<Hold> it = holds.iterator(); it.hasNext();) {
-                final Hold h = it.next();
-                if (h.dealt || (now > h.until)) {
-                    it.remove();
-                    done.add(h);
-                }
-            }
-        }
-        for (Hold h : done) {
-            traders.unhold(h.s, h.itemId, h.oldPrice);
-            final Player bot = traders.pool().player(h.s.row.botId());
-            final Player p = World.getPlayer(h.playerId);
-            if ((bot != null) && (p != null) && p.isOnline()) {
-                final String lang = traders.pool().lang(h.s.row.botId());
-                whisper(bot, p, h.dealt ? TradeTalk.thanks(lang, rnd) : TradeTalk.expired(lang, rnd));
-            }
-            m.ctx().log().info("trade chat: hold of " + h.name + " at " + h.s.spot.id() + (h.dealt ? " taken" : " ran out"));
-        }
+        whisperLater(bot, p, meet);
+        m.ctx().metrics().counter("trade chat deals agreed").inc();
     }
 
     /** A person types: the whisper comes 2-5 seconds later. */

@@ -116,6 +116,7 @@ final class Traders {
     private final Map<String, List<Store>> towns = new HashMap<>();
     private final Map<String, Integer> townWant = new HashMap<>(); // the quota the stores of a town were made for
     private final ConcurrentLinkedQueue<Runnable> writes = new ConcurrentLinkedQueue<>();
+    private Meetings meetings;
     private final Set<String> warned = new HashSet<>();
     /** Step 5d: adena bots may still pay real players today (the player with the most room; refreshed every minute and after each deal). */
     private volatile long budgetLeft = Long.MAX_VALUE;
@@ -134,7 +135,8 @@ final class Traders {
         assortment = Assortment.load(m.ctx().resources().path("data/trader-profiles.xml"));
         crafts = new Crafts(m);
         shoppers = new Shoppers(m, this, pool);
-        chat = new TradeChat(m, this);
+        meetings = new Meetings(m, this, pool);
+        chat = new TradeChat(m, this, meetings);
         m.ctx().events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerChat> onGlobal(org.l2jmobius.gameserver.mechanics.events.EventType.ON_PLAYER_CHAT, chat::onChat);
     }
 
@@ -229,6 +231,7 @@ final class Traders {
         }
         try {
             chat.tick(now); // 5f
+            meetings.tick(now); // 5f: deals in the trade window
         } catch (Exception e) {
             warnOnce("trade chat " + e.getClass().getSimpleName(), "trade chat: " + e);
         }
@@ -271,6 +274,16 @@ final class Traders {
         budgetHit = true;
     }
 
+    /** Hook P6-BOT-TRADE (game thread). */
+    boolean onTradeRequest(Player requester, Player bot) {
+        return meetings.onTradeRequest(requester, bot);
+    }
+
+    /** A database write for the next flush (task thread). */
+    void write(Runnable w) {
+        writes.add(w);
+    }
+
     boolean isBotStore(int charId) {
         return byChar.containsKey(charId);
     }
@@ -299,59 +312,6 @@ final class Traders {
     /** The trader's price of an item now (sell or buy side, by its greed). */
     long priceFor(Store s, int itemId, boolean buy) {
         return price(itemId, buy, pool.greed(s.row.botId()), m.stage(), System.currentTimeMillis());
-    }
-
-    /**
-     * A whispered deal: the line goes first in the store at the agreed price and count (an existing line of the item
-     * takes the new price), the store opens again in place. Scheduler thread (tick).
-     * @return the line's old price (0 = the item was not in the store), or -1 when the trader is not in the world
-     */
-    long hold(Store s, int itemId, String name, long count, long price) throws Exception {
-        final Player p = pool.player(s.row.botId());
-        if ((p == null) || !s.open) {
-            return -1;
-        }
-        long old = 0;
-        long have = 0;
-        synchronized (s) {
-            s.lines = remaining(s, p);
-            for (java.util.Iterator<Line> it = s.lines.iterator(); it.hasNext();) {
-                final Line l = it.next();
-                if (l.itemId() == itemId) {
-                    old = (old == 0) ? l.price() : old;
-                    have += l.count();
-                    it.remove();
-                }
-            }
-            s.lines.add(0, new Line(itemId, name, s.buy() ? count : Math.max(have, count), price));
-        }
-        repo.saveStore(s.row, s.lines);
-        openStore(p, s);
-        return old;
-    }
-
-    /** The hold ran out: the line takes its old price again, or leaves the store (what is left of it). */
-    void unhold(Store s, int itemId, long oldPrice) throws Exception {
-        final Player p = pool.player(s.row.botId());
-        if ((p == null) || !s.open) {
-            return;
-        }
-        synchronized (s) {
-            s.lines = remaining(s, p);
-            for (int k = 0; k < s.lines.size(); k++) {
-                final Line l = s.lines.get(k);
-                if (l.itemId() == itemId) {
-                    if (oldPrice > 0) {
-                        s.lines.set(k, new Line(itemId, l.name(), l.count(), oldPrice));
-                    } else {
-                        s.lines.remove(k);
-                    }
-                    break;
-                }
-            }
-        }
-        repo.saveStore(s.row, s.lines);
-        openStore(p, s);
     }
 
     private void applyLook(Store s, Player p, boolean offline) {
@@ -872,6 +832,7 @@ final class Traders {
     synchronized void stop() {
         stopped = true;
         shoppers.stop();
+        meetings.stop();
         closeAll("server stop");
     }
 
@@ -984,9 +945,6 @@ final class Traders {
         final long total = d.count() * d.price();
         final boolean buy = d.buyStore();
         final boolean real = buy ? !d.sellerBot() : !d.buyerBot();
-        if (real) {
-            chat.onDeal(s, d); // 5f: a held line was taken
-        }
         if (buy && real) {
             // 5d: the players' day budget shrinks at once; the next tick shows the buy stores only what is left
             budgetLeft = Math.max(0, budgetLeft - total);

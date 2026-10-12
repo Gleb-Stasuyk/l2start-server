@@ -49,6 +49,7 @@ public final class EconomyMarketModule implements GameModule {
         }
         traders = startTraders();
         ctx.onStoreDeal(this::onDeal);
+        ctx.onBotTradeRequest((requester, bot) -> (traders != null) && ((Traders) traders).onTradeRequest(requester, bot)); // 5f: P6-BOT-TRADE
         ctx.handlers().admin(new AdminMarket(this));
         ctx.log().info("market: " + items.size() + " items, " + restored + " indexed, market " + (marketOn() ? "on" : "off (log and index only)") + ", stores " + quota.active() + ((traders == null) ? ", no traders (bots-core is off)" : ""));
     }

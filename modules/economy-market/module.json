@@ -1,10 +1,10 @@
 {
   "id": "economy-market",
   "name": "Economy: market",
-  "description": "Phase 5 bot market. Step 5a: the market item catalogue (Living Worlds allow-list + shots and potions, with grade, NPC price, NPC-sold and stage from stock data), the price index of real private store deals (hook P5-STORE-DEAL, API 1.3), the trade log, the server stage 1-5 and the price model (base from the NPC price and stage, blend with the index, solo drift, seller and buyer prices); //market. In online it only keeps the trade log and the index (invisible to players). Steps 5b/5c (with bots-core): bot traders stand at the store places of a town while a real player is near (persona, name, kind and sign kept per place), SELL, PACKAGE_SELL and BUY stores, life on paper while away, night offline look, wallets, resale of bought goods, daily limits of selling to bots; //market traders. Step 5d: the players' day budget, hunter wallets pay shots and potions (bots-core service Supplies), MARKET line. Step 5e: bots buy in real players' stores. Step 5f: WTS/WTB in the trade chat (ads, whispered offers, deal held in the store).",
-  "version": "0.3.0",
+  "description": "Phase 5 bot market. Step 5a: the market item catalogue (Living Worlds allow-list + shots and potions, with grade, NPC price, NPC-sold and stage from stock data), the price index of real private store deals (hook P5-STORE-DEAL, API 1.3), the trade log, the server stage 1-5 and the price model (base from the NPC price and stage, blend with the index, solo drift, seller and buyer prices); //market. In online it only keeps the trade log and the index (invisible to players). Steps 5b/5c (with bots-core): bot traders stand at the store places of a town while a real player is near (persona, name, kind and sign kept per place), SELL, PACKAGE_SELL and BUY stores, life on paper while away, night offline look, wallets, resale of bought goods, daily limits of selling to bots; //market traders. Step 5d: the players' day budget, hunter wallets pay shots and potions (bots-core service Supplies), MARKET line. Step 5e: bots buy in real players' stores. Step 5f: WTS/WTB in the trade chat (ads, whispered offers; the deal is done in the stock trade window with a walking bot at a town gatekeeper, warehouse keeper or Priest of Dawn, hook P6-BOT-TRADE, API 1.4).",
+  "version": "0.4.0",
   "kind": "jar",
-  "platform": "^1.3",
+  "platform": "^1.4",
   "entrypoint": "org.l2start.economy.market.EconomyMarketModule",
   "dependencies": [
     {
@@ -158,7 +158,7 @@
       "type": "bool",
       "default": true,
       "reloadable": true,
-      "description": "Step 5f: a bot trader answers a real player's WTB/WTS in the trade chat by whisper (price within the market corridors); on 'ok' the deal is held in its store for 3 minutes."
+      "description": "Step 5f: a bot trader answers a real player's WTB/WTS in the trade chat by whisper (price within the market corridors); on 'ok' a walking bot meets the player at a gatekeeper, warehouse keeper or Priest of Dawn of his town, waits 3 minutes and does the deal in the trade window."
     }
   }
 }

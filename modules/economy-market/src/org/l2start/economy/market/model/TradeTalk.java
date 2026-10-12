@@ -188,28 +188,64 @@ public final class TradeTalk {
         return t[rnd.nextInt(t.length)];
     }
 
-    /** Whisper: an offer to the player (we sell when he buys, and the other way). */
+    /** Whisper: an offer to the player (we sell when he buys, and the other way); "ok" = we meet and trade. */
     public static String offer(boolean weSell, String item, long count, long price, String lang, Random rnd) {
         final String n = shortName(item);
         final String c = (count > 1) ? StorePricing.amount((int) Math.min(Integer.MAX_VALUE, count)) + " " : "";
         if (ru(lang, rnd)) {
-            return weSell ? "есть " + n + ", " + c + (c.isEmpty() ? "" : "шт ") + "по " + price(price) + ". Я в Гиране на рынке. Напиши «ок» — выставлю в лавку на 3 мин"
-                : "возьму " + n + ", " + c + (c.isEmpty() ? "" : "шт ") + "по " + price(price) + ". Скупка в Гиране на рынке. «ок» — открою под тебя на 3 мин";
+            return weSell ? "есть " + n + ", " + c + (c.isEmpty() ? "" : "шт ") + "по " + price(price) + ". Напиши «ок» — встретимся, передам через трейд"
+                : "возьму " + n + ", " + c + (c.isEmpty() ? "" : "шт ") + "по " + price(price) + ". «ок» — встретимся, заберу через трейд";
         }
-        return weSell ? "got " + n + ", " + c + (c.isEmpty() ? "" : "pcs ") + "@" + price(price) + ". I'm at Giran market, say ok and I'll put it in my store for 3 min"
-            : "I'll buy " + n + ", " + c + (c.isEmpty() ? "" : "pcs ") + "@" + price(price) + ". my buy store is in Giran market, say ok and it's yours for 3 min";
+        return weSell ? "got " + n + ", " + c + (c.isEmpty() ? "" : "pcs ") + "@" + price(price) + ". say ok and we meet, trade window"
+            : "I'll buy " + n + ", " + c + (c.isEmpty() ? "" : "pcs ") + "@" + price(price) + ". say ok and we meet, trade window";
+    }
+
+    /** Where: "у гейткипера в Giran" / "at Giran gatekeeper". */
+    public static String place(TradeMeet.Kind kind, String town, boolean ru) {
+        final String t = ((town == null) || town.isBlank()) ? "" : town;
+        if (ru) {
+            final String w = switch (kind) {
+                case GATEKEEPER -> "у ГК (Gatekeeper)";
+                case WAREHOUSE -> "у склада (Warehouse Keeper)";
+                case PRIEST -> "у Жреца Рассвета (Priest of Dawn)";
+            };
+            return t.isEmpty() ? w : w + " в " + t;
+        }
+        final String w = switch (kind) {
+            case GATEKEEPER -> "the Gatekeeper";
+            case WAREHOUSE -> "the Warehouse Keeper";
+            case PRIEST -> "the Priest of Dawn";
+        };
+        return "at " + w + (t.isEmpty() ? "" : " in " + t);
+    }
+
+    /** On "ok": who comes, where, what to put in the window. */
+    public static String meet(boolean weSell, String item, long count, long price, TradeMeet.Kind kind, String town, String courier, String lang, Random rnd) {
+        final boolean ru = ru(lang, rnd);
+        final String n = shortName(item);
+        final String total = String.valueOf(count * price); // exact: the window must hold exactly this
+        if (ru) {
+            return "ок, встречаемся " + place(kind, town, true) + ", подойдёт " + courier + ", жду 3 мин. " + (weSell ? "Клади в трейд ровно " + total + " адены за " + count + " " + n
+                : "Клади в трейд " + count + " " + n + ", дам " + total + " адены");
+        }
+        return "ok, meet me " + place(kind, town, false) + ", " + courier + " will be there, 3 min. " + (weSell ? "put exactly " + total + " adena in the trade for " + count + " " + n
+            : "put " + count + " " + n + " in the trade, you get " + total + " adena");
+    }
+
+    public static String arrived(String lang, Random rnd) {
+        return ru(lang, rnd) ? (rnd.nextBoolean() ? "я на месте, кидай трейд" : "тут, подходи") : (rnd.nextBoolean() ? "here, send trade" : "I'm here");
+    }
+
+    public static String mismatch(boolean weSell, String item, long count, long price, String lang, Random rnd) {
+        final String n = shortName(item);
+        if (ru(lang, rnd)) {
+            return "не то положил) нужно " + (weSell ? "ровно " + (count * price) + " адены" : count + " " + n) + ", давай ещё раз";
+        }
+        return "that's not the deal, need " + (weSell ? "exactly " + (count * price) + " adena" : count + " " + n) + ", try again";
     }
 
     public static String which(MarketItem a, MarketItem b, String lang, Random rnd) {
         return ru(lang, rnd) ? "какой из двух: " + a.name() + " или " + b.name() + "?" : "which one: " + a.name() + " or " + b.name() + "?";
-    }
-
-    public static String held(boolean weSell, String item, long price, String lang, Random rnd) {
-        final String n = shortName(item);
-        if (ru(lang, rnd)) {
-            return weSell ? "выставил " + n + " по " + price(price) + ", лавка открыта, жду 3 мин" : "открыл скупку " + n + " по " + price(price) + ", жду 3 мин";
-        }
-        return weSell ? "done, " + n + " @" + price(price) + " is in my store, 3 min" : "buy store is open for your " + n + " @" + price(price) + ", 3 min";
     }
 
     public static String declined(String lang, Random rnd) {
@@ -217,7 +253,7 @@ public final class TradeTalk {
     }
 
     public static String expired(String lang, Random rnd) {
-        return ru(lang, rnd) ? "не дождался, снял с лавки" : "nvm, took it off my store";
+        return ru(lang, rnd) ? "не дождался, ушёл" : "waited, gone";
     }
 
     public static String thanks(String lang, Random rnd) {
