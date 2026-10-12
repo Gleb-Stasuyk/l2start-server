@@ -42,6 +42,8 @@ public final class DirectorRunner {
         this.ctx = module.ctx();
         this.director = new Director(catalog, cfg, new Random());
         this.materializer = new Materializer(gear);
+        // phase 5d: a market module (economy-market) lets hunters pay for shots and potions; looked up at every arrival
+        this.materializer.setSupplies(() -> module.ctx().services().find(org.l2start.bots.trade.Supplies.class).orElse(null));
     }
 
     public Director director() {

@@ -33,6 +33,7 @@ import org.l2jmobius.gameserver.network.serverpackets.RecipeShopMsg;
 import org.l2start.bots.trade.TraderPool;
 import org.l2start.economy.market.MarketRepository.StoreRow;
 import org.l2start.economy.market.model.Assortment;
+import org.l2start.economy.market.model.Budget;
 import org.l2start.economy.market.model.Assortment.Line;
 import org.l2start.economy.market.model.MarketAreas;
 import org.l2start.economy.market.model.MarketBook;
@@ -114,6 +115,10 @@ final class Traders {
     private final Map<String, Integer> townWant = new HashMap<>(); // the quota the stores of a town were made for
     private final ConcurrentLinkedQueue<Runnable> writes = new ConcurrentLinkedQueue<>();
     private final Set<String> warned = new HashSet<>();
+    /** Step 5d: adena bots may still pay real players today (the player with the most room; refreshed every minute and after each deal). */
+    private volatile long budgetLeft = Long.MAX_VALUE;
+    private volatile boolean budgetHit;
+    private long budgetAt;
     private volatile boolean selfTested;
     private volatile boolean stopped;
     private Boolean lastNight;
@@ -149,6 +154,19 @@ final class Traders {
         final long day = LocalDate.now().toEpochDay();
         final double nightStay = m.ctx().config().getDouble("NightStay");
         final long restockMs = Math.max(1, m.ctx().config().getInt("RestockMinutes")) * 60_000L;
+        if ((now - budgetAt) >= 60_000L) {
+            budgetAt = now;
+            refreshBudget();
+        }
+        if (budgetHit) {
+            budgetHit = false; // a player reached the day budget: buy stores show only what is left of it
+            for (Store s : stores.values()) {
+                final Player p = (s.open && s.buy()) ? pool.player(s.row.botId()) : null;
+                if ((p != null) && p.isOnline()) {
+                    refreshInPlace(s, p, now, "day budget " + budgetLeft + " left");
+                }
+            }
+        }
         final Set<String> wanted = new HashSet<>();
         int opened = 0;
         boolean refreshed = false;
@@ -202,6 +220,31 @@ final class Traders {
         if (m.ctx().config().getBoolean("SelfTest") && !selfTested) {
             selfTest();
         }
+    }
+
+    /**
+     * Step 5d: what bots may still pay real players today. A real player in the world: the one with the most room
+     * ({@code BotAdenaPerPlayerDay} of an hour of farming at his level minus what bots paid him today); nobody in the
+     * world: the highest real character and the most any real character got today.
+     */
+    void refreshBudget() throws Exception {
+        final double share = m.ctx().config().getDouble("BotAdenaPerPlayerDay");
+        final int day = (int) LocalDate.now().toEpochDay();
+        long best = -1;
+        for (Player p : World.getPlayers()) {
+            if ((p == null) || byChar.containsKey(p.getObjectId()) || org.l2start.platform.hooks.CoreHooks.isBot(p)) {
+                continue;
+            }
+            best = Math.max(best, Budget.left(p.getLevel(), share, repo.playerPaid(p.getObjectId(), day)));
+        }
+        if (best < 0) {
+            best = Budget.left((int) repo.realPlayers()[0], share, repo.playerPaidMax(day));
+        }
+        budgetLeft = best;
+    }
+
+    long budgetLeft() {
+        return budgetLeft;
     }
 
     private void applyLook(Store s, Player p, boolean offline) {
@@ -518,7 +561,7 @@ final class Traders {
             } else if (buy) {
                 final List<Line> shown = new ArrayList<>(s.lines.subList(0, Math.min(p.getPrivateBuyStoreLimit(), s.lines.size())));
                 final int day = (int) LocalDate.now().toEpochDay();
-                final long wallet = walletFor(s);
+                final long wallet = Math.min(walletFor(s), budgetLeft); // 5d: never more than the players' day budget
                 final TradeList list = p.getBuyList();
                 long need = 0;
                 for (Line l : shown) {
@@ -565,6 +608,17 @@ final class Traders {
             s.charId = p.getObjectId();
             byChar.put(p.getObjectId(), s);
             s.open = true;
+            if ((put == 0) && buy && (budgetLeft <= 0) && !s.lines.isEmpty()) {
+                // 5d: the day budget is spent: the buyer stays, "full for today" (an empty buy list, never store NONE)
+                p.getBuyList().setTitle(StoreTitle.fit("RU".equals(pool.lang(s.row.botId())) ? "Набрал, завтра снова" : "Full today, back tmrw"));
+                s.charId = p.getObjectId();
+                p.sitDown();
+                p.setPrivateStoreType(PrivateStoreType.BUY);
+                p.broadcastUserInfo();
+                p.broadcastPacket(new PrivateStoreMsgBuy(p));
+                m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + ": day budget of the players spent, buys nothing more today");
+                return;
+            }
             if (put == 0) {
                 emptyBag(p);
                 s.soldOutAt = 0;
@@ -815,6 +869,12 @@ final class Traders {
         final int botId = s.row.botId();
         final long total = d.count() * d.price();
         final boolean buy = d.buyStore();
+        final boolean real = buy ? !d.sellerBot() : !d.buyerBot();
+        if (buy && real) {
+            // 5d: the players' day budget shrinks at once; the next tick shows the buy stores only what is left
+            budgetLeft = Math.max(0, budgetLeft - total);
+            budgetHit = true;
+        }
         writes.add(() -> {
             try {
                 final long w = repo.wallet(botId);
@@ -823,7 +883,11 @@ final class Traders {
                     repo.addResale(d.itemId(), d.count() / 2 + ((d.count() % 2 == 1 && rnd.nextBoolean()) ? 1 : 0));
                     if (!d.sellerBot()) {
                         repo.addPlayerDay(d.sellerId(), d.itemId(), (int) LocalDate.now().toEpochDay(), d.count());
+                        repo.addPlayerDay(d.sellerId(), 0, (int) LocalDate.now().toEpochDay(), total); // item 0: adena bots paid him
                     }
+                }
+                if (real) {
+                    repo.addFlow((int) LocalDate.now().toEpochDay(), buy ? "to_players" : "from_players", total);
                 }
                 repo.clearBotOfflineTrade(String.valueOf(d.ownerId()));
             } catch (Exception e) {

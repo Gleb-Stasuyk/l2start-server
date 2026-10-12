@@ -62,6 +62,7 @@ public final class EconomyMarketModule implements GameModule {
         }
         ctx.scheduler().fixedRate("stage and rotation", Duration.ofMinutes(10), Duration.ofMinutes(10), () -> unchecked(() -> {
             refreshStage();
+            logMarket();
             repo.rotatePlayerDays((int) java.time.LocalDate.now().toEpochDay() - 2);
             final int gone = repo.rotate(System.currentTimeMillis() - (Math.max(1, ctx.config().getInt("TradeLogDays")) * 86_400_000L));
             if (gone > 0) {
@@ -116,6 +117,7 @@ public final class EconomyMarketModule implements GameModule {
             final Traders t = Traders.start(this);
             if (t != null) {
                 t.cleanupAtStart(); // before the stock offline traders are restored
+                ctx.services().provide(org.l2start.bots.trade.Supplies.class, new HunterWallets(this)); // 5d: hunters pay their shots and potions
             }
             return t;
         } catch (NoClassDefFoundError e) {
@@ -141,6 +143,14 @@ public final class EconomyMarketModule implements GameModule {
         if (!dirty.isEmpty()) {
             repo.saveIndex(dirty);
         }
+    }
+
+    /** Step 5d: the MARKET line (every 10 minutes): stage, what bots paid players and what they took, hunters' supplies. */
+    void logMarket() throws Exception {
+        final java.util.Map<String, Long> f = repo.flows((int) java.time.LocalDate.now().toEpochDay());
+        final long left = (traders == null) ? -1 : ((Traders) traders).budgetLeft();
+        ctx.log().info("MARKET stage " + stage() + ", today: bots paid players " + f.getOrDefault("to_players", 0L) + ", players paid bots " + f.getOrDefault("from_players", 0L) + ", bots bought from players "
+            + f.getOrDefault("bought", 0L) + ", hunters' supplies " + f.getOrDefault("hunters", 0L) + ((left >= 0) && (left != Long.MAX_VALUE) ? ", players' day budget left " + left : ""));
     }
 
     void refreshStage() throws Exception {

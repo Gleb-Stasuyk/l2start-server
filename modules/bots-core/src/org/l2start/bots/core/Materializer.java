@@ -35,8 +35,29 @@ final class Materializer {
     private volatile int lagMin = 0;
     private volatile int lagMax = 5;
 
+    /** Phase 5d: the market's wallets pay for shots and potions (null = given, like phase 4; traders never buy). */
+    private volatile java.util.function.Supplier<org.l2start.bots.trade.Supplies> supplies;
+
     Materializer(GearTable gear) {
         this.gear = gear;
+    }
+
+    void setSupplies(java.util.function.Supplier<org.l2start.bots.trade.Supplies> supplies) {
+        this.supplies = supplies;
+    }
+
+    /** How many of {@code want} the bot gets: what its wallet pays for, or all without a market. */
+    private int afford(BotRecord r, int level, int itemId, int want) {
+        final java.util.function.Supplier<org.l2start.bots.trade.Supplies> s = supplies;
+        final org.l2start.bots.trade.Supplies market = (s == null) ? null : s.get();
+        if (market == null) {
+            return want;
+        }
+        try {
+            return Math.max(0, Math.min(want, market.buy(r.botId(), level, itemId, want)));
+        } catch (RuntimeException e) {
+            return want; // the market's trouble must not leave a hunter without potions
+        }
     }
 
     void setGradeLag(int min, int max) {
@@ -81,8 +102,8 @@ final class Materializer {
             }
         }
         cleanup(p);
-        sb.append(", ").append(shots(p, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
-        sb.append(", ").append(potions(p, target));
+        sb.append(", ").append(potions(p, r, target)); // a thin wallet pays the potions first (to live), then shots
+        sb.append(", ").append(shots(p, r, target, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
         p.getInventory().addItem(ItemProcessType.REWARD, SOE, 2, p, null); // like everybody: to end the hunt (phase 4d)
         final String crystals = summonItems(p);
         if (crystals != null) {
@@ -141,15 +162,24 @@ final class Materializer {
     }
 
     /** Shots of the weapon's grade on auto-use, like every player farming (they vanish with the rest on logout). */
-    private static String shots(Player p, int grade) {
+    private String shots(Player p, BotRecord r, int level, int grade) {
         final int g = Math.max(0, Math.min(SOULSHOTS.length - 1, grade));
         final int id = p.isMageClass() ? SPIRITSHOTS[g] : SOULSHOTS[g];
-        p.getInventory().addItem(ItemProcessType.REWARD, id, p.isMageClass() ? 800 : 2000, p, null);
         for (Integer old : new ArrayList<>(p.getAutoSoulShot())) {
             p.removeAutoSoulShot(old);
         }
+        final int want = p.isMageClass() ? 800 : 2000;
+        final Item have = p.getInventory().getItemByItemId(id);
+        final int need = Math.max(0, want - ((have == null) ? 0 : (int) Math.min(want, have.getCount())));
+        final int got = (need == 0) ? 0 : afford(r, level, id, need);
+        if (got > 0) {
+            p.getInventory().addItem(ItemProcessType.REWARD, id, got, p, null);
+        }
+        if ((got + ((have == null) ? 0 : have.getCount())) <= 0) {
+            return "no shots (no money)";
+        }
         p.addAutoSoulShot(id);
-        return "shots " + id;
+        return "shots " + id + ((got < need) ? " " + got + "/" + need + " (wallet)" : "");
     }
 
     /** HP potions of the level (phase 4a), like a player farming; they vanish with the rest on logout. */
@@ -162,10 +192,15 @@ final class Materializer {
     /** Scroll of Escape: 2 for every bot (they vanish with the rest on logout). */
     static final int SOE = 736;
 
-    private static String potions(Player p, int level) {
+    private String potions(Player p, BotRecord r, int level) {
         final int id = potionFor(level);
-        p.getInventory().addItem(ItemProcessType.REWARD, id, POTIONS, p, null);
-        return POTIONS + " potions " + id;
+        final Item have = p.getInventory().getItemByItemId(id);
+        final int need = Math.max(0, POTIONS - ((have == null) ? 0 : (int) Math.min(POTIONS, have.getCount())));
+        final int got = (need == 0) ? 0 : afford(r, level, id, need);
+        if (got > 0) {
+            p.getInventory().addItem(ItemProcessType.REWARD, id, got, p, null);
+        }
+        return got + " potions " + id + ((got < need) ? " (wallet: " + got + "/" + need + ")" : "");
     }
 
     /** Calls of each servitor summon a bot carries the crystals for (phase 4c); they vanish with the rest on logout. */

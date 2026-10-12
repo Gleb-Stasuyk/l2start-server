@@ -200,6 +200,41 @@ final class MarketRepository {
         return db.update("DELETE FROM " + db.table("spot") + " WHERE town = ?", town);
     }
 
+    // ---- step 5d: budget, hunter wallets, money flows
+
+    /** Adena bots paid a real character today (item 0 of player_day). */
+    long playerPaid(int charId, int day) throws SQLException {
+        return db.queryOne("SELECT count FROM " + db.table("player_day") + " WHERE char_id = ? AND item_id = 0 AND day = ?", rs -> rs.getLong(1), charId, day).orElse(0L);
+    }
+
+    /** The most adena bots paid one real character today. */
+    long playerPaidMax(int day) throws SQLException {
+        return db.queryOne("SELECT COALESCE(MAX(count), 0) FROM " + db.table("player_day") + " WHERE item_id = 0 AND day = ?", rs -> rs.getLong(1), day).orElse(0L);
+    }
+
+    /** A hunter's wallet: adena, seen at (ms), or null. */
+    long[] hunter(int botId) throws SQLException {
+        return db.queryOne("SELECT adena, seen_at FROM " + db.table("hunter") + " WHERE bot_id = ?", rs -> new long[] { rs.getLong(1), rs.getLong(2) }, botId).orElse(null);
+    }
+
+    void saveHunter(int botId, long adena, long seenAt, long spent) throws SQLException {
+        db.update("INSERT INTO " + db.table("hunter") + " (bot_id, adena, seen_at, spent) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE adena = VALUES(adena), seen_at = VALUES(seen_at), spent = spent + VALUES(spent)", botId,
+            Math.max(0, adena), seenAt, spent);
+    }
+
+    void addFlow(int day, String kind, long adena) throws SQLException {
+        db.update("INSERT INTO " + db.table("flow") + " (day, kind, adena) VALUES (?,?,?) ON DUPLICATE KEY UPDATE adena = adena + VALUES(adena)", day, kind, adena);
+    }
+
+    java.util.Map<String, Long> flows(int day) throws SQLException {
+        final java.util.Map<String, Long> out = new java.util.TreeMap<>();
+        db.query("SELECT kind, adena FROM " + db.table("flow") + " WHERE day = ?", rs -> {
+            out.put(rs.getString(1), rs.getLong(2));
+            return null;
+        }, day);
+        return out;
+    }
+
     long seed() throws SQLException {
         return db.queryOne("SELECT COALESCE(MIN(charId), 1) FROM characters", rs -> rs.getLong(1)).orElse(1L);
     }
