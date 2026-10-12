@@ -22,6 +22,8 @@
 | Экономика / боты | час фарма x5 по адене (`FarmAdenaRate`), цены дроп-вещей +20 % (`DropItemPriceMultiplier`), `SellToBotsItemDay` 40, `PaperLevelPace` 6 |
 | Лаунчер | все числа — ключи конфига модуля (`module.json`, reloadable) + `Rates.ini`-оверрайд |
 
+**Сделано (ветка `rates`, 12.10.2026):** R1 `Rates.ini`-оверрайды solo/online; R2 хуки `P7-DROP-FLOAT`, `P7-QUEST-REWARD`, API 1.6; R3 модуль `rates-floating` (+ `//rates`, лог `RATES`, smoke SELFTEST); R4 `economy-market` 0.5.0 (`FarmAdenaRate` 5, `DropItemPriceMultiplier` 1,2, `SellToBotsItemDay` 40); R5 `bots-core` `PaperLevelPace` 6. Отличия от §2–§7: шаг шанса — доп. роллы с дробной частью (C = 4,5 → 3 доп. ролла + 4-й с 50 %), не больше 4 доп. роллов; миньоны рейдов — как обычные мобы (3×F); количества у рейдов — сток.
+
 API 1.5 занят хуком `P6-BOT-PARTY` в ветке `phase6`; `rates` поднимает API сразу до 1.6, при слиянии с `phase6` остаются оба.
 
 ## 0а. Исходный план (до правок, для истории)
