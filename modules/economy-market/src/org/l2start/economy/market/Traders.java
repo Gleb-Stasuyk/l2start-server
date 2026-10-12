@@ -344,15 +344,21 @@ final class Traders {
             m.ctx().log().info("traders: " + out + " of " + places.size() + " places of " + town + " are outside the layout of data/market-areas.xml, places generated again");
             places = new ArrayList<>();
         }
+        final List<Spot> res = new ArrayList<>(places.stream().filter(sp -> MarketAreas.RESOURCES.equals(sp.profile())).toList());
+        places.removeAll(res); // the resource crafters are besides the quota
         if (places.size() < want) {
             places.addAll(generate(town, places, want - places.size()));
         }
+        res.addAll(resourceCrafters(town, places, res));
         final Map<String, StoreRow> rows = repo.stores(town);
         final List<Store> out = new ArrayList<>();
         for (MarketAreas.Service sv : areas.services(town)) {
             out.add(attach(sv.spot(), sv.items(), rows));
         }
         for (Spot spot : places.subList(0, Math.min(want, places.size()))) {
+            out.add(attach(spot, null, rows));
+        }
+        for (Spot spot : res.subList(0, Math.min(res.size(), areas.resourceCrafters(town)))) {
             out.add(attach(spot, null, rows));
         }
         towns.put(town, out);
@@ -434,6 +440,63 @@ final class Traders {
         m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + a.town() + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
             + ((plan.size() < count) ? ", only " + plan.size() + " of " + count + " fit" : "") + ")");
         return plan;
+    }
+
+    /**
+     * The static crafters of intermediate resources ({@code <crafters resources="2">}, decision of 12.10.2026 15:04):
+     * dwarf Warsmiths in the crafters' ring, clear of all other places; made once and kept like the other places.
+     */
+    private List<Spot> resourceCrafters(String town, List<Spot> places, List<Spot> have) throws Exception {
+        final int n = areas.resourceCrafters(town);
+        final MarketAreas.Crafters c = areas.crafters(town);
+        final SpotGenerator.Area a = areas.area(town);
+        if ((have.size() >= n) || (c == null) || (a == null)) {
+            return List.of();
+        }
+        final GeoEngine geo = GeoEngine.getInstance();
+        final boolean hasGeo = geo.hasGeo(c.x(), c.y());
+        final SpotGenerator.Ground ground = new SpotGenerator.Ground() {
+            @Override
+            public Integer z(int x, int y, int z) {
+                return hasGeo ? (geo.hasGeo(x, y) ? Integer.valueOf(geo.getHeight(x, y, z)) : null) : Integer.valueOf(z);
+            }
+
+            @Override
+            public boolean walk(int x1, int y1, int z1, int x2, int y2, int z2) {
+                return !hasGeo || geo.canMoveToTarget(x1, y1, z1, x2, y2, z2, 0);
+            }
+        };
+        final List<SpotGenerator.Point> taken = new ArrayList<>();
+        for (Spot sp : places) {
+            taken.add(new SpotGenerator.Point(sp.x(), sp.y(), sp.z(), sp.heading()));
+        }
+        for (Spot sp : have) {
+            taken.add(new SpotGenerator.Point(sp.x(), sp.y(), sp.z(), sp.heading()));
+        }
+        final List<SpotGenerator.Blocker> blockers = new ArrayList<>();
+        for (WorldObject o : World.getVisibleObjects()) {
+            if ((o instanceof Npc) && (Math.hypot(o.getX() - c.x(), o.getY() - c.y()) < (c.rMax() + a.doorGap())) && ((Math.abs(o.getX() - c.x()) > 8) || (Math.abs(o.getY() - c.y()) > 8))) {
+                blockers.add(new SpotGenerator.Blocker(o.getX(), o.getY(), a.npcGap()));
+            }
+        }
+        for (MarketAreas.Service sv : areas.services(town)) {
+            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), a.spacing()));
+        }
+        final SpotGenerator.Area ring = new SpotGenerator.Area(a.town(), c.x(), c.y(), c.z(), c.x() - c.rMax(), c.x() + c.rMax(), c.y() - c.rMax(), c.y() + c.rMax(), a.dz(), c.spacing(), a.npcGap(), a.doorGap(),
+            a.reach());
+        final Random r = new Random(m.seedFor(town) + 7_777 + have.size());
+        final List<SpotGenerator.Point> pts = SpotGenerator.generate(ring, taken, n - have.size(), blockers, ground, r, 20_000, areas.crafterShape(town));
+        final List<Spot> out = new ArrayList<>();
+        for (int k = 0; k < pts.size(); k++) {
+            final SpotGenerator.Point p = pts.get(k);
+            final int no = have.size() + k + 1;
+            final Spot sp = new Spot(a.town(), a.town().toLowerCase(java.util.Locale.ROOT) + "-res" + no, p.x(), p.y(), p.z(), SpotGenerator.headingTo(p.x(), p.y(), c.x(), c.y()), "CRAFT",
+                MarketAreas.RESOURCES, "", "DWARF", r.nextBoolean() ? "FEMALE" : "MALE", MarketAreas.WARSMITH);
+            repo.addSpot(sp, 1000 + no, hasGeo);
+            out.add(sp);
+        }
+        m.ctx().log().info("traders: " + out.size() + " of " + (n - have.size()) + " resource crafters of " + a.town() + " placed around NPC " + c.npcId() + " at " + c.x() + "," + c.y());
+        return out;
     }
 
     /**

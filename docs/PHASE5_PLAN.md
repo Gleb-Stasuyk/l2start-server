@@ -237,4 +237,8 @@
 - Защита: товар бота существует, только пока бот стоит на встрече (сумка уничтожается при уходе); бот подтверждает
   последним под замками обоих списков; учёт только по факту изменения сумки; одна встреча на игрока, до 3 в мире;
   скупка — в пределах бюджета 5d.
+- П.2: `<crafters resources="2">` (`MarketAreas.resourceCrafters`), `Traders.resourceCrafters` (места `giran-res1/2` в
+  кольце у Guildsman, вне квоты, кроме прочих мест), `Crafts.chooseResources` (28 рецептов материалов, Create Item ≥ 4,
+  до 20 строк). Тест `MarketAreasTest.giranHasTwoStaticResourceCraftersInTheCraftersRing`, smoke: 2 места в кольце и
+  открытая мастерская.
 

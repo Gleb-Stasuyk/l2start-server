@@ -52,6 +52,9 @@ public final class MarketAreas {
     private final Map<String, List<Service>> services;
     private final Map<String, SpotGenerator.Polygon> polygons;
     private final Map<String, Crafters> crafters;
+    private final Map<String, Integer> resourceCrafters = new LinkedHashMap<>();
+    /** Profile of the static crafters of intermediate resources (decision of 12.10.2026, 15:04). */
+    public static final String RESOURCES = "resources";
 
     private MarketAreas(Map<String, SpotGenerator.Area> areas, Map<String, List<Service>> services, Map<String, SpotGenerator.Polygon> polygons, Map<String, Crafters> crafters) {
         this.areas = areas;
@@ -74,6 +77,7 @@ public final class MarketAreas {
         final Map<String, List<Service>> s = new LinkedHashMap<>();
         final Map<String, SpotGenerator.Polygon> polys = new LinkedHashMap<>();
         final Map<String, Crafters> crafts = new LinkedHashMap<>();
+        final Map<String, Integer> res = new LinkedHashMap<>();
         for (int t = 0; t < towns.getLength(); t++) {
             final Element e = (Element) towns.item(t);
             final String name = e.getAttribute("name");
@@ -91,6 +95,9 @@ public final class MarketAreas {
             if (cr.getLength() > 0) {
                 final Element c = (Element) cr.item(0);
                 crafts.put(key(name), new Crafters(i(c, "npc"), i(c, "x"), i(c, "y"), i(c, "z"), i(c, "heading"), i(c, "rMin"), i(c, "rMax"), i(c, "front"), i(c, "spacing")));
+                if (c.hasAttribute("resources")) {
+                    res.put(key(name), i(c, "resources"));
+                }
             }
             final List<Service> list = new ArrayList<>();
             final NodeList sv = e.getElementsByTagName("service");
@@ -106,7 +113,9 @@ public final class MarketAreas {
             }
             s.put(key(name), Collections.unmodifiableList(list));
         }
-        return new MarketAreas(Collections.unmodifiableMap(a), Collections.unmodifiableMap(s), Collections.unmodifiableMap(polys), Collections.unmodifiableMap(crafts));
+        final MarketAreas out = new MarketAreas(Collections.unmodifiableMap(a), Collections.unmodifiableMap(s), Collections.unmodifiableMap(polys), Collections.unmodifiableMap(crafts));
+        out.resourceCrafters.putAll(res);
+        return out;
     }
 
     private static int i(Element e, String attr) {
@@ -128,6 +137,11 @@ public final class MarketAreas {
     /** The polygon the store places of a town stay in, or null (the area's box). */
     public SpotGenerator.Polygon polygon(String town) {
         return polygons.get(key(town));
+    }
+
+    /** Static crafters of intermediate resources in the crafters' ring of a town ({@code <crafters resources="2">}). */
+    public int resourceCrafters(String town) {
+        return (crafters(town) == null) ? 0 : resourceCrafters.getOrDefault(key(town), 0);
     }
 
     /** Where the crafters of a town sit, or null (among the other places). */

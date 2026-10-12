@@ -99,4 +99,11 @@ class MarketAreasTest {
         assertTrue(a.fits(new Spot("Giran", "giran-01", 82450, 148600, -3464, 0, "SELL", "weapons", "", "", "MALE", 2)));
         assertEquals(16384, SpotGenerator.headingTo(0, 0, 0, 100));
     }
+
+    @Test
+    void giranHasTwoStaticResourceCraftersInTheCraftersRing() throws Exception {
+        final MarketAreas a = MarketAreas.load(Path.of("modules/economy-market/data/market-areas.xml"));
+        org.junit.jupiter.api.Assertions.assertEquals(2, a.resourceCrafters("Giran"));
+        org.junit.jupiter.api.Assertions.assertEquals(0, a.resourceCrafters("Dion"));
+    }
 }

@@ -313,6 +313,8 @@ check "traders: places at least 60 apart" test "$(sql "SELECT COUNT(*) FROM mod_
 check "traders: all non-crafter places inside Gleb's market polygon (82194..82725, 147879..149330)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind<>'CRAFT' AND NOT (x BETWEEN 82194 AND 82725 AND y BETWEEN 147879 AND 149330)")" = 0
 check "traders: no place on 4UDO (82703,147932)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND (x-82703)*(x-82703)+(y-147932)*(y-147932) < 5625")" = 0
 check "traders: crafters sit around the Adventure Guildsman (82840,147796), not on him" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 160*160 AND 430*430")" -ge 4
+check "traders: 2 static resource crafters (dwarves) around the Adventure Guildsman" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND profile='resources' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 160*160 AND 430*430")" = 2
+check "traders: a resource crafter opened its workshop (Steel, Leather, Cord ...)" wait_log 'Module\[economy-market\]: trader .* opened CRAFT .* at giran-res[12] ' 60
 say "   places: $(sql "SELECT kind='CRAFT', COUNT(*), MIN(x), MAX(x), MIN(y), MAX(y) FROM mod_economy_market_spot WHERE town='Giran' GROUP BY kind='CRAFT'" | tr '\t\n' ' ;')"
 # 5f: bot ads in the trade chat (SelfTest: also without a real player)
 check "trade chat: bot traders write WTS/WTB ads" wait_log 'Module\[economy-market\]: trade chat ad: ' 150

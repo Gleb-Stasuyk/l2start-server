@@ -127,6 +127,17 @@
 `bulkAmountRange`), не дороже остатка дневного бюджета игрока; пакетная лавка — всё или ничего. Половина купленного
 уходит в пул перепродажи бот-лавок.
 
+## Крафтеры ресурсов (12.10.2026)
+
+Кроме крафтеров по квоте, у Adventure Guildsman сидят ещё **2 статичных гнома-крафтера ресурсов**
+(`<crafters ... resources="2">` в `data/market-areas.xml`; места `giran-res1`, `giran-res2` создаются один раз в кольце,
+вне квоты `StoresPerTown`). Они знают только рецепты промежуточных материалов гномьего Create Item (Braided Hemp,
+Cokes, Steel, Coarse Bone Powder, Leather, Cord, Steel/Silver Mold, High Grade Suede, Varnish of Purity, Synthetic
+Cokes, Compound Braid, Mithril Alloy, Artisan's/Blacksmith's Frame, Oriharukon, Crafted Leather, Metallic Fiber,
+Reinforcing Agent/Plate, молды и холдеры), Create Item не ниже 4 (по уровню персоны — выше), до 20 рецептов, старшие
+первыми. Механика — та же CRAFT-лавка (MANUFACTURE): материалы игрока, плата `CraftFee` от рыночной цены продукта
+(нет в каталоге рынка — от цены NPC), шанс — стоковый.
+
 ## Шаг 5f: WTS/WTB в торговом чате
 
 - **Объявления:** торговцы пишут в торговый чат (стоковый обработчик, регион/глобально как в настройке сервера)

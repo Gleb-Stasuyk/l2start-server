@@ -26,6 +26,12 @@ import org.l2start.economy.market.model.StoreTitle;
 final class Crafts {
     static final int MIN_FEE = 100;
 
+    /** Products of the dwarven Create Item recipes for intermediate materials (the resource crafters). */
+    static final java.util.Set<Integer> RESOURCES = java.util.Set.of(1878, 1879, 1880, 1881, 1882, 1883, 1884, 1885, 1886, 1887, 1888, 1889, 1890, 1891, 1892, 1894, 1895, 1893, 4045, 4046, 4047,
+        4048, 5220, 5550, 5551, 5552, 5553, 5554);
+    /** A resource crafter knows at least Create Item 4 (Mithril Alloy, Oriharukon, frames). */
+    static final int RESOURCE_MIN_SKILL = 4;
+
     private final EconomyMarketModule m;
 
     Crafts(EconomyMarketModule m) {
@@ -47,7 +53,8 @@ final class Crafts {
     /** World thread: recipes into the book, the store list, full MP. @return the number of recipes shown. */
     int open(Player p, Traders.Store s, String lang) {
         int skill = p.getSkillLevel(CommonSkill.CREATE_DWARVEN.getId());
-        final int want = Math.min(craftLevel(p.getLevel()), SkillData.getInstance().getMaxLevel(CommonSkill.CREATE_DWARVEN.getId()));
+        final boolean resources = org.l2start.economy.market.model.MarketAreas.RESOURCES.equals(s.row.profile());
+        final int want = Math.min(resources ? Math.max(RESOURCE_MIN_SKILL, craftLevel(p.getLevel())) : craftLevel(p.getLevel()), SkillData.getInstance().getMaxLevel(CommonSkill.CREATE_DWARVEN.getId()));
         if (skill < want) {
             final Skill sk = SkillData.getInstance().getSkill(CommonSkill.CREATE_DWARVEN.getId(), want);
             if (sk != null) {
@@ -62,14 +69,17 @@ final class Crafts {
         final MarketBook book = m.book();
         final int stage = m.stage();
         final double feeShare = m.ctx().config().getDouble("CraftFee");
-        final List<RecipeList> pick = choose(skill, s.row.botId(), stage);
+        final List<RecipeList> pick = resources ? chooseResources(skill) : choose(skill, s.row.botId(), stage);
         for (RecipeList r : pick) {
             final MarketItem product = book.items().get(r.getItemId());
-            final long market = book.quote(r.getItemId(), stage, now).market() * Math.max(1, r.getCount());
+            final org.l2jmobius.gameserver.entity.item.ItemTemplate tpl = org.l2jmobius.gameserver.data.xml.ItemData.getInstance().getTemplate(r.getItemId());
+            final String name = (product != null) ? product.name() : (tpl != null) ? tpl.getName() : String.valueOf(r.getItemId());
+            final long unit = (product != null) ? book.quote(r.getItemId(), stage, now).market() : (tpl != null) ? tpl.getReferencePrice() : 0;
+            final long market = unit * Math.max(1, r.getCount());
             final int fee = StorePricing.naturalizePrice((int) Math.min(Integer.MAX_VALUE, Math.max(MIN_FEE, Math.round(market * feeShare))));
             p.registerDwarvenRecipeList(r, false);
             p.getManufactureItems().put(r.getId(), new ManufactureItem(r.getId(), fee));
-            lines.add(new Line(r.getId(), product.name(), 1, fee));
+            lines.add(new Line(r.getId(), name, 1, fee));
         }
         s.lines = lines;
         if (!lines.isEmpty()) {
@@ -97,6 +107,20 @@ final class Crafts {
     void close(Player p, Traders.Store s) {
         p.getManufactureItems().clear();
         p.getDwarvenRecipeBook().clear();
+    }
+
+    /** Every intermediate material recipe of the skill level (the higher levels first). */
+    List<RecipeList> chooseResources(int skill) {
+        final List<RecipeList> out = new ArrayList<>();
+        final RecipeData data = RecipeData.getInstance();
+        for (int itemId : data.getAllItemIds()) {
+            final RecipeList r = data.getRecipeByItemId(itemId);
+            if ((r != null) && r.isDwarvenRecipe() && (r.getLevel() <= skill) && (r.getRecipes().length > 0) && RESOURCES.contains(r.getItemId())) {
+                out.add(r);
+            }
+        }
+        out.sort(Comparator.comparingInt(RecipeList::getLevel).reversed().thenComparingInt(RecipeList::getId));
+        return (out.size() > 20) ? new ArrayList<>(out.subList(0, 20)) : out;
     }
 
     /** 6-10 recipes of the skill level (the higher levels first), fixed per crafter and stage. */
