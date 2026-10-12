@@ -62,6 +62,9 @@ public final class BotsCoreModule implements GameModule {
         world.setListener(new BotWorld.Listener() {
             @Override
             public void entered(BotRecord r) {
+                if (r.status() == BotRecord.Status.TRADER) {
+                    return; // a trader sits in its store: no brain (phase 5)
+                }
                 brains.entered(r);
             }
 
@@ -108,6 +111,8 @@ public final class BotsCoreModule implements GameModule {
         }
         applyConfig();
         ctx.services().provide(BrainRegistry.class, brains);
+        // phase 5: store traders for economy-market (personas kept for a store place, no brain)
+        ctx.services().provide(org.l2start.bots.trade.TraderPool.class, new TraderService(this, factory, repo, GearTable.load(ctx.resources().path("data/gear.xml"))));
 
         ctx.botPresence(registry::isBot);
         ctx.events().<OnPlayerChat> onGlobal(EventType.ON_PLAYER_CHAT, this::onChat);

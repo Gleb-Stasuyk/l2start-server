@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Assortment themes of bot traders (phase 5b/5c). A store of a profile takes `lines` (min,max) items of the market
+     catalogue (data/market-items.xml) that match: kind (Weapon, Armor, EtcItem; empty = any), match (regex on the name,
+     empty = any), skip (regex, items to leave out). Only items of the current stage or earlier; a higher grade is rarer.
+     kind SELL = a sell store, BUY = a buy store. -->
+<profiles>
+	<profile name="shots" kind="SELL" lines="2,4" itemKind="EtcItem" match="^(Soulshot|Spiritshot|Blessed Spiritshot): " />
+	<profile name="potions" kind="SELL" lines="2,4" itemKind="EtcItem" match="Potion|Scroll of Escape|Elixir" skip="Hair|Dye|Color|Style" />
+	<profile name="weapons" kind="SELL" lines="1,4" itemKind="Weapon" match="" skip="" />
+	<profile name="armor" kind="SELL" lines="1,4" itemKind="Armor" match="" skip="Necklace|Earring|Ring\b" />
+	<profile name="jewels" kind="SELL" lines="1,3" itemKind="Armor" match="Necklace|Earring|Ring\b" />
+	<profile name="materials" kind="SELL" lines="2,5" itemKind="EtcItem" match="" skip="^(Soulshot|Spiritshot|Blessed Spiritshot|Compressed)|Potion|Scroll|Elixir|Recipe|Dye|Soul Crystal|Life Stone|Looted|Sealed" />
+	<profile name="recipes" kind="SELL" lines="2,4" itemKind="EtcItem" match="^Recipe: " />
+	<profile name="scrolls" kind="SELL" lines="1,3" itemKind="EtcItem" match="^(Blessed )?Scroll: Enchant" />
+	<profile name="misc" kind="SELL" lines="1,3" itemKind="EtcItem" match="Life Stone|Soul Crystal|Dye|Sealed|Compressed" />
+	<profile name="buy-materials" kind="BUY" lines="2,4" itemKind="EtcItem" match="Ore|Leather|Thread|Coal|Charcoal|Varnish|Stem|Suede|Cord|Fiber|Alloy|Steel|Bone|Iron|Silver|Gold|Mithril|Oriharukon|Adamantite|Asofe|Thons|Enria|Mold|Cokes|Compound|Braided|Synthetic" skip="Recipe|Crystal:" />
+	<profile name="buy-crystals" kind="BUY" lines="1,3" itemKind="EtcItem" match="^Crystal: " />
+	<profile name="buy-parts" kind="BUY" lines="2,4" itemKind="EtcItem" match="Part$|Material$|Design$|Pattern$|Fabric$|Blade$|Edge$|Head$|Gemstone$|Lining$|Stock$|Shaft$|Piece$|Texture$|Temper$|Chain$|Beads$|Gem$|Splinter$" skip="Sealed|Recipe" />
+	<profile name="buy-scrolls" kind="BUY" lines="1,3" itemKind="EtcItem" match="^(Blessed )?Scroll: Enchant" />
+	<profile name="buy-dyes" kind="BUY" lines="1,3" itemKind="EtcItem" match="^Dye of|Life Stone" />
+	<profile name="buy-potions" kind="BUY" lines="1,3" itemKind="EtcItem" match="Potion|Elixir" skip="Hair|Style|Color" />
+	<profile name="buy-books" kind="BUY" lines="1,3" itemKind="EtcItem" match="^Recipe: " />
+	<profile name="buy-misc" kind="BUY" lines="1,3" itemKind="EtcItem" match="Soul Crystal|Looted|Ripe|Coba" />
+</profiles>

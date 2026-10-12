@@ -473,7 +473,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         int walking = 0; // bots in the world that walk instead of running (should be 0: they run like players)
         for (BotRecord r : registry.all()) {
             final Player p = r.player();
-            if ((p != null) && !p.isDead() && !p.isRunning()) {
+            if ((p != null) && !p.isDead() && !p.isRunning() && (r.status() != BotRecord.Status.TRADER)) { // traders sit in their stores
                 walking++;
             }
         }

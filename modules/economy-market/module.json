@@ -1,0 +1,164 @@
+{
+  "id": "economy-market",
+  "name": "Economy: market",
+  "description": "Phase 5 bot market. Step 5a: the market item catalogue (Living Worlds allow-list + shots and potions, with grade, NPC price, NPC-sold and stage from stock data), the price index of real private store deals (hook P5-STORE-DEAL, API 1.3), the trade log, the server stage 1-5 and the price model (base from the NPC price and stage, blend with the index, solo drift, seller and buyer prices); //market. In online it only keeps the trade log and the index (invisible to players). Steps 5b/5c (with bots-core): bot traders stand at the store places of a town while a real player is near (persona, name, kind and sign kept per place), SELL, PACKAGE_SELL and BUY stores, life on paper while away, night offline look, wallets, resale of bought goods, daily limits of selling to bots; //market traders. Step 5d: the players' day budget, hunter wallets pay shots and potions (bots-core service Supplies), MARKET line. Step 5e: bots buy in real players' stores. Step 5f: WTS/WTB in the trade chat (ads, whispered offers; the deal is done in the stock trade window with a walking bot at a town gatekeeper, warehouse keeper or Priest of Dawn, hook P6-BOT-TRADE, API 1.4).",
+  "version": "0.4.0",
+  "kind": "jar",
+  "platform": "^1.4",
+  "entrypoint": "org.l2start.economy.market.EconomyMarketModule",
+  "dependencies": [
+    {
+      "id": "bots-core",
+      "version": "^0.5.2",
+      "optional": true
+    }
+  ],
+  "defaultEnabled": {
+    "solo": true,
+    "online": true
+  },
+  "migrations": "sql",
+  "config": {
+    "Market": {
+      "type": "enum",
+      "values": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto",
+      "reloadable": true,
+      "description": "Bot market (auto = on in solo, off in online): bot traders and buyers (steps 5b-5f). Off = only the trade log and the price index of real deals."
+    },
+    "MarketStage": {
+      "type": "string",
+      "default": "auto",
+      "reloadable": true,
+      "description": "Server stage 1-5 (what bot stores carry: 1 no grade/D, shots, potions; 2 D/C; 3 C/B; 4 B/A; 5 A and single S) or auto: solo by the highest level of the real characters and hours played, online by days since start and the average level of the top 10."
+    },
+    "PriceMultiplier": {
+      "type": "double",
+      "default": 1.0,
+      "reloadable": true,
+      "description": "All bot prices x this (like LW FakePlayerStorePriceMultiplier)."
+    },
+    "SellMarkup": {
+      "type": "string",
+      "default": "1.00,1.25",
+      "reloadable": true,
+      "description": "Bot sellers ask market price x min..max by their greed."
+    },
+    "BuyBid": {
+      "type": "string",
+      "default": "0.55,0.85",
+      "reloadable": true,
+      "description": "Bot buyers bid market price x min..max (stingy..generous); always below the cheapest bot seller."
+    },
+    "NpcArbitrageGuard": {
+      "type": "double",
+      "default": 0.9,
+      "reloadable": true,
+      "description": "Bots never buy an NPC-sold item dearer than this share of the NPC price (and never sell it below the NPC price)."
+    },
+    "BotAdenaPerPlayerDay": {
+      "type": "double",
+      "default": 0.3,
+      "reloadable": true,
+      "description": "Step 5d: adena bots may pay real players per player and day, as a share of an hour of farming at the player's level."
+    },
+    "SellToBotsItemDay": {
+      "type": "int",
+      "default": 20,
+      "reloadable": true,
+      "description": "Step 5d: pieces of one item a player may sell to bots per day (x10 for cheap stackables)."
+    },
+    "StoresPerTown": {
+      "type": "string",
+      "default": "Giran:60,Dion:0,Aden:0,Oren:0,Gludio:0,Heine:0,Rune:0,Goddard:0,Schuttgart:0,Floran:0,Hunters:0,Gludin:0",
+      "reloadable": true,
+      "description": "Bot store places per town (steps 5b/5e): scattered places generated once (seeded, on the ground, clear of NPCs) and kept in the database; every 8th new place is a dwarf crafter. For now only Giran has stores; the other towns get places when their number is above 0 and they have an area in data/market-areas.xml."
+    },
+    "SimulatedDrift": {
+      "type": "enum",
+      "values": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto",
+      "reloadable": true,
+      "description": "auto = on in solo, off in online. Prices drift slowly (at most 10 % around the market, a new value each week) where real deals are too few, like in solo."
+    },
+    "TradeLogDays": {
+      "type": "int",
+      "default": 30,
+      "reloadable": true,
+      "description": "Days the trade log keeps a deal."
+    },
+    "Seed": {
+      "type": "long",
+      "default": 0,
+      "reloadable": false,
+      "description": "Seed of the price drift; 0 = derived from the database."
+    },
+    "NightStay": {
+      "type": "double",
+      "default": 0.6,
+      "reloadable": true,
+      "description": "Share of the traders that keep the normal name colour at night (1:00-7:59 server time); the others get the grey name of an offline store. All of them stay."
+    },
+    "RestockMinutes": {
+      "type": "int",
+      "default": 30,
+      "reloadable": true,
+      "description": "Bot stores live on in place: every this many minutes one store after another gets the paper deals since its last look, and a store that sold most of its goods is refilled (no logout)."
+    },
+    "CraftFee": {
+      "type": "double",
+      "default": 0.05,
+      "reloadable": true,
+      "description": "Step 5e: the fee of a bot crafter as a share of the product's market price (at least 100 adena); the player brings the materials, the stock recipe chance applies."
+    },
+    "SelfTest": {
+      "type": "bool",
+      "default": false,
+      "reloadable": false,
+      "description": "Smoke test only: once stores stand, one bot buys from a bot sell store and sells to a bot buy store through the stock store code and the result is logged (SELFTEST)."
+    },
+    "StoresAnywhere": {
+      "type": "enum",
+      "values": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto",
+      "reloadable": false,
+      "description": "Private stores for everybody anywhere (auto = on in solo, stock in online): the stock no-store zones (custom_no_store.xml) are off and Seven Signs peace zones allow stores; jail stays without stores. Applied at the start."
+    },
+    "BuyFromPlayers": {
+      "type": "bool",
+      "default": true,
+      "reloadable": true,
+      "description": "Step 5e: bots now and then walk to a real player's private sell store and buy a pack (about once in 20-40 minutes per store; never more than the player's day budget BotAdenaPerPlayerDay)."
+    },
+    "BuyFromPlayersMaxPrice": {
+      "type": "double",
+      "default": 1.1,
+      "reloadable": true,
+      "description": "Step 5e: bots buy in a player's store only at most market price x this."
+    },
+    "TradeChatAds": {
+      "type": "double",
+      "default": 2.0,
+      "reloadable": true,
+      "description": "Step 5f: bot trader ads (WTS/WTB of what is in their store) in the trade chat per minute for the whole world; 0 = none."
+    },
+    "TradeChatReplies": {
+      "type": "bool",
+      "default": true,
+      "reloadable": true,
+      "description": "Step 5f: a bot trader answers a real player's WTB/WTS in the trade chat by whisper (price within the market corridors); on 'ok' a walking bot meets the player at a gatekeeper, warehouse keeper or Priest of Dawn of his town, waits 3 minutes and does the deal in the trade window."
+    }
+  }
+}

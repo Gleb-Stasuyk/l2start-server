@@ -90,4 +90,60 @@ public final class CoreHooks {
             return false;
         }
     }
+
+    /**
+     * [HOOK:P5-STORE-DEAL] One line of a successful private store deal (TradeList.privateStoreBuy / privateStoreSell):
+     * the item has moved. Tells the listening modules; never changes the deal.
+     * @param buyStore true for a "buy" store (the owner bought), false for a sell / package store
+     */
+    public static void storeDeal(org.l2jmobius.gameserver.entity.actor.Player seller, org.l2jmobius.gameserver.entity.actor.Player buyer, int itemId, long count, long price,
+        boolean buyStore) {
+        try {
+            if ((StoreHooks.size() == 0) || (seller == null) || (buyer == null)) {
+                return;
+            }
+            StoreHooks.deal(new org.l2start.platform.api.StoreDeal(seller.getObjectId(), buyer.getObjectId(), itemId, count, price, buyStore, isBot(seller), isBot(buyer)));
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: store deal listener failed", t);
+        }
+    }
+
+    /**
+     * [HOOK:P6-BOT-TRADE] TradeRequest, after the stock request went to the partner: a bot has no client to answer,
+     * so a module that trades for its bots (economy-market, whispered WTS/WTB deals) may answer for it. Never changes
+     * a request between real players; inert without listeners.
+     */
+    public static void botTradeRequest(org.l2jmobius.gameserver.entity.actor.Player requester, org.l2jmobius.gameserver.entity.actor.Player partner) {
+        try {
+            if ((TradeHooks.size() == 0) || (requester == null) || (partner == null) || !isBot(partner)) {
+                return;
+            }
+            TradeHooks.request(requester, partner);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot trade listener failed", t);
+        }
+    }
+
+    /**
+     * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
+     * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
+     * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing
+     * bought). With the platform active the line is skipped in that case (the buyer gets his full item list instead)
+     * and the deal completes; without the platform the stock behaviour is unchanged.
+     * @return true = run the stock line
+     */
+    public static boolean storeBuyerAdenaLeft(org.l2jmobius.gameserver.entity.actor.Player buyer, Object adenaItem) {
+        try {
+            if ((adenaItem != null) || !Platform.get().isActive()) {
+                return true;
+            }
+            if (buyer != null) {
+                buyer.sendItemList(false); // the client drops its adena line
+            }
+            return false;
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: store adena guard failed", t);
+            return adenaItem != null;
+        }
+    }
 }

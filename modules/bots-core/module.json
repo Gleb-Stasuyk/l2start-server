@@ -2,7 +2,7 @@
   "id": "bots-core",
   "name": "Bots: core",
   "description": "Bot framework core: bots are stock Player objects without a client on their own banned accounts. Phase 3a-3c: bot accounts and characters with personas (names, looks, traits, play times), login/logout into the world, restore after a restart, bot presence for hooks P3-BOT-*, the bot runtime (shards, mailboxes, LOD) and the brain API (service org.l2start.bots.api.BrainRegistry), //bots admin commands. Phase 3e: the presence director: bots appear only around real players, out of their sight, with level, class, skills and gear of the zone, and leave unseen.",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "kind": "jar",
   "platform": "^1.2",
   "entrypoint": "org.l2start.bots.core.BotsCoreModule",

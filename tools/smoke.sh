@@ -8,7 +8,7 @@
 # It REPLACES the running l2s-* containers (same names/ports). Start the normal stack afterwards (start.bat solo).
 #
 # Scenarios:
-# The image always contains the real modules of modules/ (starter-kit, lw-fixes: on in both profiles; bots-core,
+# The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market: on in both profiles; bots-core,
 # bots-brain-basic: solo only);
 # the smoke image adds 9 test modules (platform/test/fixtures), switched by SMOKE_FIXTURES.
 #   1 stock     DisableAll=true                     -> healthy, startup counts == tools/smoke/baseline.txt, no module data
@@ -111,7 +111,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 13 discovered: 7 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 14 discovered: 8 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -178,8 +178,10 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 13 discovered: 2 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 14 discovered: 3 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
+check "online: stock no-store zones kept" hasnt "stores anywhere:" "$OUT/5-online.log"
+check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
 check "bots-brain-basic DISABLED in online" state_is bots-brain-basic DISABLED "$OUT/5-online.log"
 real_modules() { # real_modules LOG N
   check "$2: starter-kit RUNNING" state_is starter-kit RUNNING "$1"
@@ -188,7 +190,9 @@ real_modules() { # real_modules LOG N
   check "$2: profile override AutoLoot = True" has "override game/Player.ini: AutoLoot = True" "$1"
   check "$2: profile override DisableTutorial = True" has "override game/Player.ini: DisableTutorial = True" "$1"
   check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
-  check "$2: no platform error for starter-kit / lw-fixes" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes) ' \"\$0\"" "$1"
+  check "$2: no platform error for starter-kit / lw-fixes / economy-market" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes|economy-market) ' \"\$0\"" "$1"
+  check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
+  check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
   if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
 }
@@ -199,7 +203,7 @@ say "-- 6 solo, real modules only"
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/6-solo.log"
-check "summary: 4 running, fixtures disabled" grep -qE 'Platform: profile=solo, 13 discovered: 4 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "summary: 5 running, fixtures disabled" grep -qE 'Platform: profile=solo, 14 discovered: 5 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
 check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bots-core\]: brain 'basic' registered \(in use\)" "$OUT/6-solo.log"
@@ -209,6 +213,9 @@ check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-co
 check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity mod_bots_core_persona mod_bots_core_progress mod_bots_core_state "
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
+check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"
+check "economy-market: bot market on in solo (no store places here: StoresPerTown Giran:0 until scenario 8)" grep -qE 'Module\[economy-market\]: market: .*market on, stores \{\}' "$OUT/6-solo.log"
+check "economy-market: tables created" test "$(sql "SHOW TABLES LIKE 'mod_economy_market_%'" | sort | tr '\n' ' ')" = "mod_economy_market_flow mod_economy_market_hunter mod_economy_market_player_day mod_economy_market_price_index mod_economy_market_resale mod_economy_market_shopper mod_economy_market_spot mod_economy_market_store mod_economy_market_store_item mod_economy_market_trade_log mod_economy_market_wallet "
 check "bots-core: no bot created by default" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity")" = 0
 real_modules "$OUT/6-solo.log" 6
 check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
@@ -276,7 +283,7 @@ check "same places: positions saved at the 2nd stop == positions at the 1st stop
 # ---- 8 presence director: two test players (Anchors) - one in Giran, one on a level 39-40 ground (Field of Silence)
 say "-- 8 presence director (Anchors: Giran + Field of Silence)"
 docker stop -t 120 l2s-game >/dev/null 2>&1 || true
-export SMOKE_BOTS_PRESENCE=director SMOKE_BOTS_ANCHORS="82800;148500;-3450,88659;189101;-3610"
+export SMOKE_BOTS_PRESENCE=director SMOKE_BOTS_ANCHORS="82800;148500;-3450,88659;189101;-3610" SMOKE_MARKET_SELFTEST=true SMOKE_MARKET_STORES=Giran:60
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 check "director: anchors 2, old in-world marks cleared" wait_log 'Module\[bots-core\]: presence: director \([0-9]+ old in-world marks cleared, anchors 2\)' 300
@@ -290,9 +297,55 @@ check "director: no bots-core errors" bash -c "! grep -E 'Module\[bots-(core|bra
 # in the job log too (CI artifacts need a login): what the director and the runtime said, and any error line
 say "   last director/runtime lines:"; grep -E 'DIRECTOR players=|BOTS world=|presence: director|overload:' "$OUT/8-director.log" | tail -6 | cut -c1-400
 say "   error lines (first 15):"; grep -E 'Module\[bots-(core|brain-basic)\]: .*(ERROR|cannot)|Platform: module bots-(core|brain-basic) |brain of |SEVERE|Exception' "$OUT/8-director.log" | grep -Ev 'slow call|cannot tell' | head -15 | cut -c1-400
+# economy-market 5b-5f: 60 static bot traders at generated Giran places (polygon), crafters at the Adventure Guildsman, the 4UDO service trader, dwarf crafters
+check "traders: 60 store places generated in Giran (kept in the database)" wait_log 'Module\[economy-market\]: traders: 60 new store places generated in Giran' 240
+check "traders: the first store opened in Giran" wait_log 'Module\[economy-market\]: trader .* opened ' 240
+t8=0; while [ $t8 -lt 240 ] && [ "$(gamelog | grep -cE 'Module\[economy-market\]: trader .* opened ')" -lt 58 ]; do sleep 3; t8=$((t8 + 3)); done
+check "traders: >= 55 stores opened at the start without waiting for players" test "$(gamelog | grep -cE 'Module\[economy-market\]: trader .* opened (SELL|PACKAGE|BUY|CRAFT|SERVICE) ')" -ge 55
+check "traders: buy stores among them" wait_log 'Module\[economy-market\]: trader .* opened BUY ' 30
+check "traders: dwarf crafters (MANUFACTURE stores)" wait_log 'Module\[economy-market\]: trader .* opened CRAFT ' 30
+check "traders: 4UDO sells shots at the NPC price at 82703,147932" wait_log 'Module\[economy-market\]: trader 4UDO opened SERVICE .* at giran-4udo \(6 lines\)' 30
+check "SELFTEST: a sale from a bot sell store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST sell deal ok' 120
+check "SELFTEST: a sale to a bot buy store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST buy deal ok' 30
+check "SELFTEST: paying with all adena works (hook P5-STORE-ADENA)" wait_log 'Module\[economy-market\]: SELFTEST all-adena deal (ok|skipped)' 30
+check "traders: 60 places in the database (+2 resource crafters)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND profile<>'resources'")" = 60
+check "traders: places at least 60 apart" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot a JOIN mod_economy_market_spot b ON a.town=b.town AND a.spot<b.spot WHERE (a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y) < 3600")" = 0
+check "traders: all non-crafter places inside Gleb's market polygon (82194..82725, 147879..149330)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind<>'CRAFT' AND NOT (x BETWEEN 82194 AND 82725 AND y BETWEEN 147879 AND 149330)")" = 0
+check "traders: no place on 4UDO (82703,147932)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND (x-82703)*(x-82703)+(y-147932)*(y-147932) < 5625")" = 0
+check "traders: crafters sit around the Adventure Guildsman (82840,147796), not on him" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 160*160 AND 430*430")" -ge 4
+check "traders: 2 static resource crafters (dwarves) around the Adventure Guildsman" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND profile='resources' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 160*160 AND 430*430")" = 2
+check "traders: a resource crafter opened its workshop (Steel, Leather, Cord ...)" wait_log 'Module\[economy-market\]: trader .* opened CRAFT .* at giran-res[12] ' 60
+say "   places: $(sql "SELECT kind='CRAFT', COUNT(*), MIN(x), MAX(x), MIN(y), MAX(y) FROM mod_economy_market_spot WHERE town='Giran' GROUP BY kind='CRAFT'" | tr '\t\n' ' ;')"
+# 5f: bot ads in the trade chat (SelfTest: also without a real player)
+check "trade chat: bot traders write WTS/WTB ads" wait_log 'Module\[economy-market\]: trade chat ad: ' 150
+gamelog | grep -E 'trade chat ad: ' | head -4 | cut -c1-200 | tee -a "$SUMMARY"
+# 5f: whispered deals in the stock trade window (hook P6-BOT-TRADE)
+check "trade window: hook P6-BOT-TRADE in the core trade request" grep -q 'HOOK:P6-BOT-TRADE' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/TradeRequest.java
+check "trade window: Giran meeting places found (gatekeeper / warehouse / priest of dawn)" wait_log 'Module\[economy-market\]: SELFTEST trade meet points Giran: gatekeepers [1-9][0-9]*, warehouse keepers [1-9]' 120
+check "trade window: SELFTEST bot-to-bot exchange (wrong amount refused, exact deal done, no dupes)" wait_log 'Module\[economy-market\]: SELFTEST trade window: OK' 30
+check "trade window: no store hold left (5f old flow removed)" bash -c "! grep -rq 'traders.hold(' \"$ROOT\"/modules/economy-market/src"
+sleep 20
+gamelog > "$OUT/8-traders.log"
+say "   trader lines:"; grep -E 'Module\[economy-market\]: (trader .* opened|spot giran-|traders: |SELFTEST)' "$OUT/8-traders.log" | head -12 | cut -c1-300
+check "traders: static (nobody left except a sold-out store that comes back)" bash -c "! grep -E 'Module\[economy-market\]: trader .* left ' \"\$0\" | grep -qv 'sold out'" "$OUT/8-traders.log"
+check "traders: geodata height of the 4UDO place logged" grep -qE 'Module\[economy-market\]: spot giran-4udo \(4UDO\) at 82703,147932' "$OUT/8-traders.log"
+check "traders: no economy-market errors" bash -c "! grep -E 'Module\[economy-market\]: .*(failed|could not|FAILED)|Platform: module economy-market[: ]' \"\$0\" | grep -qv 'slow call'" "$OUT/8-traders.log"
+say "   economy-market error lines (first 20):"; grep -v 'slow call' "$OUT/8-traders.log" | grep -A8 -E 'Module\[economy-market\]: .*(failed|could not|FAILED)|Platform: module economy-market[: ]' | head -20 | cut -c1-300
+say "   trader bag items while they stand: $(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN (SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER')")"
+TRADERS="SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER'"
+check "traders: personas kept per place (>= 55, no progress rows)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity i WHERE status='TRADER' AND NOT EXISTS (SELECT 1 FROM mod_bots_core_progress g WHERE g.bot_id=i.bot_id)")" -ge 55
 docker stop -t 120 l2s-game >/dev/null
 docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
 check "director: bots logged out on shutdown, nobody marked to come back" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_state WHERE in_world<>0")" = 0
+sleep 1
+check "traders: stores on paper after the stop (>= 10 places with lines)" test "$(sql "SELECT COUNT(DISTINCT s.bot_id) FROM mod_economy_market_store s JOIN mod_economy_market_store_item i ON i.bot_id=s.bot_id WHERE s.town='Giran'")" -ge 10
+check "traders: no goods left in trader bags (items exist only while they stand)" test "$(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN ($TRADERS)")" = 0
+say "   trader bag items left (item_id count): $(sql "SELECT item_id, COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN ($TRADERS) GROUP BY item_id" | tr '\t\n' ':,')"
+check "traders: no stock offline-trade rows of bots" test "$(sql "SELECT (SELECT COUNT(*) FROM character_offline_trade WHERE charId IN (SELECT char_id FROM mod_bots_core_identity)) + (SELECT COUNT(*) FROM character_offline_trade_items WHERE charId IN (SELECT char_id FROM mod_bots_core_identity))")" = 0
+check "traders: the 2 self-test deals in the trade log" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_trade_log WHERE seller_bot=1 AND buyer_bot=1")" -ge 2
+check "traders: goods destroyed in the world on close (no stock save of the bag first)" bash -c "! grep -qE 'Module\[economy-market\]: trader .* bag rows still in the database' \"\$0\"" "$OUT/8-director-stop.log"
+check "traders: all stores closed on the stop, in time (before bots-core stops)" bash -c "grep -qE 'Module\[economy-market\]: traders: [0-9]+ stores closed \(server stop\)' \"\$0\" && ! grep -qE 'Platform: module economy-market did not finish onShutdown' \"\$0\"" "$OUT/8-director-stop.log"
+grep -E 'Module\[economy-market\]: (traders: [0-9]+ stores closed|trader .* left )|Platform: module economy-market (did not|failed)' "$OUT/8-director-stop.log" | head -6 | cut -c1-250 | tee -a "$SUMMARY"
 BOTS8="SELECT i.char_id FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id"
 sql "SELECT i.char_name, c.level, c.classid, g.level_base, (SELECT COUNT(*) FROM items it WHERE it.owner_id=c.charId AND it.loc='PAPERDOLL') FROM mod_bots_core_identity i JOIN mod_bots_core_progress g ON g.bot_id=i.bot_id JOIN characters c ON c.charId=i.char_id ORDER BY i.bot_id" > "$OUT/8-bots.txt"
 cat "$OUT/8-bots.txt" | tee -a "$SUMMARY" >/dev/null
@@ -302,7 +355,7 @@ check "director: level >= 20 bots wear zone gear (>= 4 items)" test "$(sql "SELE
 check "director: loot vanished (nothing in bags but arrows)" test "$(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345) AND owner_id IN ($BOTS8)")" = 0
 say "   bag items left (item_id count): $(sql "SELECT item_id, COUNT(*) FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345) AND owner_id IN ($BOTS8) GROUP BY item_id" | tr '\t\n' ':,')"
 check "director: bots hidden (online=0)" test "$(sql "SELECT COUNT(*) FROM characters WHERE online<>0 AND charId IN ($BOTS8)")" = 0
-unset SMOKE_BOTS_ANCHORS
+unset SMOKE_BOTS_ANCHORS SMOKE_MARKET_SELFTEST SMOKE_MARKET_STORES
 
 say "-- cleanup"
 cleanup

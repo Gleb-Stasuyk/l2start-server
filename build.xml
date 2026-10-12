@@ -106,9 +106,9 @@
 			<property name="java.release" value="${java.release}" />
 			<property name="out.root" value="${dist.modules}" />
 			<property name="module.classes.root" value="${build}/module-classes" />
-			<dirset dir="modules" includes="*" excludes="_*,bots-brain-*" />
+			<dirset dir="modules" includes="*" excludes="_*,bots-brain-*,economy-*" />
 		</subant>
-		<!-- second pass: brain modules compile against the bots-core jar (dependency "bots-core" in their module.json) -->
+		<!-- second pass: brain and economy modules compile against the bots-core jar (dependency "bots-core" in their module.json) -->
 		<subant genericantfile="modules/module-build.xml" inheritall="false" failonerror="true">
 			<property name="classes" value="${classes}" />
 			<property name="libs" value="${libs}" />
@@ -116,7 +116,7 @@
 			<property name="out.root" value="${dist.modules}" />
 			<property name="module.classes.root" value="${build}/module-classes" />
 			<property name="extra.classpath" value="${dist.modules}/bots-core/bots-core.jar" />
-			<dirset dir="modules" includes="bots-brain-*" excludes="_*" />
+			<dirset dir="modules" includes="bots-brain-*,economy-*" excludes="_*" />
 		</subant>
 	</target>
 

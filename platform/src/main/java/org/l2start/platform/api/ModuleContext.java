@@ -37,4 +37,20 @@ public interface ModuleContext {
      * the world itself (e.g. bots logged in by the module).
      */
     void cleanup(String name, Runnable action);
+
+    /**
+     * Since API 1.3. Told about every line of a successful deal in a stock private store (hook P5-STORE-DEAL),
+     * bots included. Guarded like every listener; removed when the module is disabled.
+     */
+    default void onStoreDeal(StoreDealListener listener) {
+        throw new UnsupportedOperationException("onStoreDeal needs platform API 1.3");
+    }
+
+    /**
+     * Since API 1.4. A real player asked a bot for a trade (hook P6-BOT-TRADE): the listener may answer for the bot.
+     * Guarded like every listener; removed when the module is disabled.
+     */
+    default void onBotTradeRequest(BotTradeListener listener) {
+        throw new UnsupportedOperationException("onBotTradeRequest needs platform API 1.4");
+    }
 }

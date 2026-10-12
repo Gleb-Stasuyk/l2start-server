@@ -114,6 +114,26 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onStoreDeal(org.l2start.platform.api.StoreDealListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.StoreDealListener guarded = d -> guard.run("store deal", () -> listener.onDeal(d));
+        org.l2start.platform.hooks.StoreHooks.add(entry.id(), guarded);
+        ownership.add("storeDeal", entry.id(), () -> org.l2start.platform.hooks.StoreHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
+    public void onBotTradeRequest(org.l2start.platform.api.BotTradeListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotTradeListener guarded = (r, b) -> {
+            final boolean[] out = { false };
+            guard.run("bot trade request", () -> out[0] = listener.onTradeRequest(r, b));
+            return out[0];
+        };
+        org.l2start.platform.hooks.TradeHooks.add(entry.id(), guarded);
+        ownership.add("botTrade", entry.id(), () -> org.l2start.platform.hooks.TradeHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
     public void cleanup(String name, Runnable action) {
         java.util.Objects.requireNonNull(action, "action");
         ownership.add("cleanup", name, action);
