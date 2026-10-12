@@ -168,6 +168,7 @@ public final class RatesFloatingModule implements GameModule {
             final Monster victim = new Monster(t);
             final Monster killer = new Monster(t);
             final int n = 3000;
+            final long stockAd0 = stockAdena.get(), ad0 = adena.get(); // adena rate from the same rolls (independent runs differ by luck)
             long stockLines = 0, floatLines = 0, stockAd = 0, floatAd = 0, stockSpoil = 0, floatSpoil = 0;
             int exactMax = 0;
             for (int i = 0; i < n; i++) {
@@ -202,10 +203,11 @@ public final class RatesFloatingModule implements GameModule {
                 stockSpoil += nn(sp).stream().mapToLong(ItemHolder::getCount).sum();
                 floatSpoil += nn(fsp).stream().mapToLong(ItemHolder::getCount).sum();
             }
+            final long dStock = stockAdena.get() - stockAd0, dAd = adena.get() - ad0;
             final double f = rules.f(lvl, lvl);
             ctx.log().info(String.format(Locale.ROOT,
-                "SELFTEST mob %d lvl %d F=%.2f C=%.2f kills=%d: adena x%.3f (expect %.1f), drop items/kill %.3f -> %.3f (x%.2f), spoil pieces/kill %.3f -> %.3f (x%.2f, expect ~%.1f), exact max %d",
-                t.getId(), lvl, f, rules.chance(false, f), n, stockAd == 0 ? 0.0 : floatAd / (double) stockAd, rules.adenaRate(), stockLines / (double) n, floatLines / (double) n,
+                "SELFTEST mob %d lvl %d F=%.2f C=%.2f kills=%d: adena x%.3f (expect %.1f; independent runs %d -> %d), drop items/kill %.3f -> %.3f (x%.2f), spoil pieces/kill %.3f -> %.3f (x%.2f, expect ~%.1f), exact max %d",
+                t.getId(), lvl, f, rules.chance(false, f), n, dStock == 0 ? 0.0 : dAd / (double) dStock, rules.adenaRate(), stockAd, floatAd, stockLines / (double) n, floatLines / (double) n,
                 stockLines == 0 ? 0.0 : floatLines / (double) stockLines, stockSpoil / (double) n, floatSpoil / (double) n, stockSpoil == 0 ? 0.0 : floatSpoil / (double) stockSpoil,
                 rules.chance(true, f) * rules.meanAmount(), exactMax));
         }
