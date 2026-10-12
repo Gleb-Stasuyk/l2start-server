@@ -45,4 +45,12 @@ public interface ModuleContext {
     default void onStoreDeal(StoreDealListener listener) {
         throw new UnsupportedOperationException("onStoreDeal needs platform API 1.3");
     }
+
+    /**
+     * Since API 1.4. A real player asked a bot for a trade (hook P6-BOT-TRADE): the listener may answer for the bot.
+     * Guarded like every listener; removed when the module is disabled.
+     */
+    default void onBotTradeRequest(BotTradeListener listener) {
+        throw new UnsupportedOperationException("onBotTradeRequest needs platform API 1.4");
+    }
 }

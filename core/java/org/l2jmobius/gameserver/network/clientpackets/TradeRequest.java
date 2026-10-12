@@ -153,6 +153,7 @@ public class TradeRequest extends ClientPacket
 		
 		player.onTransactionRequest(partner);
 		partner.sendPacket(new SendTradeRequest(player.getObjectId()));
+		org.l2start.platform.hooks.CoreHooks.botTradeRequest(player, partner); // [HOOK:P6-BOT-TRADE]
 		sm = new SystemMessage(SystemMessageId.YOU_HAVE_REQUESTED_A_TRADE_WITH_S1);
 		sm.addString(partner.getName());
 		player.sendPacket(sm);

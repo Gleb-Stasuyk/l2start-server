@@ -109,6 +109,22 @@ public final class CoreHooks {
     }
 
     /**
+     * [HOOK:P6-BOT-TRADE] TradeRequest, after the stock request went to the partner: a bot has no client to answer,
+     * so a module that trades for its bots (economy-market, whispered WTS/WTB deals) may answer for it. Never changes
+     * a request between real players; inert without listeners.
+     */
+    public static void botTradeRequest(org.l2jmobius.gameserver.entity.actor.Player requester, org.l2jmobius.gameserver.entity.actor.Player partner) {
+        try {
+            if ((TradeHooks.size() == 0) || (requester == null) || (partner == null) || !isBot(partner)) {
+                return;
+            }
+            TradeHooks.request(requester, partner);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot trade listener failed", t);
+        }
+    }
+
+    /**
      * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
      * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
      * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing
