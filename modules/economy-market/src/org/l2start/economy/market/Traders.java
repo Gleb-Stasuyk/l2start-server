@@ -108,6 +108,7 @@ final class Traders {
     private final MarketAreas areas;
     private final Assortment assortment;
     private final Crafts crafts;
+    private final Shoppers shoppers;
     private final Random rnd = new Random();
     private final Map<String, Store> stores = new ConcurrentHashMap<>(); // spot id
     private final Map<Integer, Store> byChar = new ConcurrentHashMap<>();
@@ -131,6 +132,7 @@ final class Traders {
         areas = MarketAreas.load(m.ctx().resources().path("data/market-areas.xml"));
         assortment = Assortment.load(m.ctx().resources().path("data/trader-profiles.xml"));
         crafts = new Crafts(m);
+        shoppers = new Shoppers(m, this, pool);
     }
 
     /** @return the runtime, or null without the bots-core service (module off, or not installed). */
@@ -217,6 +219,11 @@ final class Traders {
                 }
             }
         }
+        try {
+            shoppers.tick(now); // 5e
+        } catch (Exception e) {
+            warnOnce("shoppers " + e.getClass().getSimpleName(), "shoppers: " + e);
+        }
         if (m.ctx().config().getBoolean("SelfTest") && !selfTested) {
             selfTest();
         }
@@ -245,6 +252,16 @@ final class Traders {
 
     long budgetLeft() {
         return budgetLeft;
+    }
+
+    /** 5e: a bot bought in a player's store: the day budget shrinks at once (buy stores follow on the next tick). */
+    void spent(long adena) {
+        budgetLeft = Math.max(0, budgetLeft - adena);
+        budgetHit = true;
+    }
+
+    boolean isBotStore(int charId) {
+        return byChar.containsKey(charId);
     }
 
     private void applyLook(Store s, Player p, boolean offline) {
@@ -758,6 +775,7 @@ final class Traders {
     /** Server stop: no tick opens a store again (the platform stops the module's tasks only after its stop). */
     synchronized void stop() {
         stopped = true;
+        shoppers.stop();
         closeAll("server stop");
     }
 
@@ -848,7 +866,7 @@ final class Traders {
     }
 
     /** Everything in the bag that is not worn: goods and adena exist only while the store stands. */
-    private static int emptyBag(Player p) {
+    static int emptyBag(Player p) {
         int n = 0;
         for (Item it : new ArrayList<>(p.getInventory().getItems())) {
             if (!it.isEquipped() && (p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null) != null)) {

@@ -235,6 +235,16 @@ final class MarketRepository {
         return out;
     }
 
+    // ---- step 5e: shoppers
+
+    List<Integer> shoppers() throws SQLException {
+        return db.query("SELECT bot_id FROM " + db.table("shopper") + " ORDER BY bot_id", rs -> rs.getInt(1));
+    }
+
+    void addShopper(int botId) throws SQLException {
+        db.update("INSERT IGNORE INTO " + db.table("shopper") + " (bot_id, created_at) VALUES (?,?)", botId, System.currentTimeMillis());
+    }
+
     long seed() throws SQLException {
         return db.queryOne("SELECT COALESCE(MIN(charId), 1) FROM characters", rs -> rs.getLong(1)).orElse(1L);
     }

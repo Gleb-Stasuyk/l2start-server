@@ -1,8 +1,8 @@
 {
   "id": "economy-market",
   "name": "Economy: market",
-  "description": "Phase 5 bot market. Step 5a: the market item catalogue (Living Worlds allow-list + shots and potions, with grade, NPC price, NPC-sold and stage from stock data), the price index of real private store deals (hook P5-STORE-DEAL, API 1.3), the trade log, the server stage 1-5 and the price model (base from the NPC price and stage, blend with the index, solo drift, seller and buyer prices); //market. In online it only keeps the trade log and the index (invisible to players). Steps 5b/5c (with bots-core): bot traders stand at the store places of a town while a real player is near (persona, name, kind and sign kept per place), SELL, PACKAGE_SELL and BUY stores, life on paper while away, night offline look, wallets, resale of bought goods, daily limits of selling to bots; //market traders.",
-  "version": "0.2.0",
+  "description": "Phase 5 bot market. Step 5a: the market item catalogue (Living Worlds allow-list + shots and potions, with grade, NPC price, NPC-sold and stage from stock data), the price index of real private store deals (hook P5-STORE-DEAL, API 1.3), the trade log, the server stage 1-5 and the price model (base from the NPC price and stage, blend with the index, solo drift, seller and buyer prices); //market. In online it only keeps the trade log and the index (invisible to players). Steps 5b/5c (with bots-core): bot traders stand at the store places of a town while a real player is near (persona, name, kind and sign kept per place), SELL, PACKAGE_SELL and BUY stores, life on paper while away, night offline look, wallets, resale of bought goods, daily limits of selling to bots; //market traders. Step 5d: the players' day budget, hunter wallets pay shots and potions (bots-core service Supplies), MARKET line. Step 5e: bots buy in real players' stores. Step 5f: WTS/WTB in the trade chat (ads, whispered offers, deal held in the store).",
+  "version": "0.3.0",
   "kind": "jar",
   "platform": "^1.3",
   "entrypoint": "org.l2start.economy.market.EconomyMarketModule",
@@ -135,6 +135,30 @@
       "default": "auto",
       "reloadable": false,
       "description": "Private stores for everybody anywhere (auto = on in solo, stock in online): the stock no-store zones (custom_no_store.xml) are off and Seven Signs peace zones allow stores; jail stays without stores. Applied at the start."
+    },
+    "BuyFromPlayers": {
+      "type": "bool",
+      "default": true,
+      "reloadable": true,
+      "description": "Step 5e: bots now and then walk to a real player's private sell store and buy a pack (about once in 20-40 minutes per store; never more than the player's day budget BotAdenaPerPlayerDay)."
+    },
+    "BuyFromPlayersMaxPrice": {
+      "type": "double",
+      "default": 1.1,
+      "reloadable": true,
+      "description": "Step 5e: bots buy in a player's store only at most market price x this."
+    },
+    "TradeChatAds": {
+      "type": "double",
+      "default": 2.0,
+      "reloadable": true,
+      "description": "Step 5f: bot trader ads (WTS/WTB of what is in their store) in the trade chat per minute for the whole world; 0 = none."
+    },
+    "TradeChatReplies": {
+      "type": "bool",
+      "default": true,
+      "reloadable": true,
+      "description": "Step 5f: a bot trader answers a real player's WTB/WTS in the trade chat by whisper (price within the market corridors); on 'ok' the deal is held in its store for 3 minutes."
     }
   }
 }

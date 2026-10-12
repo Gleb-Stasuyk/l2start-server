@@ -165,6 +165,11 @@ public final class MarketAreas {
     /** 2nd professions a trader may show (all races; crafters are Warsmiths). */
     static final int[] PROFESSIONS = { 2, 3, 5, 6, 8, 9, 12, 13, 14, 16, 17, 20, 21, 23, 24, 27, 28, 30, 33, 34, 36, 37, 40, 41, 43, 46, 48, 51, 52, 55, 57 };
     public static final int WARSMITH = 57;
+    /** A random 2nd profession of the trader looks (shoppers, 5e). */
+    public static int randomProfession(Random rnd) {
+        return PROFESSIONS[rnd.nextInt(PROFESSIONS.length)];
+    }
+
     /** Every 8th new place without a former trader's look is a crafter. */
     static final int CRAFT_EVERY = 8;
 
