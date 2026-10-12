@@ -312,8 +312,8 @@ final class Traders {
         if (c != null) {
             moveCrafters(a, c, plan, keptPts, blockers, ground, r, town);
         }
-        for (int k = 0; k < plan.size(); k++) {
-            repo.addSpot(plan.get(k), kept.size() + k);
+        for (int k = 0; (k < plan.size()) && hasGeo; k++) {
+            repo.addSpot(plan.get(k), kept.size() + k); // places made without geodata are not kept: the next start with geodata makes real ones
         }
         m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + a.town() + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
             + ((plan.size() < count) ? ", only " + plan.size() + " of " + count + " fit" : "") + ")");
