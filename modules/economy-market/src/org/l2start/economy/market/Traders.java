@@ -159,7 +159,7 @@ final class Traders {
         final long day = LocalDate.now().toEpochDay();
         final double nightStay = m.ctx().config().getDouble("NightStay");
         final long restockMs = Math.max(1, m.ctx().config().getInt("RestockMinutes")) * 60_000L;
-        if ((now - budgetAt) >= 60_000L) {
+        if ((now - budgetAt) >= 15_000L) {
             budgetAt = now;
             refreshBudget();
         }
@@ -240,20 +240,23 @@ final class Traders {
     /**
      * Step 5d: what bots may still pay real players today. A real player in the world: the one with the most room
      * ({@code BotAdenaPerPlayerDay} of an hour of farming at his level minus what bots paid him today); nobody in the
-     * world: the highest real character and the most any real character got today.
+     * world: no limit (nobody can sell; the lists are cut when a player comes).
      */
     void refreshBudget() throws Exception {
         final double share = m.ctx().config().getDouble("BotAdenaPerPlayerDay");
         final int day = (int) LocalDate.now().toEpochDay();
         long best = -1;
         for (Player p : World.getPlayers()) {
-            if ((p == null) || byChar.containsKey(p.getObjectId()) || org.l2start.platform.hooks.CoreHooks.isBot(p)) {
-                continue;
+            if ((p == null) || (p.isOnlineInt() != 1) || byChar.containsKey(p.getObjectId()) || org.l2start.platform.hooks.CoreHooks.isBot(p)) {
+                continue; // with a client only (offline stores do not sell to bots)
             }
             best = Math.max(best, Budget.left(p.getLevel(), share, repo.playerPaid(p.getObjectId(), day)));
         }
         if (best < 0) {
-            best = Budget.left((int) repo.realPlayers()[0], share, repo.playerPaidMax(day));
+            best = Long.MAX_VALUE; // nobody in the world can sell: the buy stores show their full lists
+        }
+        if (best < budgetLeft) {
+            budgetHit = true; // a player came (or got paid): the buy stores show only what is left for him
         }
         budgetLeft = best;
     }
@@ -718,7 +721,7 @@ final class Traders {
             s.charId = p.getObjectId();
             byChar.put(p.getObjectId(), s);
             s.open = true;
-            if ((put == 0) && buy && (budgetLeft <= 0) && !s.lines.isEmpty()) {
+            if ((put == 0) && buy && (budgetLeft != Long.MAX_VALUE) && !s.lines.isEmpty()) {
                 // 5d: the day budget is spent: the buyer stays, "full for today" (an empty buy list, never store NONE)
                 p.getBuyList().setTitle(StoreTitle.fit("RU".equals(pool.lang(s.row.botId())) ? "Набрал, завтра снова" : "Full today, back tmrw"));
                 s.charId = p.getObjectId();

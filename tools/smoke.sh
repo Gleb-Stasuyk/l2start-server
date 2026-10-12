@@ -215,7 +215,7 @@ check "presence director on by default (whole world catalogue)" grep -qE 'Module
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"
 check "economy-market: bot market on in solo (no store places here: StoresPerTown Giran:0 until scenario 8)" grep -qE 'Module\[economy-market\]: market: .*market on, stores \{\}' "$OUT/6-solo.log"
-check "economy-market: tables created" test "$(sql "SHOW TABLES LIKE 'mod_economy_market_%'" | sort | tr '\n' ' ')" = "mod_economy_market_player_day mod_economy_market_price_index mod_economy_market_resale mod_economy_market_spot mod_economy_market_store mod_economy_market_store_item mod_economy_market_trade_log mod_economy_market_wallet "
+check "economy-market: tables created" test "$(sql "SHOW TABLES LIKE 'mod_economy_market_%'" | sort | tr '\n' ' ')" = "mod_economy_market_flow mod_economy_market_hunter mod_economy_market_player_day mod_economy_market_price_index mod_economy_market_resale mod_economy_market_shopper mod_economy_market_spot mod_economy_market_store mod_economy_market_store_item mod_economy_market_trade_log mod_economy_market_wallet "
 check "bots-core: no bot created by default" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity")" = 0
 real_modules "$OUT/6-solo.log" 6
 check "platform_modules: starter-kit / lw-fixes RUNNING" test "$(sql "SELECT GROUP_CONCAT(last_state ORDER BY module_id) FROM platform_modules WHERE module_id IN ('lw-fixes','starter-kit')")" = "RUNNING,RUNNING"
