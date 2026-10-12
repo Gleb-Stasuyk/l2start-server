@@ -368,6 +368,12 @@ final class Traders {
             return have;
         }
         List<Spot> places = new ArrayList<>(repo.spots(town));
+        final SpotGenerator.Area area = areas.area(town);
+        if ((have == null) && !places.isEmpty() && (area != null) && GeoEngine.getInstance().hasGeo(area.cx(), area.cy()) && (repo.flatSpots(places.get(0).town()) > 0)) {
+            repo.dropSpots(places.get(0).town());
+            m.ctx().log().info("traders: the places of " + town + " were made without geodata, generated again on the ground");
+            places = new ArrayList<>();
+        }
         if ((have == null) && places.stream().anyMatch(sp -> !areas.fits(sp))) {
             // data/market-areas.xml has a new layout (polygon, crafters' ring): the places of the town are made again
             final long out = places.stream().filter(sp -> !areas.fits(sp)).count();
@@ -459,8 +465,8 @@ final class Traders {
         if (c != null) {
             moveCrafters(a, c, plan, keptPts, blockers, ground, r, town);
         }
-        for (int k = 0; (k < plan.size()) && hasGeo; k++) {
-            repo.addSpot(plan.get(k), kept.size() + k); // places made without geodata are not kept: the next start with geodata makes real ones
+        for (int k = 0; k < plan.size(); k++) {
+            repo.addSpot(plan.get(k), kept.size() + k, hasGeo); // places made without geodata are made again at the next start with geodata
         }
         m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + a.town() + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
             + ((plan.size() < count) ? ", only " + plan.size() + " of " + count + " fit" : "") + ")");

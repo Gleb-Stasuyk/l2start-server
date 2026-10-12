@@ -190,9 +190,14 @@ final class MarketRepository {
             rs.getString(1), rs.getString(2), rs.getInt(3), rs.getInt(4), rs.getInt(5), rs.getInt(6), rs.getString(7), rs.getString(8), rs.getString(9), rs.getString(10), rs.getString(11), rs.getInt(12)), town);
     }
 
-    void addSpot(org.l2start.economy.market.model.StoreSpots.Spot s, int idx) throws SQLException {
-        db.update("INSERT INTO " + db.table("spot") + " (town, spot, idx, x, y, z, heading, kind, profile, legacy, race, sex, class_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", s.town(), s.id(), idx, s.x(), s.y(), s.z(),
-            s.heading(), s.kind(), s.profile(), s.legacy(), s.race(), s.sex(), s.classId());
+    void addSpot(org.l2start.economy.market.model.StoreSpots.Spot s, int idx, boolean geo) throws SQLException {
+        db.update("INSERT INTO " + db.table("spot") + " (town, spot, idx, x, y, z, heading, kind, profile, legacy, race, sex, class_id, geo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", s.town(), s.id(), idx, s.x(), s.y(),
+            s.z(), s.heading(), s.kind(), s.profile(), s.legacy(), s.race(), s.sex(), s.classId(), geo ? 1 : 0);
+    }
+
+    /** Places of a town made without geodata. */
+    long flatSpots(String town) throws SQLException {
+        return db.queryOne("SELECT COUNT(*) FROM " + db.table("spot") + " WHERE town = ? AND geo = 0", rs -> rs.getLong(1), town).orElse(0L);
     }
 
     /** The layout of a town changed: its places are generated again (the traders keep their personas by place id). */
