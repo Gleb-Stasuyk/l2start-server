@@ -160,7 +160,7 @@ public final class RatesFloatingModule implements GameModule {
     private void selfTest() {
         for (int lvl : new int[] { 20, 40, 60 }) {
             final NpcTemplate t = NpcData.getInstance().getTemplates(x -> x.isType("Monster") && (x.getLevel() == lvl) && (x.getDropGroups() != null) && (x.getSpoilList() != null))
-                .stream().min(Comparator.comparingInt(NpcTemplate::getId)).orElse(null);
+                .stream().max(Comparator.comparingInt((NpcTemplate x) -> x.getSpoilList().size()).thenComparingInt(x -> -x.getId())).orElse(null); // the richest spoil list: enough pieces for an average
             if (t == null) {
                 ctx.log().warn("SELFTEST no monster of level " + lvl);
                 continue;
