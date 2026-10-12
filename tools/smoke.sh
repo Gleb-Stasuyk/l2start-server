@@ -308,7 +308,7 @@ check "traders: 4UDO sells shots at the NPC price at 82703,147932" wait_log 'Mod
 check "SELFTEST: a sale from a bot sell store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST sell deal ok' 120
 check "SELFTEST: a sale to a bot buy store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST buy deal ok' 30
 check "SELFTEST: paying with all adena works (hook P5-STORE-ADENA)" wait_log 'Module\[economy-market\]: SELFTEST all-adena deal (ok|skipped)' 30
-check "traders: 60 places in the database" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran'")" = 60
+check "traders: 60 places in the database (+2 resource crafters)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND profile<>'resources'")" = 60
 check "traders: places at least 60 apart" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot a JOIN mod_economy_market_spot b ON a.town=b.town AND a.spot<b.spot WHERE (a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y) < 3600")" = 0
 check "traders: all non-crafter places inside Gleb's market polygon (82194..82725, 147879..149330)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind<>'CRAFT' AND NOT (x BETWEEN 82194 AND 82725 AND y BETWEEN 147879 AND 149330)")" = 0
 check "traders: no place on 4UDO (82703,147932)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND (x-82703)*(x-82703)+(y-147932)*(y-147932) < 5625")" = 0

@@ -199,14 +199,14 @@ final class Meetings {
     }
 
     static TradeMeet.Kind kind(Npc npc) {
-        final String title = (npc.getTitle() == null) ? "" : npc.getTitle();
-        if ((npc instanceof org.l2jmobius.gameserver.entity.actor.instance.Teleporter) && title.contains("Gatekeeper")) {
+        final String title = ((npc.getTitle() == null) || npc.getTitle().isEmpty()) ? String.valueOf(npc.getTemplate().getTitle()) : npc.getTitle();
+        if (title.contains("Gatekeeper")) {
             return TradeMeet.Kind.GATEKEEPER;
         }
-        if ((npc instanceof org.l2jmobius.gameserver.entity.actor.instance.Warehouse) && title.contains("Warehouse")) {
+        if (title.contains("Warehouse")) {
             return TradeMeet.Kind.WAREHOUSE;
         }
-        if ("Priest of Dawn".equals(npc.getName())) {
+        if ("Priest of Dawn".equals(npc.getName()) || "Priest of Dawn".equals(npc.getTemplate().getName())) {
             return TradeMeet.Kind.PRIEST;
         }
         return null;
