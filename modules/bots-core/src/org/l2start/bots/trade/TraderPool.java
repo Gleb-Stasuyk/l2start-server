@@ -29,6 +29,11 @@ public interface TraderPool {
     /** Persona greed 0..1 (prices). */
     double greed(int botId);
 
+    /** Persona chattiness 0..1 (how often it writes in the trade chat; 0.5.2). */
+    default double chattiness(int botId) {
+        return 0.5;
+    }
+
     /**
      * Logs the trader in at x, y, z facing {@code heading}, at {@code level} (never lower than it is) with the profession,
      * skills and gear of that level and an empty bag. {@code ready} runs in the world (open the store there).

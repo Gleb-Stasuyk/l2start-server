@@ -98,6 +98,12 @@ final class TraderService implements TraderPool {
     }
 
     @Override
+    public double chattiness(int botId) {
+        final BotRecord r = rec(botId);
+        return ((r == null) || (r.persona() == null)) ? 0.5 : r.persona().traits().chattiness();
+    }
+
+    @Override
     public String enter(int botId, int x, int y, int z, int heading, int level, Consumer<Player> ready) {
         final BotRecord r = rec(botId);
         if ((r == null) || (r.status() != BotRecord.Status.TRADER)) {
