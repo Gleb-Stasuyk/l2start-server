@@ -261,6 +261,13 @@ public final class AdminBots implements IAdminCommandHandler {
         final org.l2start.bots.api.Assignment a = r.assignment();
         sb.append("Order: ").append(a == null ? "none (manual)" : escape(a.toString())).append(", paper level ").append(r.paperLevel(System.currentTimeMillis())).append("<br>");
         sb.append("Deaths: ").append(r.deaths()).append(", whispers received: ").append(r.whispers()).append("<br>");
+        final org.l2start.bots.core.BotsCoreModule.MemoryView mem = core.memoryOf(r);
+        if (!mem.lines().isEmpty()) {
+            sb.append("Memory: ");
+            for (String l : mem.lines()) {
+                sb.append(escape(l)).append("<br>");
+            }
+        }
         if (r.trouble() != null) {
             sb.append("<font color=\"FF6666\">Last trouble: ").append(escape(r.trouble())).append("</font><br>");
         }

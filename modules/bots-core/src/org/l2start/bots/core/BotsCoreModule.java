@@ -111,6 +111,18 @@ public final class BotsCoreModule implements GameModule {
         }
         applyConfig();
         ctx.services().provide(BrainRegistry.class, brains);
+        final org.l2start.bots.chat.Phrases phrases = org.l2start.bots.chat.Phrases.load(ctx.resources().path("data/chat/phrases.xml"));
+        brains.setTemplates(new org.l2start.bots.chat.TemplateBrain(phrases, System::currentTimeMillis, new java.util.Random()));
+        ctx.log().info("chat: " + phrases.intents().size() + " intents (phase 6 phrase banks)");
+        final MemoryStore memories = new MemoryStore(ctx.db());
+        brains.setMemories(memories);
+        ctx.scheduler().fixedRate("bot memory", Duration.ofMinutes(1), Duration.ofMinutes(1), () -> {
+            try {
+                memories.flush();
+            } catch (Exception e) {
+                ctx.log().warn("bot memory not saved: " + e.getMessage());
+            }
+        });
         // phase 5: store traders for economy-market (personas kept for a store place, no brain)
         ctx.services().provide(org.l2start.bots.trade.TraderPool.class, new TraderService(this, factory, repo, GearTable.load(ctx.resources().path("data/gear.xml"))));
 
@@ -281,6 +293,14 @@ public final class BotsCoreModule implements GameModule {
     @Override
     public void onShutdown(ModuleContext context) {
         stopAll("server shutdown");
+        final MemoryStore ms = brains == null ? null : brains.memories();
+        if (ms != null) {
+            try {
+                ms.flush();
+            } catch (Exception e) {
+                ctx.log().warn("bot memory not saved: " + e.getMessage());
+            }
+        }
     }
 
     /** Manual mode: bots come back after the restart. Director mode: loot vanishes, levels saved, nobody comes back. */
@@ -627,6 +647,23 @@ public final class BotsCoreModule implements GameModule {
 
     public BotWorld world() {
         return world;
+    }
+
+    /** Phase 6a: what a bot remembers of real players, for //bots info. */
+    public record MemoryView(java.util.List<String> lines) {
+    }
+
+    public MemoryView memoryOf(BotRecord r) {
+        final MemoryStore ms = brains == null ? null : brains.memories();
+        final java.util.List<String> out = new java.util.ArrayList<>();
+        if ((ms != null) && r.inWorld()) {
+            for (org.l2start.bots.api.Memory.Of o : ms.summary(r.botId())) {
+                final org.l2jmobius.gameserver.entity.actor.Player who = org.l2jmobius.gameserver.entity.World.getPlayer(o.charId());
+                out.add((who == null ? "#" + o.charId() : who.getName()) + ": affinity " + o.affinity() + ", party " + o.partyMinutes() + " min, met " + o.met()
+                    + (o.tags().isEmpty() ? "" : ", " + MemoryStore.tagText(o.tags())));
+            }
+        }
+        return new MemoryView(out);
     }
 
     public BrainHost brains() {

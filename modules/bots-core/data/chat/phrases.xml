@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  bots-core phase 6: phrase banks of bots by intent (what the bot's brain decided to say). Lines are separated by |,
+  {player} is the other player's name. RU and EN; personas with language MIX use EN now and then. Lines are
+  "humanized" when said (lower case, no full stop, rare typos). The same line of a bot comes again only after 10 min.
+  Phase 6a-6c: party with a real player (answer to an invitation, party chat, commands, leaving).
+-->
+<phrases>
+	<!-- joined the player's party -->
+	<intent id="PARTY_HELLO">
+		<ru>ку|привет|всем привет|хай|прив|го|о, го|ку, го фармить|привет, я с вами|здарова</ru>
+		<en>hi|hey|yo|hello|hi all|hey guys|sup|hi, lets go|hello all|ok lets go</en>
+	</intent>
+	<!-- declines: hunts alone -->
+	<intent id="DECLINE_SOLO">
+		<ru>сорри, я соло|не, я соло фармлю|спс, я один|не, я сам|сорри, не пати сейчас</ru>
+		<en>sorry, solo|no thx, solo|i play solo sorry|nah im solo|sorry, not now</en>
+	</intent>
+	<!-- declines: leaving soon / going to town -->
+	<intent id="DECLINE_LEAVING">
+		<ru>не, я скоро ухожу|сорри, мне скоро офф|я в город, сорри|не успею уже, сорри</ru>
+		<en>sorry, leaving soon|going off soon sorry|going to town, sorry|no time sorry</en>
+	</intent>
+	<!-- declines: level too far apart -->
+	<intent id="DECLINE_LEVEL">
+		<ru>уровень не тот, сорри|у нас разница большая|не, по уровню не подходим|опыта не будет, сорри</ru>
+		<en>lvl gap too big sorry|wrong level for party|sorry, level diff|no exp with that gap sorry</en>
+	</intent>
+	<!-- declines: the player's party has enough bots / is full -->
+	<intent id="DECLINE_FULL">
+		<ru>у вас и так полная|не, вас и так много|сорри, вас уже много</ru>
+		<en>you have enough ppl|party is big already|nah, you're full</en>
+	</intent>
+	<!-- asked again after two refusals -->
+	<intent id="DECLINE_AGAIN">
+		<ru>я же сказал, нет|нет, спс|не надо|я же говорю, соло</ru>
+		<en>i said no|no thx|stop pls|still no</en>
+	</intent>
+	<!-- party chat: short acknowledgement of a command -->
+	<intent id="ACK">
+		<ru>ок|оке|ага|понял|лады|+|угу|окей</ru>
+		<en>ok|k|okay|sure|got it|+|roger|np</en>
+	</intent>
+	<!-- party chat: did not understand -->
+	<intent id="HUH">
+		<ru>?|чё?|не понял|??</ru>
+		<en>?|what?|huh|??</en>
+	</intent>
+	<!-- buffed the player on request -->
+	<intent id="BUFFED">
+		<ru>бафнул|баф есть|держи баф|готово|бафнул, го</ru>
+		<en>buffed|done|buffs up|there you go|bf done</en>
+	</intent>
+	<!-- asked to resurrect without a resurrection -->
+	<intent id="NO_RES">
+		<ru>реса нет, сорри|у меня нет реса|не могу ресать|реса нет(</ru>
+		<en>no res sorry|i have no res|cant res|no rez, sorry</en>
+	</intent>
+	<!-- the player raised the bot -->
+	<intent id="THANKS_RES">
+		<ru>спс|спасибо за рес|спс за рес|благодарю|о, спс</ru>
+		<en>ty|thx for res|thanks|tyvm|ty for rez</en>
+	</intent>
+	<!-- resurrected the player -->
+	<intent id="RESSED">
+		<ru>ресаю|держи рес|рес|прими рес</ru>
+		<en>res|rezzing|accept res|res sent</en>
+	</intent>
+	<!-- heads up before it leaves -->
+	<intent id="WARN_LEAVE">
+		<ru>мне минут 5 и пора|я скоро офф|ещё пару мобов и я ухожу|мне скоро уходить|минут через 5 офф</ru>
+		<en>5 more min and i'm off|leaving soon|few more mobs and i go|gotta go soon|i'm off in 5</en>
+	</intent>
+	<!-- leaves the party -->
+	<intent id="BYE">
+		<ru>спасибо за пати, я офф|всё, я ушёл, спс|спс за пати|пока, спс|всем спс, я спать|ну всё, бб</ru>
+		<en>thx for party, i'm off|gtg, thanks|ty for pt|bye all|thx, going off|bb, ty</en>
+	</intent>
+	<!-- the player is far / teleported and the bot does not wait -->
+	<intent id="STAY_HERE">
+		<ru>ок, я тут останусь, пока|я тут пофармлю, бб|ладно, я дальше сам, пока</ru>
+		<en>ok i stay here, bye|i'll farm here, cya|ok, solo from here, bb</en>
+	</intent>
+	<!-- the player is far / teleported and the bot waits -->
+	<intent id="WAIT">
+		<ru>жду|ок, жду тут|я тут, жду|давай, жду</ru>
+		<en>waiting|ok, i wait here|i'm here|k, waiting</en>
+	</intent>
+	<!-- the player is AFK too long -->
+	<intent id="AFK_BYE">
+		<ru>ты афк? я пойду|ладно, я пошёл, пока|ну я ушёл, пока</ru>
+		<en>afk? i'll go|ok i'm going, bye|gone afk? cya</en>
+	</intent>
+	<!-- asked for the lead / took it -->
+	<intent id="LEADER">
+		<ru>держи лидера|ок, лидер твой|бери|ок</ru>
+		<en>you lead|lead is yours|here|ok</en>
+	</intent>
+	<!-- player levelled up in the party -->
+	<intent id="GRATS">
+		<ru>грац|поздравляю|гц|с апом</ru>
+		<en>grats|gz|congrats|gratz</en>
+	</intent>
+</phrases>

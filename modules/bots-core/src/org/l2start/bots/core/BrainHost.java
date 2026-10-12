@@ -88,6 +88,44 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         public void note(String text) {
             m.slot.log().add(clock.now(), text);
         }
+
+        private org.l2start.bots.api.Chat chat;
+
+        @Override
+        public org.l2start.bots.api.Memory memory() {
+            final MemoryStore ms = memories;
+            return ms == null ? NO_MEMORY : ms.of(m.r.botId());
+        }
+
+        @Override
+        public org.l2start.bots.api.Chat chat() {
+            final org.l2start.bots.chat.TemplateBrain t = templates;
+            if (t == null) {
+                return org.l2start.bots.api.Chat.SILENT;
+            }
+            if (chat == null) {
+                chat = new org.l2start.bots.chat.TemplateChat(t, info, rnd);
+            }
+            return chat;
+        }
+    }
+
+    /** Phase 6a: memories of real players (null = no database: nothing is remembered). */
+    private volatile MemoryStore memories;
+
+    void setMemories(MemoryStore m) {
+        memories = m;
+    }
+
+    MemoryStore memories() {
+        return memories;
+    }
+
+    /** Phase 6a: the phrase banks (null = none: bots are silent). */
+    private volatile org.l2start.bots.chat.TemplateBrain templates;
+
+    void setTemplates(org.l2start.bots.chat.TemplateBrain t) {
+        templates = t;
     }
 
     private final ModuleContext ctx;
@@ -235,6 +273,16 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     void left(BotRecord r) {
         final Mind m = minds.remove(r.charId());
         r.setSlot(null);
+        final MemoryStore ms = memories;
+        if (ms != null) {
+            ctx.scheduler().schedule("memory " + r.name(), java.time.Duration.ZERO, () -> {
+                try {
+                    ms.release(r.botId());
+                } catch (Exception e) {
+                    ctx.log().warn("bot memory of " + r.name() + " not saved: " + e.getMessage());
+                }
+            });
+        }
         if (m == null) {
             return;
         }

@@ -52,7 +52,33 @@ public final class BrainHarness {
         @Override public long reactionDelay() { return Math.max(200, Math.min(1200, Math.round(info.reactionMs() * (0.7 + (rnd.nextDouble() * 0.6))))); }
         @Override public void note(String text) { notes.add(clock.now() / 1000 + "s " + text); }
         @Override public org.l2start.bots.api.Assignment assignment() { return assignment; }
+        @Override public org.l2start.bots.api.Memory memory() { return memory; }
+        @Override public org.l2start.bots.api.Chat chat() { if (chat == null) { chat = defaultChat(); } return chat; }
     };
+
+    /** Phase 6: the real phrase banks of bots-core when the test runs in the repository, else silent. */
+    private org.l2start.bots.api.Chat chat;
+
+    private org.l2start.bots.api.Chat defaultChat() {
+        final java.nio.file.Path p = java.nio.file.Path.of("modules/bots-core/data/chat/phrases.xml");
+        if (!java.nio.file.Files.exists(p)) {
+            return org.l2start.bots.api.Chat.SILENT;
+        }
+        try {
+            return new org.l2start.bots.chat.TemplateChat(new org.l2start.bots.chat.TemplateBrain(org.l2start.bots.chat.Phrases.load(p), () -> clock.now(), rnd), info, rnd);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    public void setChat(org.l2start.bots.api.Chat c) { chat = c; }
+
+    private final org.l2start.bots.api.Memory.MapMemory memory = new org.l2start.bots.api.Memory.MapMemory(this::now);
+
+    private long now() { return clock.now(); }
+
+    /** Phase 6: the bot's memory of players (in memory only). */
+    public org.l2start.bots.api.Memory.MapMemory memory() { return memory; }
 
     private volatile org.l2start.bots.api.Assignment assignment;
 

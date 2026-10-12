@@ -30,4 +30,34 @@ public interface BrainContext {
     default Assignment assignment() {
         return null;
     }
+
+    /** Phase 6a: phrases of this bot (persona language and style); {@link Chat#SILENT} without phrase banks. */
+    default Chat chat() {
+        return Chat.SILENT;
+    }
+
+    /** Phase 6a: what this bot remembers of real players (bots-core keeps it in the database). */
+    default Memory memory() {
+        return NO_MEMORY;
+    }
+
+    /** Forgets everything right away (no memory at all). */
+    Memory NO_MEMORY = new Memory() {
+        @Override
+        public Of of(int charId) {
+            return Of.none(charId);
+        }
+
+        @Override
+        public void note(int charId, int affinityDelta, Tag tag, boolean met) {
+        }
+
+        @Override
+        public void partyMinutes(int charId, int minutes) {
+        }
+
+        @Override
+        public void forget(int charId, Tag tag) {
+        }
+    };
 }
