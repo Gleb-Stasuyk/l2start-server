@@ -3,7 +3,8 @@ package org.l2start.economy.market.model;
 import org.l2start.economy.market.lw.StorePricing;
 
 /**
- * The price model of phase 5a (pure, no game state). base = NPC reference x grade/stage factor x PriceMultiplier;
+ * The price model of phase 5a (pure, no game state). base = NPC reference x grade/stage factor x PriceMultiplier
+ * (x DropItemPriceMultiplier for items NPCs do not sell, docs/RATES_PLAN.md);
  * market = base blended with the index of real deals (weight 0 at none up to 70 % at 30 deals in two weeks) and,
  * in solo, a slow drift of at most 10 % around it; sellers ask market x SellMarkup by greed, buyers bid market x BuyBid
  * by stinginess, below the cheapest bot seller and within the NPC arbitrage guard. Prices are rounded like a player
@@ -16,8 +17,13 @@ public final class PriceModel {
     static final long WEEK_MS = 7L * 24 * 3600 * 1000;
 
     /** Settings (module.json keys PriceMultiplier, SellMarkup, BuyBid, NpcArbitrageGuard). */
-    public record Settings(double multiplier, double sellLo, double sellHi, double bidLo, double bidHi, double npcGuard) {
+    public record Settings(double multiplier, double sellLo, double sellHi, double bidLo, double bidHi, double npcGuard, double dropMultiplier) {
         public static final Settings DEFAULT = new Settings(1.0, 1.00, 1.25, 0.55, 0.85, 0.9);
+
+        /** Without the rates factor of items NPCs do not sell (x1, before rates-floating). */
+        public Settings(double multiplier, double sellLo, double sellHi, double bidLo, double bidHi, double npcGuard) {
+            this(multiplier, sellLo, sellHi, bidLo, bidHi, npcGuard, 1.0);
+        }
     }
 
     private final Settings s;
@@ -36,7 +42,8 @@ public final class PriceModel {
     }
 
     public long base(MarketItem item, int serverStage) {
-        final double b = Math.max(1, item.price()) * stageFactor(item.stage(), serverStage) * ((s.multiplier() > 0) ? s.multiplier() : 1.0);
+        final double drop = (!item.npc() && (s.dropMultiplier() > 0)) ? s.dropMultiplier() : 1.0; // rates: adena x5, items x~3.5
+        final double b = Math.max(1, item.price()) * stageFactor(item.stage(), serverStage) * ((s.multiplier() > 0) ? s.multiplier() : 1.0) * drop;
         return Math.max(1, Math.round(b));
     }
 

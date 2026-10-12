@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import org.l2start.economy.market.model.MarketBook;
 import org.l2start.economy.market.model.MarketItems;
+import org.l2start.economy.market.model.Budget;
 import org.l2start.economy.market.model.PriceModel;
 import org.l2start.economy.market.model.Stage;
 import org.l2start.economy.market.model.TownQuota;
@@ -40,6 +41,7 @@ public final class EconomyMarketModule implements GameModule {
             seed = repo.seed();
         }
         this.seed = seed;
+        Budget.setFarmRate(ctx.config().getDouble("FarmAdenaRate"));
         book = new MarketBook(items, model(), drift(), seed);
         final int restored = repo.loadIndex(book, System.currentTimeMillis());
         quota = TownQuota.parse(ctx.config().getString("StoresPerTown"));
@@ -74,6 +76,7 @@ public final class EconomyMarketModule implements GameModule {
 
     @Override
     public void onConfigReload(ModuleContext context) {
+        Budget.setFarmRate(ctx.config().getDouble("FarmAdenaRate"));
         book.configure(model(), drift());
         quota = TownQuota.parse(ctx.config().getString("StoresPerTown"));
     }
@@ -188,7 +191,7 @@ public final class EconomyMarketModule implements GameModule {
     private PriceModel model() {
         final double[] sell = pair(ctx.config().getString("SellMarkup"), 1.0, 1.25);
         final double[] bid = pair(ctx.config().getString("BuyBid"), 0.55, 0.85);
-        return new PriceModel(new PriceModel.Settings(ctx.config().getDouble("PriceMultiplier"), sell[0], sell[1], bid[0], bid[1], ctx.config().getDouble("NpcArbitrageGuard")));
+        return new PriceModel(new PriceModel.Settings(ctx.config().getDouble("PriceMultiplier"), sell[0], sell[1], bid[0], bid[1], ctx.config().getDouble("NpcArbitrageGuard"), ctx.config().getDouble("DropItemPriceMultiplier")));
     }
 
     static double[] pair(String s, double lo, double hi) {

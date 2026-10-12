@@ -160,4 +160,12 @@ class PriceModelTest {
             assertTrue(org.l2start.economy.market.lw.StoreEligibility.isAllowed(i.id()) || ("EtcItem".equals(i.kind()) && (i.price() <= 5000)), "only the LW list plus consumables: " + i.name());
         }
     }
+
+    @Test
+    void ratesRaiseOnlyItemsNpcsDoNotSell() {
+        final PriceModel rated = new PriceModel(new PriceModel.Settings(1, 1.0, 1.25, 0.55, 0.85, 0.9, 1.2));
+        final PriceModel plain = new PriceModel(PriceModel.Settings.DEFAULT);
+        assertEquals(plain.base(SWORD, 1), rated.base(SWORD, 1)); // NPC-sold
+        assertEquals(Math.round(plain.base(DUALS, 4) * 1.2), rated.base(DUALS, 4), 1);
+    }
 }

@@ -39,4 +39,16 @@ class BudgetTest {
         assertEquals(0, Budget.affordable(0, 300, 20));
         assertEquals(0, Budget.affordable(-5, 300, 20));
     }
+
+    @Test
+    void ratesMultiplyTheFarmingHour() {
+        try {
+            Budget.setFarmRate(5);
+            assertEquals(110_000, Budget.farmPerHour(20));
+            assertEquals(Math.round(82_000 * 5 * 0.3), Budget.playerDay(40, 0.3));
+        } finally {
+            Budget.setFarmRate(1);
+        }
+        assertEquals(22_000, Budget.farmPerHour(20));
+    }
 }
