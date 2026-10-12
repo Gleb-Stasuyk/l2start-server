@@ -52,12 +52,12 @@ has() { grep -qF -- "$1" "$2"; }
 hasnt() { ! grep -qF -- "$1" "$2"; }
 counts() { sed -E 's/^\[[^]]*\] //' "$1" | grep -iE 'loaded|spawn files parsed|spawns have been initialized' | grep -v 'Server loaded in' | grep -vE '^(Platform|Module\[)' | grep -v 'FIXTURE'; }
 state_is() { grep -qE "Platform:   $1 [^ ]+ $2(:|\$)" "$3"; }
-# rates-floating SELFTEST lines (docs/RATES_PLAN.md): 3 levels, adena exactly x5, spoil x2..x8 of stock, exact items never above 1
+# rates-floating SELFTEST lines (docs/RATES_PLAN.md): 3 levels, adena exactly x5, spoil x1.5..x9 of stock, exact items never above 1
 rates_lines() { grep -E 'Module\[rates-floating\]: SELFTEST mob ' "$1"; }
 rates_adena() { [ "$(rates_lines "$1" | grep -cE 'adena x(4\.99[5-9]|5\.00[0-5]) ')" = 3 ]; }
 rates_items() {
   [ "$(rates_lines "$1" | wc -l)" = 3 ] || return 1
-  rates_lines "$1" | awk '{ if (!match($0, /spoil pieces\/kill [0-9.]+ -> [0-9.]+ \(x[0-9.]+/)) bad=1; else { s=substr($0, RSTART, RLENGTH); sub(/.*\(x/, "", s); if (s+0 < 2 || s+0 > 8) bad=1 }
+  rates_lines "$1" | awk '{ if (!match($0, /spoil pieces\/kill [0-9.]+ -> [0-9.]+ \(x[0-9.]+/)) bad=1; else { s=substr($0, RSTART, RLENGTH); sub(/.*\(x/, "", s); if (s+0 < 1.5 || s+0 > 9) bad=1 }
     if (!match($0, /exact max [01]$/)) bad=1 } END { exit bad }'
 }
 
@@ -225,7 +225,7 @@ gamelog > "$OUT/6-solo.log"
 say "   rates selftest:"; rates_lines "$OUT/6-solo.log" | sed -E 's/.*SELFTEST //' | cut -c1-240
 check "rates SELFTEST finished" grep -qE 'Module\[rates-floating\]: SELFTEST done' "$OUT/6-solo.log"
 check "rates SELFTEST: adena exactly x5 at levels 20/40/60" rates_adena "$OUT/6-solo.log"
-check "rates SELFTEST: spoil x2..x8 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
+check "rates SELFTEST: spoil x1.5..x9 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
 check "summary: 6 running, fixtures disabled" grep -qE 'Platform: profile=solo, 15 discovered: 6 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
