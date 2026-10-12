@@ -148,7 +148,7 @@ final class TradeChat {
     private void ads(long dt) {
         final double rate = Math.max(0, m.ctx().config().getDouble("TradeChatAds"));
         adCredit = Math.min(2, adCredit + ((rate * dt) / 60_000.0));
-        if ((adCredit < 1) || !someoneListens()) {
+        if ((adCredit < 1) || (!someoneListens() && !m.ctx().config().getBoolean("SelfTest"))) { // smoke: ads without a player
             return;
         }
         adCredit -= 1;
