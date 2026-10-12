@@ -163,4 +163,38 @@ public final class CoreHooks {
             return adenaItem != null;
         }
     }
+
+    /**
+     * [HOOK:P7-DROP-FLOAT] NpcTemplate.calculateDrops, first thing: a module (rates-floating) may calculate the drop or
+     * spoil itself out of stock rolls ({@code stockRoll} runs the stock method, which then skips this hook). Inert without
+     * listeners or when a listener fails: null = the stock calculation.
+     */
+    public static java.util.List<org.l2jmobius.gameserver.entity.item.holders.ItemHolder> drops(boolean spoil, org.l2jmobius.gameserver.entity.actor.Creature victim,
+        org.l2jmobius.gameserver.entity.actor.Creature killer, java.util.function.Supplier<java.util.List<org.l2jmobius.gameserver.entity.item.holders.ItemHolder>> stockRoll) {
+        try {
+            if ((DropHooks.size() == 0) || (victim == null) || (killer == null)) {
+                return null;
+            }
+            return DropHooks.drops(spoil, victim, killer, stockRoll);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: drop listener failed", t);
+            return null;
+        }
+    }
+
+    /**
+     * [HOOK:P7-QUEST-REWARD] Quest.rewardItems, after the stock rates: a module may change the count (rates-floating keeps
+     * valuable rewards x1). Without listeners the stock count.
+     */
+    public static int questReward(org.l2jmobius.gameserver.entity.actor.Player player, int itemId, int base, int rated) {
+        try {
+            if (DropHooks.size() == 0) {
+                return rated;
+            }
+            return (int) Math.max(0, Math.min(Integer.MAX_VALUE, DropHooks.questReward(player, itemId, base, rated)));
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: quest reward listener failed", t);
+            return rated;
+        }
+    }
 }

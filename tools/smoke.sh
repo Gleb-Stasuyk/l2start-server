@@ -52,6 +52,14 @@ has() { grep -qF -- "$1" "$2"; }
 hasnt() { ! grep -qF -- "$1" "$2"; }
 counts() { sed -E 's/^\[[^]]*\] //' "$1" | grep -iE 'loaded|spawn files parsed|spawns have been initialized' | grep -v 'Server loaded in' | grep -vE '^(Platform|Module\[)' | grep -v 'FIXTURE'; }
 state_is() { grep -qE "Platform:   $1 [^ ]+ $2(:|\$)" "$3"; }
+# rates-floating SELFTEST lines (docs/RATES_PLAN.md): 3 levels, adena exactly x5, spoil x2..x8 of stock, exact items never above 1
+rates_lines() { grep -E 'Module\[rates-floating\]: SELFTEST mob ' "$1"; }
+rates_adena() { [ "$(rates_lines "$1" | grep -cE 'adena x(4\.99[5-9]|5\.00[0-5]) ')" = 3 ]; }
+rates_items() {
+  [ "$(rates_lines "$1" | wc -l)" = 3 ] || return 1
+  rates_lines "$1" | awk '{ if (!match($0, /spoil pieces\/kill [0-9.]+ -> [0-9.]+ \(x[0-9.]+/)) bad=1; else { s=substr($0, RSTART, RLENGTH); sub(/.*\(x/, "", s); if (s+0 < 2 || s+0 > 8) bad=1 }
+    if (!match($0, /exact max [01]$/)) bad=1 } END { exit bad }'
+}
 
 wait_game() { # wait_game healthy|exited TIMEOUT_S
   local want=$1 limit=$2 t=0 st
@@ -111,7 +119,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 14 discovered: 8 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 15 discovered: 9 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -178,7 +186,7 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 14 discovered: 3 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 15 discovered: 4 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
 check "online: stock no-store zones kept" hasnt "stores anywhere:" "$OUT/5-online.log"
 check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
@@ -189,9 +197,19 @@ real_modules() { # real_modules LOG N
   check "$2: lw-fixes cursed weapon fix on" has "Module[lw-fixes]: enabled: CursedWeaponRefresh=true" "$1"
   check "$2: profile override AutoLoot = True" has "override game/Player.ini: AutoLoot = True" "$1"
   check "$2: profile override DisableTutorial = True" has "override game/Player.ini: DisableTutorial = True" "$1"
+  check "$2: rates override RateXp = 10" has "override game/Rates.ini: RateXp = 10" "$1"
+  check "$2: rates override RateSp = 10" has "override game/Rates.ini: RateSp = 10" "$1"
+  check "$2: rates override RateQuestRewardAdena = 5" has "override game/Rates.ini: RateQuestRewardAdena = 5" "$1"
+  check "$2: rates override RateQuestReward = 2" has "override game/Rates.ini: RateQuestReward = 2" "$1"
+  check "$2: rates override QuestItemDropAmountMultiplier = 2" has "override game/Rates.ini: QuestItemDropAmountMultiplier = 2" "$1"
+  check "$2: rates override RateDropManor = 3" has "override game/Rates.ini: RateDropManor = 3" "$1"
   check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
   check "$2: no platform error for starter-kit / lw-fixes / economy-market" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes|economy-market) ' \"\$0\"" "$1"
   check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
+  check "$2: rates-floating RUNNING (hooks P7-DROP-FLOAT, P7-QUEST-REWARD)" state_is rates-floating RUNNING "$1"
+  check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, adena x5.0' "$1"
+  check "$2: platform API 1.6.0" grep -qE 'Platform: API 1\.6\.0,' "$1"
+  check "$2: rates override XP x10 applied" has "override game/Rates.ini: RateXp = 10" "$1"
   check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
   if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
@@ -202,8 +220,13 @@ real_modules "$OUT/5-online.log" 5
 say "-- 6 solo, real modules only"
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
+t=0; while [ $t -lt 120 ] && ! gamelog | grep -E 'Module\[rates-floating\]: SELFTEST done' >/dev/null; do sleep 3; t=$((t + 3)); done
 gamelog > "$OUT/6-solo.log"
-check "summary: 5 running, fixtures disabled" grep -qE 'Platform: profile=solo, 14 discovered: 5 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+say "   rates selftest:"; rates_lines "$OUT/6-solo.log" | sed -E 's/.*SELFTEST //' | cut -c1-240
+check "rates SELFTEST finished" grep -qE 'Module\[rates-floating\]: SELFTEST done' "$OUT/6-solo.log"
+check "rates SELFTEST: adena exactly x5 at levels 20/40/60" rates_adena "$OUT/6-solo.log"
+check "rates SELFTEST: spoil x2..x8 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
+check "summary: 6 running, fixtures disabled" grep -qE 'Platform: profile=solo, 15 discovered: 6 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
 check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bots-core\]: brain 'basic' registered \(in use\)" "$OUT/6-solo.log"
@@ -214,7 +237,7 @@ check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%
 # phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
 check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" = 3
 check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
-check "platform API 1.5.0" grep -qE 'Platform: API 1\.5\.0' "$OUT/6-solo.log"
+check "platform API 1.6.0 (phase 6 + rates)" grep -qE 'Platform: API 1\.6\.0' "$OUT/6-solo.log"
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"

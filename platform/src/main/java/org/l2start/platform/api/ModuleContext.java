@@ -61,4 +61,20 @@ public interface ModuleContext {
     default void onBotPartyRequest(BotPartyListener listener) {
         throw new UnsupportedOperationException("onBotPartyRequest needs platform API 1.5");
     }
+
+    /**
+     * Since API 1.6. The drop and spoil of dead monsters (hook P7-DROP-FLOAT): the listener may calculate them out of
+     * stock rolls. Guarded like every listener; removed when the module is disabled.
+     */
+    default void onDrops(DropListener listener) {
+        throw new UnsupportedOperationException("onDrops needs platform API 1.6");
+    }
+
+    /**
+     * Since API 1.6. Quest reward items after the stock rates (hook P7-QUEST-REWARD). Guarded; removed when the module is
+     * disabled.
+     */
+    default void onQuestReward(QuestRewardListener listener) {
+        throw new UnsupportedOperationException("onQuestReward needs platform API 1.6");
+    }
 }
