@@ -195,6 +195,11 @@ final class MarketRepository {
             s.heading(), s.kind(), s.profile(), s.legacy(), s.race(), s.sex(), s.classId());
     }
 
+    /** The layout of a town changed: its places are generated again (the traders keep their personas by place id). */
+    int dropSpots(String town) throws SQLException {
+        return db.update("DELETE FROM " + db.table("spot") + " WHERE town = ?", town);
+    }
+
     long seed() throws SQLException {
         return db.queryOne("SELECT COALESCE(MIN(charId), 1) FROM characters", rs -> rs.getLong(1)).orElse(1L);
     }

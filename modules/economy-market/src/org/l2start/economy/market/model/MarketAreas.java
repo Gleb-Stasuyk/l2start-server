@@ -26,12 +26,38 @@ public final class MarketAreas {
     public record Service(Spot spot, int[] items) {
     }
 
+    /**
+     * Where the dwarf crafters sit (decision of 12.10.2026: around the Adventure Guildsman): a ring {@code rMin..rMax}
+     * around the NPC at x, y, outside the traders' polygon and not in the sector of {@code front} degrees in front of
+     * the NPC (heading), so the way to it stays free.
+     */
+    public record Crafters(int npcId, int x, int y, int z, int heading, int rMin, int rMax, int front, int spacing) implements SpotGenerator.Shape {
+        @Override
+        public boolean inside(int px, int py) {
+            final double d = Math.hypot(px - x, py - y);
+            if ((d < rMin) || (d > rMax)) {
+                return false;
+            }
+            final double face = (heading * 2 * Math.PI) / 65536;
+            final double to = Math.atan2(py - y, px - x);
+            double diff = Math.abs(to - face) % (2 * Math.PI);
+            if (diff > Math.PI) {
+                diff = (2 * Math.PI) - diff;
+            }
+            return Math.toDegrees(diff) > (front / 2.0);
+        }
+    }
+
     private final Map<String, SpotGenerator.Area> areas;
     private final Map<String, List<Service>> services;
+    private final Map<String, SpotGenerator.Polygon> polygons;
+    private final Map<String, Crafters> crafters;
 
-    private MarketAreas(Map<String, SpotGenerator.Area> areas, Map<String, List<Service>> services) {
+    private MarketAreas(Map<String, SpotGenerator.Area> areas, Map<String, List<Service>> services, Map<String, SpotGenerator.Polygon> polygons, Map<String, Crafters> crafters) {
         this.areas = areas;
         this.services = services;
+        this.polygons = polygons;
+        this.crafters = crafters;
     }
 
     public static MarketAreas load(Path file) throws Exception {
@@ -46,11 +72,26 @@ public final class MarketAreas {
         final NodeList towns = f.newDocumentBuilder().parse(in).getElementsByTagName("town");
         final Map<String, SpotGenerator.Area> a = new LinkedHashMap<>();
         final Map<String, List<Service>> s = new LinkedHashMap<>();
+        final Map<String, SpotGenerator.Polygon> polys = new LinkedHashMap<>();
+        final Map<String, Crafters> crafts = new LinkedHashMap<>();
         for (int t = 0; t < towns.getLength(); t++) {
             final Element e = (Element) towns.item(t);
             final String name = e.getAttribute("name");
-            a.put(key(name), new SpotGenerator.Area(name, i(e, "cx"), i(e, "cy"), i(e, "z"), i(e, "minX"), i(e, "maxX"), i(e, "minY"), i(e, "maxY"), i(e, "dz"), i(e, "spacing"), i(e, "npcGap"), i(e, "doorGap"),
-                i(e, "reach")));
+            if (e.hasAttribute("polygon")) {
+                // the polygon gives the box and the centre the places are reached from
+                final SpotGenerator.Polygon poly = SpotGenerator.Polygon.parse(e.getAttribute("polygon"));
+                polys.put(key(name), poly);
+                a.put(key(name), new SpotGenerator.Area(name, poly.cx(), poly.cy(), i(e, "z"), poly.minX(), poly.maxX(), poly.minY(), poly.maxY(), i(e, "dz"), i(e, "spacing"), i(e, "npcGap"), i(e, "doorGap"),
+                    i(e, "reach")));
+            } else {
+                a.put(key(name), new SpotGenerator.Area(name, i(e, "cx"), i(e, "cy"), i(e, "z"), i(e, "minX"), i(e, "maxX"), i(e, "minY"), i(e, "maxY"), i(e, "dz"), i(e, "spacing"), i(e, "npcGap"), i(e, "doorGap"),
+                    i(e, "reach")));
+            }
+            final NodeList cr = e.getElementsByTagName("crafters");
+            if (cr.getLength() > 0) {
+                final Element c = (Element) cr.item(0);
+                crafts.put(key(name), new Crafters(i(c, "npc"), i(c, "x"), i(c, "y"), i(c, "z"), i(c, "heading"), i(c, "rMin"), i(c, "rMax"), i(c, "front"), i(c, "spacing")));
+            }
             final List<Service> list = new ArrayList<>();
             final NodeList sv = e.getElementsByTagName("service");
             for (int k = 0; k < sv.getLength(); k++) {
@@ -65,7 +106,7 @@ public final class MarketAreas {
             }
             s.put(key(name), Collections.unmodifiableList(list));
         }
-        return new MarketAreas(Collections.unmodifiableMap(a), Collections.unmodifiableMap(s));
+        return new MarketAreas(Collections.unmodifiableMap(a), Collections.unmodifiableMap(s), Collections.unmodifiableMap(polys), Collections.unmodifiableMap(crafts));
     }
 
     private static int i(Element e, String attr) {
@@ -82,6 +123,37 @@ public final class MarketAreas {
 
     public List<Service> services(String town) {
         return services.getOrDefault(key(town), List.of());
+    }
+
+    /** The polygon the store places of a town stay in, or null (the area's box). */
+    public SpotGenerator.Polygon polygon(String town) {
+        return polygons.get(key(town));
+    }
+
+    /** Where the crafters of a town sit, or null (among the other places). */
+    public Crafters crafters(String town) {
+        return crafters.get(key(town));
+    }
+
+    /**
+     * A kept place still fits the layout of data/market-areas.xml: a crafter in its ring (when the town has one), any
+     * other place inside the polygon (when the town has one). A place that does not fit means the layout changed and
+     * the places of the town are generated again.
+     */
+    public boolean fits(Spot spot) {
+        final Crafters c = crafters(spot.town());
+        final SpotGenerator.Polygon poly = polygon(spot.town());
+        if ("CRAFT".equals(spot.kind()) && (c != null)) {
+            return c.inside(spot.x(), spot.y()) && ((poly == null) || !poly.inside(spot.x(), spot.y()));
+        }
+        return (poly == null) || poly.inside(spot.x(), spot.y());
+    }
+
+    /** The ring of the crafters without the traders' polygon. */
+    public SpotGenerator.Shape crafterShape(String town) {
+        final Crafters c = crafters(town);
+        final SpotGenerator.Polygon poly = polygon(town);
+        return (x, y) -> (c != null) && c.inside(x, y) && ((poly == null) || !poly.inside(x, y));
     }
 
     // ---- the plan of new places

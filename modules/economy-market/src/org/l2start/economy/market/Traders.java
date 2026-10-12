@@ -220,7 +220,14 @@ final class Traders {
         if ((have != null) && townWant.getOrDefault(town, -1).equals(want)) {
             return have;
         }
-        final List<Spot> places = new ArrayList<>(repo.spots(town));
+        List<Spot> places = new ArrayList<>(repo.spots(town));
+        if ((have == null) && places.stream().anyMatch(sp -> !areas.fits(sp))) {
+            // data/market-areas.xml has a new layout (polygon, crafters' ring): the places of the town are made again
+            final long out = places.stream().filter(sp -> !areas.fits(sp)).count();
+            repo.dropSpots(places.get(0).town());
+            m.ctx().log().info("traders: " + out + " of " + places.size() + " places of " + town + " are outside the layout of data/market-areas.xml, places generated again");
+            places = new ArrayList<>();
+        }
         if (places.size() < want) {
             places.addAll(generate(town, places, want - places.size()));
         }
@@ -244,7 +251,9 @@ final class Traders {
         if (s.row == null) {
             final StoreRow r = rows.get(spot.id());
             if ((r != null) && pool.known(r.botId())) {
-                if (r.profile().equals(spot.profile())) {
+                if (("CRAFT".equals(spot.kind()) || "CRAFT".equals(r.kind())) && !r.profile().equals(spot.profile())) {
+                    repo.dropStore(r.botId()); // a crafter is a dwarf Warsmith: a place that becomes or stops being a workshop gets a new persona
+                } else if (r.profile().equals(spot.profile())) {
                     s.row = r;
                     s.lines = new ArrayList<>(repo.lines(r.botId(), m.book().items()));
                 } else {
@@ -279,9 +288,10 @@ final class Traders {
             }
         };
         final List<SpotGenerator.Blocker> blockers = new ArrayList<>();
+        final MarketAreas.Crafters cr = areas.crafters(town);
+        final int margin = (cr == null) ? a.doorGap() : Math.max(a.doorGap(), Math.max(Math.abs(cr.x() - a.cx()), Math.abs(cr.y() - a.cy())) + cr.rMax() + a.doorGap());
         for (WorldObject o : World.getVisibleObjects()) {
-            if ((o instanceof Npc npc) && (o.getX() >= (a.minX() - a.doorGap())) && (o.getX() <= (a.maxX() + a.doorGap())) && (o.getY() >= (a.minY() - a.doorGap()))
-                && (o.getY() <= (a.maxY() + a.doorGap()))) {
+            if ((o instanceof Npc npc) && (o.getX() >= (a.minX() - margin)) && (o.getX() <= (a.maxX() + margin)) && (o.getY() >= (a.minY() - margin)) && (o.getY() <= (a.maxY() + margin))) {
                 final boolean door = (npc instanceof org.l2jmobius.gameserver.entity.actor.instance.Teleporter) || (npc instanceof org.l2jmobius.gameserver.entity.actor.instance.Warehouse);
                 blockers.add(new SpotGenerator.Blocker(o.getX(), o.getY(), door ? a.doorGap() : a.npcGap()));
             }
@@ -295,15 +305,51 @@ final class Traders {
         }
         final long seed = m.seedFor(town) + kept.size();
         final Random r = new Random(seed);
-        final List<SpotGenerator.Point> pts = SpotGenerator.generate(a, keptPts, count, blockers, ground, r, 60_000);
+        final List<SpotGenerator.Point> pts = SpotGenerator.generate(a, keptPts, count, blockers, ground, r, 60_000, areas.polygon(town));
         final List<Spot> legacyLooks = legacy.spots(town).stream().filter(sp -> !"4UDO".equals(sp.legacy())).toList();
-        final List<Spot> plan = MarketAreas.plan(a.town(), pts, kept.size(), legacyLooks, r);
+        final List<Spot> plan = new ArrayList<>(MarketAreas.plan(a.town(), pts, kept.size(), legacyLooks, r));
+        final MarketAreas.Crafters c = areas.crafters(town);
+        if (c != null) {
+            moveCrafters(a, c, plan, keptPts, blockers, ground, r, town);
+        }
         for (int k = 0; k < plan.size(); k++) {
             repo.addSpot(plan.get(k), kept.size() + k);
         }
         m.ctx().log().info("traders: " + plan.size() + " new store places generated in " + a.town() + " (" + (hasGeo ? "geodata" : "no geodata: flat") + ", " + blockers.size() + " NPCs kept clear"
             + ((plan.size() < count) ? ", only " + plan.size() + " of " + count + " fit" : "") + ")");
         return plan;
+    }
+
+    /**
+     * The crafters of the plan move to the ring around their NPC (Adventure Guildsman in Giran), facing it; the polygon
+     * keeps only the other traders. A crafter the ring has no room for stays at its generated place (logged).
+     */
+    private void moveCrafters(SpotGenerator.Area a, MarketAreas.Crafters c, List<Spot> plan, List<SpotGenerator.Point> kept, List<SpotGenerator.Blocker> blockers, SpotGenerator.Ground ground, Random r,
+        String town) {
+        final List<Integer> idx = new ArrayList<>();
+        final List<SpotGenerator.Point> taken = new ArrayList<>(kept);
+        for (int k = 0; k < plan.size(); k++) {
+            final Spot sp = plan.get(k);
+            if ("CRAFT".equals(sp.kind())) {
+                idx.add(k);
+            } else {
+                taken.add(new SpotGenerator.Point(sp.x(), sp.y(), sp.z(), sp.heading()));
+            }
+        }
+        if (idx.isEmpty()) {
+            return;
+        }
+        final SpotGenerator.Area ring = new SpotGenerator.Area(a.town(), c.x(), c.y(), c.z(), c.x() - c.rMax(), c.x() + c.rMax(), c.y() - c.rMax(), c.y() + c.rMax(), a.dz(), c.spacing(), a.npcGap(), a.doorGap(),
+            a.reach());
+        // the guildsman itself only keeps rMin (its own blocker would be npcGap)
+        final List<SpotGenerator.Blocker> others = blockers.stream().filter(b -> (Math.abs(b.x() - c.x()) > 8) || (Math.abs(b.y() - c.y()) > 8)).toList();
+        final List<SpotGenerator.Point> pts = SpotGenerator.generate(ring, taken, idx.size(), others, ground, r, 20_000, areas.crafterShape(town));
+        for (int k = 0; k < pts.size(); k++) {
+            final Spot sp = plan.get(idx.get(k));
+            final SpotGenerator.Point p = pts.get(k);
+            plan.set(idx.get(k), new Spot(sp.town(), sp.id(), p.x(), p.y(), p.z(), SpotGenerator.headingTo(p.x(), p.y(), c.x(), c.y()), sp.kind(), sp.profile(), sp.legacy(), sp.race(), sp.sex(), sp.classId()));
+        }
+        m.ctx().log().info("traders: " + pts.size() + " of " + idx.size() + " crafters of " + a.town() + " sit around NPC " + c.npcId() + " at " + c.x() + "," + c.y());
     }
 
     // ---- open

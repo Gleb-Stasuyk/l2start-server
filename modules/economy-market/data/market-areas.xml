@@ -3,9 +3,15 @@
      minY..maxY) around the market centre cx, cy at the square's height z (+- dz), at least `spacing` apart, `npcGap`
      from any NPC and `doorGap` from gatekeepers and warehouses (their doors stay free), and kept in the database
      (mod_economy_market_spot): after a restart the same places. The first places get the looks of the former Giran
-     traders (data/store-spots.xml). <service> = a fixed service trader (sells at NPC price, large stock, refills). -->
+     traders (data/store-spots.xml). <service> = a fixed service trader (sells at NPC price, large stock, refills).
+     polygon="x,y x,y ...": the places stay inside it (decision of 12.10.2026, Gleb's four corners of the Giran market);
+     the box and the centre then come from the polygon. <crafters>: the dwarf crafters sit in a ring rMin..rMax around
+     the NPC (npc id at x, y), not in the sector of `front` degrees before it and not in the polygon; `spacing` apart.
+     A kept place outside the new layout = the places of the town are generated again (same names stay). -->
 <areas>
-	<town name="Giran" cx="82800" cy="148500" z="-3464" minX="81300" maxX="84300" minY="147300" maxY="149700" dz="64" spacing="75" npcGap="160" doorGap="320" reach="600">
+	<town name="Giran" polygon="82725,147897 82710,149310 82194,149330 82218,147879" z="-3464" dz="64" spacing="75" npcGap="160" doorGap="320" reach="600">
+		<!-- Adventure Guildsman 31805 of central Giran (data/spawns/Giran/GiranNPCs.xml) -->
+		<crafters npc="31805" x="82840" y="147796" z="-3472" heading="16500" rMin="170" rMax="420" front="70" spacing="90" />
 		<service id="giran-4udo" x="82703" y="147932" z="-3464" heading="49152" legacy="4UDO" race="DWARF" sex="MALE" classId="57" items="1463,1464,1465,3948,3949,3950" />
 	</town>
 </areas>
