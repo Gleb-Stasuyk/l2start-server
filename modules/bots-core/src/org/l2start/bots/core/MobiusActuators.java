@@ -230,13 +230,120 @@ final class MobiusActuators implements Actuators {
         if ((p == null) || (text == null) || text.isBlank() || (text.length() > 100)) {
             return done("say", text, ActionResult.INVALID);
         }
-        if ((said[saidPos] != 0) && ((now - said[saidPos]) < 60_000)) {
+        if (!speak(now)) {
             return done("say", text, ActionResult.COOLDOWN);
+        }
+        p.broadcastPacket(new CreatureSay(p, ChatType.GENERAL, p.getName(), text));
+        return done("say", text, ActionResult.OK);
+    }
+
+    /** One more line of chat (any channel): at most {@link #SAY_PER_MINUTE} a minute. */
+    private boolean speak(long now) {
+        if ((said[saidPos] != 0) && ((now - said[saidPos]) < 60_000)) {
+            return false;
         }
         said[saidPos] = now;
         saidPos = (saidPos + 1) % said.length;
-        p.broadcastPacket(new CreatureSay(p, ChatType.GENERAL, p.getName(), text));
-        return done("say", text, ActionResult.OK);
+        return true;
+    }
+
+    private static boolean okText(String text) {
+        return (text != null) && !text.isBlank() && (text.length() <= 100);
+    }
+
+    // ------------------------------------------------------------------ phase 6: party and chat
+
+    @Override
+    public ActionResult answerParty(boolean accept) {
+        final Player p = r.player();
+        final Player requestor = p == null ? null : p.getActiveRequester();
+        if ((p == null) || (requestor == null) || (p.isInParty() && accept)) {
+            return done("answerParty", accept, ActionResult.INVALID);
+        }
+        // stock RequestAnswerJoinParty with the answer of the dialog (1 = yes, 0 = no), party rooms aside
+        requestor.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.JoinParty(accept ? 1 : 0));
+        ActionResult res = ActionResult.OK;
+        if (accept) {
+            if (requestor.isInParty()) {
+                if (requestor.getParty().getMemberCount() >= 9) {
+                    final org.l2jmobius.gameserver.network.serverpackets.SystemMessage sm = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+                        org.l2jmobius.gameserver.network.SystemMessageId.THE_PARTY_IS_FULL);
+                    requestor.sendPacket(sm);
+                    res = ActionResult.INVALID;
+                } else {
+                    p.joinParty(requestor.getParty());
+                }
+            } else if (!p.isDead()) {
+                requestor.setParty(new org.l2jmobius.gameserver.entity.groups.Party(requestor, requestor.getPartyDistributionType()));
+                p.joinParty(requestor.getParty());
+            }
+        }
+        if (requestor.isInParty()) {
+            requestor.getParty().setPendingInvitation(false);
+        }
+        p.setActiveRequester(null);
+        requestor.onTransactionResponse();
+        return done("answerParty", accept, res);
+    }
+
+    @Override
+    public ActionResult leaveParty() {
+        final Player p = r.player();
+        final org.l2jmobius.gameserver.entity.groups.Party party = p == null ? null : p.getParty();
+        if ((party == null) || (party.isInDimensionalRift() && !party.getDimensionalRift().getRevivedAtWaitingRoom().contains(p))) {
+            return done("leaveParty", "", ActionResult.INVALID);
+        }
+        party.removePartyMember(p, org.l2jmobius.gameserver.entity.groups.PartyMessageType.LEFT); // stock RequestWithDrawalParty
+        return done("leaveParty", "", ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult giveLeader(int objectId) {
+        final Player p = r.player();
+        final org.l2jmobius.gameserver.entity.groups.Party party = p == null ? null : p.getParty();
+        if ((party == null) || !party.isLeader(p) || !(World.findObject(objectId) instanceof Player to) || !party.getMembers().contains(to)) {
+            return done("giveLeader", objectId, ActionResult.INVALID);
+        }
+        party.changePartyLeader(to.getName()); // stock RequestChangePartyLeader
+        return done("giveLeader", objectId, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult sayParty(String text) {
+        final Player p = r.player();
+        if ((p == null) || !p.isInParty() || !okText(text)) {
+            return done("sayParty", text, ActionResult.INVALID);
+        }
+        if (!speak(sink.now())) {
+            return done("sayParty", text, ActionResult.COOLDOWN);
+        }
+        p.getParty().broadcastCreatureSay(new CreatureSay(p, ChatType.PARTY, p.getName(), text), p); // stock ChatParty
+        return done("sayParty", text, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult whisper(String to, String text) {
+        final Player p = r.player();
+        final Player receiver = to == null ? null : World.getPlayer(to);
+        if ((p == null) || (receiver == null) || (receiver.getClient() == null) || !okText(text)
+            || org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(receiver, p)) {
+            return done("whisper", to, ActionResult.INVALID);
+        }
+        if (!speak(sink.now())) {
+            return done("whisper", to, ActionResult.COOLDOWN);
+        }
+        receiver.sendPacket(new CreatureSay(p, ChatType.WHISPER, p.getName(), text)); // stock ChatWhisper (no client: no echo)
+        return done("whisper", to + ": " + text, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult social(int id) {
+        final Player p = alive();
+        if ((p == null) || (id < 2) || (id > 16) || p.isSitting() || p.isCastingNow() || p.isAttackingNow() || p.isMoving()) {
+            return done("social", id, ActionResult.INVALID);
+        }
+        p.broadcastPacket(new org.l2jmobius.gameserver.network.serverpackets.SocialAction(p.getObjectId(), id)); // stock RequestSocialAction
+        return done("social", id, ActionResult.OK);
     }
 
     @Override

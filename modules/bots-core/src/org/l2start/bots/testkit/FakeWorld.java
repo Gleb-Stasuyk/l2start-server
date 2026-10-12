@@ -208,6 +208,21 @@ public final class FakeWorld {
     public static final int AGGRESSION = 28;
     public int taunts;
 
+    /** Phase 6: what the bot said, whispered, answered (say:, party:, whisper:to:, social:, answerParty:, leaveParty, giveLeader:). */
+    public final List<String> chat = new ArrayList<>();
+    /** Phase 6: the pending party invitation (the inviter joins {@link #party} on yes). */
+    public PartyMember invite;
+
+    /** Phase 6: a real player invites the bot; the event arrives on the next tick. */
+    public void invite(PartyMember from, int partyMembers) {
+        invite(from, partyMembers, false);
+    }
+
+    public void invite(PartyMember from, int partyMembers, boolean botLimit) {
+        invite = from;
+        event(new BotEvent.PartyInvite(from.objectId(), from.name(), from.level(), from.classId(), partyMembers, botLimit));
+    }
+
     public void setParty(PartyMember... members) {
         party.clear();
         party.addAll(List.of(members));
@@ -691,7 +706,7 @@ public final class FakeWorld {
             @Override
             public List<PartyMember> party() {
                 return party.stream().map(m -> new PartyMember(m.objectId(), m.name(), m.classId(), m.level(), m.pos(), m.pos().distance(self.pos()), m.hpPct(), m.mpPct(), m.dead(),
-                    m.targetId(), m.leader())).toList();
+                    m.targetId(), m.leader(), m.bot(), m.sitting())).toList();
             }
 
             @Override
@@ -889,6 +904,69 @@ public final class FakeWorld {
 
         @Override
         public ActionResult say(String text) {
+            if (!dead) {
+                chat.add("say:" + text);
+            }
+            return dead ? ActionResult.INVALID : ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult answerParty(boolean accept) {
+            if (invite == null) {
+                return ActionResult.INVALID;
+            }
+            final PartyMember from = invite;
+            invite = null;
+            chat.add("answerParty:" + accept);
+            if (accept) {
+                party.add(from);
+                partyLeader = false;
+            }
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult leaveParty() {
+            if (party.isEmpty()) {
+                return ActionResult.INVALID;
+            }
+            party.clear();
+            partyLeader = true;
+            chat.add("leaveParty");
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult giveLeader(int objectId) {
+            final int i = partyIndex(objectId);
+            if (!partyLeader || (i < 0)) {
+                return ActionResult.INVALID;
+            }
+            partyLeader = false;
+            final PartyMember m = party.get(i);
+            party.set(i, new PartyMember(m.objectId(), m.name(), m.classId(), m.level(), m.pos(), m.distance(), m.hpPct(), m.mpPct(), m.dead(), m.targetId(), true, m.bot(), m.sitting()));
+            chat.add("giveLeader:" + objectId);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayParty(String text) {
+            if (party.isEmpty() || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("party:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult whisper(String to, String text) {
+            chat.add("whisper:" + to + ":" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult social(int id) {
+            chat.add("social:" + id);
             return dead ? ActionResult.INVALID : ActionResult.OK;
         }
 

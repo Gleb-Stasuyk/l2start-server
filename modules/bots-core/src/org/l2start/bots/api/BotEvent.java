@@ -46,4 +46,24 @@ public sealed interface BotEvent {
 
     record Whisper(String from, String text) implements BotEvent {
     }
+
+    /**
+     * Phase 6a: a real player invited the bot to a party (hook P6-BOT-PARTY). The stock invitation waits 15 s for
+     * {@link Actuators#answerParty}; no answer = it expires like with a player who looked away.
+     * @param partyMembers members of the inviter's party now (0 = he has none)
+     * @param botLimit the inviter has as many bots in his party as allowed already (bots-core PartyBotsMax)
+     */
+    record PartyInvite(int fromId, String from, int fromLevel, int fromClassId, int partyMembers, boolean botLimit) implements BotEvent {
+        @Override
+        public String key() {
+            return "partyInvite";
+        }
+    }
+
+    /**
+     * Phase 6a: a real player wrote in a chat the bot can read (whispers stay {@link Whisper}).
+     * @param channel PARTY (its own party), ALL (white chat within hearing), SHOUT, TRADE
+     */
+    record Chat(String channel, int fromId, String from, String text) implements BotEvent {
+    }
 }

@@ -108,7 +108,8 @@ public final class DirectorRunner {
         final List<Director.BotNow> bots = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
-            if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER)) { // store traders belong to economy-market
+            if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
+                && !withPlayer(p)) { // phase 6b: in a real player's party it is his companion, the director leaves it be
                 bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
             }
         }
@@ -144,6 +145,20 @@ public final class DirectorRunner {
             }
         }
         tickNanos = System.nanoTime() - start;
+    }
+
+    /** Phase 6b: the bot is in a party with a real player (pinned: never sent away or logged out by the director). */
+    boolean withPlayer(Player p) {
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        if (pt == null) {
+            return false;
+        }
+        for (Player m : pt.getMembers()) {
+            if ((m != null) && (m != p) && !module.registry().isBot(m) && m.isOnline()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private BotRecord byId(int botId) {

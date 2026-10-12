@@ -182,7 +182,7 @@ final class MobiusWorldView implements WorldView {
                     final WorldObject t = o.getTarget();
                     l.add(new org.l2start.bots.api.PartyMember(o.getObjectId(), o.getName(), o.getPlayerClass().getId(), o.getLevel(), at, at.distance(self.pos()),
                         o.getMaxHp() <= 0 ? 0 : (o.getCurrentHp() * 100) / o.getMaxHp(), o.getMaxMp() <= 0 ? 0 : (o.getCurrentMp() * 100) / o.getMaxMp(), o.isDead(),
-                        t == null ? 0 : t.getObjectId(), pt.isLeader(o)));
+                        t == null ? 0 : t.getObjectId(), pt.isLeader(o), registry.isBot(o), o.isSitting()));
                 }
             }
             party = l;

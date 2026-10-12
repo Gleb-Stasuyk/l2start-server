@@ -64,4 +64,39 @@ public interface Actuators {
     default ActionResult unsummon() {
         return ActionResult.INVALID;
     }
+
+    // ------------------------------------------------------------------ phase 6: party and chat (stock sequences)
+
+    /**
+     * Answer the pending party invitation like the client's dialog (stock {@code RequestAnswerJoinParty}): yes = join
+     * (or found) the inviter's party, no = "declined". INVALID when nothing is pending any more (expired).
+     */
+    default ActionResult answerParty(boolean accept) {
+        return ActionResult.INVALID;
+    }
+
+    /** Leave its party (stock {@code RequestWithDrawalParty}). */
+    default ActionResult leaveParty() {
+        return ActionResult.INVALID;
+    }
+
+    /** Hand the party lead to this member (stock {@code RequestChangePartyLeader}; only the leader can). */
+    default ActionResult giveLeader(int objectId) {
+        return ActionResult.INVALID;
+    }
+
+    /** Write in the party chat (stock {@code ChatParty}); at most 6 lines a minute with {@link #say}. */
+    default ActionResult sayParty(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /** Whisper to a player who is online (stock {@code ChatWhisper}): only as an answer, never first (phase 6). */
+    default ActionResult whisper(String to, String text) {
+        return ActionResult.INVALID;
+    }
+
+    /** A social action (/socials: 2 greeting, 3 victory, 5 yes, 6 no, 7 bow, ...) seen by everybody around. */
+    default ActionResult social(int id) {
+        return ActionResult.INVALID;
+    }
 }

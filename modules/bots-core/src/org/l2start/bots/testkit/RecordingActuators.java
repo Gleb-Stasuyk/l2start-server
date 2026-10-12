@@ -61,6 +61,12 @@ public final class RecordingActuators implements Actuators {
     @Override public ActionResult petAttack(int id) { return rec("petAttack", id, () -> next.petAttack(id)); }
     @Override public ActionResult petFollow() { return rec("petFollow", "", next::petFollow); }
     @Override public ActionResult unsummon() { return rec("unsummon", "", next::unsummon); }
+    @Override public ActionResult answerParty(boolean yes) { return rec("answerParty", yes, () -> next.answerParty(yes)); }
+    @Override public ActionResult leaveParty() { return rec("leaveParty", "", next::leaveParty); }
+    @Override public ActionResult giveLeader(int id) { return rec("giveLeader", id, () -> next.giveLeader(id)); }
+    @Override public ActionResult sayParty(String text) { return rec("sayParty", text, () -> next.sayParty(text)); }
+    @Override public ActionResult whisper(String to, String text) { return rec("whisper", to + ":" + text, () -> next.whisper(to, text)); }
+    @Override public ActionResult social(int id) { return rec("social", id, () -> next.social(id)); }
     @Override public ActionResult logout() { return rec("logout", "", next::logout); }
 
     @Override

@@ -116,6 +116,7 @@ public final class BotsCoreModule implements GameModule {
 
         ctx.botPresence(registry::isBot);
         ctx.events().<OnPlayerChat> onGlobal(EventType.ON_PLAYER_CHAT, this::onChat);
+        ctx.onBotPartyRequest(this::onPartyRequest); // phase 6a, hook P6-BOT-PARTY
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
@@ -417,17 +418,76 @@ public final class BotsCoreModule implements GameModule {
 
     // ------------------------------------------------------------------ events
 
+    /** Chat a bot may read besides whispers (phase 6a): white chat within hearing, shout and trade around. */
+    static final int HEAR_ALL = 1250;
+    static final int HEAR_SHOUT = 12_000;
+
     private void onChat(OnPlayerChat e) {
-        final Player target = e.getTarget();
-        if ((e.getChatType() != ChatType.WHISPER) || (target == null)) {
+        final Player from = e.getPlayer();
+        if ((from == null) || registry.isBot(from)) {
             return;
         }
-        final BotRecord r = registry.byCharId(target.getObjectId());
-        if (r != null) {
-            r.whisper(e.getPlayer().getName(), e.getText());
-            ctx.metrics().counter("whispersReceived").inc();
-            brains.post(r, new BotEvent.Whisper(e.getPlayer().getName(), e.getText()));
+        final ChatType type = e.getChatType();
+        if (type == ChatType.WHISPER) {
+            final Player target = e.getTarget();
+            final BotRecord r = target == null ? null : registry.byCharId(target.getObjectId());
+            if (r != null) {
+                r.whisper(from.getName(), e.getText());
+                ctx.metrics().counter("whispersReceived").inc();
+                brains.post(r, new BotEvent.Whisper(from.getName(), e.getText()));
+            }
+            return;
         }
+        final String channel = switch (type) {
+            case PARTY -> "PARTY";
+            case GENERAL -> "ALL";
+            case SHOUT -> "SHOUT";
+            case TRADE -> "TRADE";
+            default -> null;
+        };
+        if (channel == null) {
+            return;
+        }
+        final BotEvent.Chat ev = new BotEvent.Chat(channel, from.getObjectId(), from.getName(), e.getText());
+        if (type == ChatType.PARTY) {
+            if (from.getParty() != null) {
+                for (Player m : from.getParty().getMembers()) {
+                    final BotRecord r = m == null ? null : registry.byCharId(m.getObjectId());
+                    if ((r != null) && r.inWorld()) {
+                        brains.post(r, ev);
+                    }
+                }
+            }
+            return;
+        }
+        final int radius = type == ChatType.GENERAL ? HEAR_ALL : HEAR_SHOUT;
+        for (Player o : org.l2jmobius.gameserver.entity.World.getVisibleObjectsInRange(from, Player.class, radius)) {
+            final BotRecord r = registry.byCharId(o.getObjectId());
+            if ((r != null) && r.inWorld()) {
+                brains.post(r, ev);
+            }
+        }
+    }
+
+    /** Phase 6a, hook P6-BOT-PARTY: a real player invited a bot; its brain answers (or lets it expire). */
+    private boolean onPartyRequest(Player requester, Player bot) {
+        final BotRecord r = registry.byCharId(bot.getObjectId());
+        if ((r == null) || !r.inWorld() || registry.isBot(requester)) {
+            return false;
+        }
+        ctx.metrics().counter("partyInvites").inc();
+        final int members = requester.getParty() == null ? 0 : requester.getParty().getMemberCount();
+        int bots = 0;
+        if (requester.getParty() != null) {
+            for (Player m : requester.getParty().getMembers()) {
+                if (registry.isBot(m)) {
+                    bots++;
+                }
+            }
+        }
+        brains.post(r, new BotEvent.PartyInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), requester.getPlayerClass().getId(), members,
+            bots >= ctx.config().getInt("PartyBotsMax")));
+        return true;
     }
 
     private void onDeath(OnCreatureDeath e) {
@@ -488,6 +548,8 @@ public final class BotsCoreModule implements GameModule {
         final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
         if ((p != null) && (p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.TOWN) || p.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.PEACE))) {
             delay = 1500 + ThreadLocalRandom.current().nextLong(1500); // no corpses lying in towns
+        } else if ((p != null) && (director != null) && director.withPlayer(p)) {
+            delay = Math.max(delay, 120_000 + ThreadLocalRandom.current().nextLong(60_000)); // phase 6c: its player may raise it
         } else if ((p != null) && partnerNear(r, p)) {
             delay = Math.max(delay, 60_000 + ThreadLocalRandom.current().nextLong(60_000)); // its healer will raise it
         }

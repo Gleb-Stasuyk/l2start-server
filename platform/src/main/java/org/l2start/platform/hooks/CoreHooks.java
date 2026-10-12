@@ -125,6 +125,23 @@ public final class CoreHooks {
     }
 
     /**
+     * [HOOK:P6-BOT-PARTY] RequestJoinParty, after the stock invitation went to the target (its active requester is
+     * set): a bot has no client to answer, so the bot module answers for it later. Only when the target is a bot;
+     * inert without listeners. (The guard prefix of the same hook, {@link #isBot}, lets the invitation reach a bot at
+     * all instead of the stock "Player is in offline mode.")
+     */
+    public static void botPartyRequest(org.l2jmobius.gameserver.entity.actor.Player requester, org.l2jmobius.gameserver.entity.actor.Player target) {
+        try {
+            if ((PartyHooks.size() == 0) || (requester == null) || (target == null) || !isBot(target)) {
+                return;
+            }
+            PartyHooks.request(requester, target);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot party listener failed", t);
+        }
+    }
+
+    /**
      * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
      * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
      * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing

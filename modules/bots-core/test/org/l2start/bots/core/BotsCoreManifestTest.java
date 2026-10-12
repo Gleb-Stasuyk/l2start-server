@@ -18,7 +18,7 @@ class BotsCoreManifestTest {
         assertEquals("bots-core", m.id());
         final String json = Files.readString(dir.resolve("module.json"));
         assertTrue(json.contains("\"defaultEnabled\": { \"solo\": true, \"online\": false }"));
-        assertTrue(json.contains("\"platform\": \"^1.2\""));
+        assertTrue(json.contains("\"platform\": \"^1.5\""));
     }
 
     @Test

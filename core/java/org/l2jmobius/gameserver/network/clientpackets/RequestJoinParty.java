@@ -63,6 +63,7 @@ public class RequestJoinParty extends ClientPacket
 			return;
 		}
 		
+		if (!org.l2start.platform.hooks.CoreHooks.isBot(target)) // [HOOK:P6-BOT-PARTY] a bot answers party invitations through the bot module
 		if ((target.getClient() == null) || target.getClient().isDetached())
 		{
 			requestor.sendMessage("Player is in offline mode.");
@@ -231,6 +232,7 @@ public class RequestJoinParty extends ClientPacket
 			// in case a leader change has happened, use party's mode
 			target.sendPacket(new AskJoinParty(requestor.getName(), party.getDistributionType()));
 			party.setPendingInvitation(true);
+			org.l2start.platform.hooks.CoreHooks.botPartyRequest(requestor, target); // [HOOK:P6-BOT-PARTY]
 		}
 		else
 		{
@@ -258,6 +260,7 @@ public class RequestJoinParty extends ClientPacket
 			target.setActiveRequester(requestor);
 			requestor.onTransactionRequest(target);
 			requestor.setPartyDistributionType(partyDistributionType);
+			org.l2start.platform.hooks.CoreHooks.botPartyRequest(requestor, target); // [HOOK:P6-BOT-PARTY]
 		}
 		else
 		{

@@ -134,6 +134,18 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onBotPartyRequest(org.l2start.platform.api.BotPartyListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotPartyListener guarded = (r, b) -> {
+            final boolean[] out = { false };
+            guard.run("bot party request", () -> out[0] = listener.onPartyRequest(r, b));
+            return out[0];
+        };
+        org.l2start.platform.hooks.PartyHooks.add(entry.id(), guarded);
+        ownership.add("botParty", entry.id(), () -> org.l2start.platform.hooks.PartyHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
     public void cleanup(String name, Runnable action) {
         java.util.Objects.requireNonNull(action, "action");
         ownership.add("cleanup", name, action);

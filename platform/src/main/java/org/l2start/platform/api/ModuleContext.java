@@ -53,4 +53,12 @@ public interface ModuleContext {
     default void onBotTradeRequest(BotTradeListener listener) {
         throw new UnsupportedOperationException("onBotTradeRequest needs platform API 1.4");
     }
+
+    /**
+     * Since API 1.5. A real player invited a bot to a party (hook P6-BOT-PARTY): the listener answers for the bot.
+     * Guarded like every listener; removed when the module is disabled.
+     */
+    default void onBotPartyRequest(BotPartyListener listener) {
+        throw new UnsupportedOperationException("onBotPartyRequest needs platform API 1.5");
+    }
 }
