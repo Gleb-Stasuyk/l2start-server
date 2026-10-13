@@ -210,6 +210,8 @@ real_modules() { # real_modules LOG N
   check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, adena x5.0' "$1"
   check "$2: platform API 1.6.0" grep -qE 'Platform: API 1\.6\.0,' "$1"
   check "$2: rates override XP x10 applied" has "override game/Rates.ini: RateXp = 10" "$1"
+  check "$2: extras: champions on (Custom override)" has "override game/Custom/ChampionMonsters.ini: ChampionEnable = True" "$1"
+  check "$2: extras: shift+click view for players" has "override game/NPC.ini: AltGameViewNpc = True" "$1"
   check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
   if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
