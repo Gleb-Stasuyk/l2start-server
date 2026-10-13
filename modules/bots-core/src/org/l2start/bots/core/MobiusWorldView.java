@@ -134,7 +134,7 @@ final class MobiusWorldView implements WorldView {
         final Pos at = pos(n);
         return new NpcView(n.getObjectId(), n.getId(), n.getName(), n.getLevel(), at, at.distance(self.pos()), n.getMaxHp() <= 0 ? 0 : (n.getCurrentHp() * 100) / n.getMaxHp(), n.isDead(),
             n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow(), aggroRange(n),
-            n.getHeading(), n.isUndead(), (n instanceof Attackable a) && a.isSpoiled());
+            n.getHeading(), n.isUndead(), (n instanceof Attackable a) && a.isSpoiled(), n.isChampion());
     }
 
     @Override

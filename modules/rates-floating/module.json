@@ -2,9 +2,9 @@
   "id": "rates-floating",
   "name": "Rates: floating drop",
   "description": "Rates x10 (docs/RATES_PLAN.md): drop and spoil of monsters out of extra stock rolls (hook P7-DROP-FLOAT): item chance 3 x F (F = level curve x mob level difference, party = highest level), stackables x1..x3 skewed low, weapons/armour/recipes/enchants/life stones/soul crystals always 1, adena exactly x5, raids chance x2, epics stock; valuable quest rewards x1 (hook P7-QUEST-REWARD). XP/SP/quests/manor: Rates.ini override of the profile.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "jar",
-  "platform": "^1.6",
+  "platform": "^1.7",
   "entrypoint": "org.l2start.rates.floating.RatesFloatingModule",
   "defaultEnabled": { "solo": true, "online": true },
   "config": {
@@ -19,6 +19,9 @@
     "LevelCurve": { "type": "string", "default": "1:1.5,20:1.5,40:1.2,52:1.0,61:0.85,76:0.7,80:0.7", "reloadable": true, "description": "F by level (level:factor, linear between)." },
     "DiffCurve": { "type": "string", "default": "-8:0.4,-5:0.7,-3:0.9,-2:1.0,2:1.0,3:1.1,5:1.25,7:1.3", "reloadable": true, "description": "F by mob level minus level (on top of the stock grey-mob penalty)." },
     "FClamp": { "type": "string", "default": "0.35,1.5", "reloadable": true, "description": "F = clamp(level x diff, min, max)." },
+    "ChampionChance": { "type": "double", "default": 2.0, "min": 0, "max": 10, "reloadable": true, "description": "EXTRAS_PLAN: item chance of a champion x this on top of DropChance x F (2 more extra rolls allowed); keep ChampionRewardsChance = 1 in ChampionMonsters.ini." },
+    "ChampionAdena": { "type": "double", "default": 3.0, "min": 0, "max": 100, "reloadable": true, "description": "EXTRAS_PLAN: adena of a champion x this on top of AdenaRate (exactly, 5 x 3 = x15); keep ChampionAdenasRewardsAmount = 1." },
+    "DropView": { "type": "bool", "default": true, "reloadable": false, "description": "EXTRAS_PLAN: shift+click drop/spoil lists (stock NpcViewMod) show the chances and amounts with these rates for the viewer (his level, party, champion, raid)." },
     "MaxExtraRolls": { "type": "int", "default": 4, "min": 0, "max": 9, "reloadable": true, "description": "Cap of extra stock rolls per kill." },
     "StatsInterval": { "type": "duration", "default": "10m", "reloadable": false, "description": "RATES statistics line in the log (0 = never)." },
     "SelfTest": { "type": "bool", "default": false, "reloadable": false, "description": "Smoke test only: 3000 simulated kills of monsters of level 20/40/60, stock against floating averages (SELFTEST lines)." }

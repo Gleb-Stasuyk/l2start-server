@@ -1,4 +1,4 @@
-# API платформы для модулей (версия 1.6.0)
+# API платформы для модулей (версия 1.7.0)
 
 Пакет `org.l2start.platform.api`. Модуль kind `jar` реализует `GameModule`; всё остальное приходит через `ModuleContext`.
 Правило: **регистрируй всё только через контекст** — тогда платформа знает, что принадлежит модулю, и снимает это
@@ -20,7 +20,7 @@ public interface GameModule {
 | `log()` | `info/warn/error/debug`; в логе с префиксом `Module[<id>]:` |
 | `config()` | `getString/getBoolean/getInt/getLong/getDouble/getDuration/getList/getEnum`, `source(key)`, `asMap()`; ключи только из `module.json` |
 | `events()` | `onGlobal/onPlayers/onNpcs/onMonsters(EventType, Consumer)`, `onNpc(npcId, ...)`, `on(container, ...)` — слушатели событий Mobius |
-| `handlers()` | `admin(IAdminCommandHandler)`, `voiced(IVoicedCommandHandler)`, `bypass(IBypassHandler)`; занятая команда → ошибка `onEnable` |
+| `handlers()` | `admin(IAdminCommandHandler)`, `voiced(IVoicedCommandHandler)`, `bypass(IBypassHandler)`; занятая команда → ошибка `onEnable`; с 1.7: `wrapBypass(команда, старый -> новый)` — обернуть уже зарегистрированный (стоковый) bypass, ошибки обёртки → старый обработчик, при выгрузке модуля старый возвращается |
 | `scheduler()` | `schedule(name, delay, task)`, `fixedRate(name, initialDelay, period, task)` (ThreadPool Mobius) |
 | `db()` | `connection()`, `update(sql, params...)`, `query/queryOne(sql, RowMapper, params...)`, `table("x")` → `mod_<id>_x` |
 | `resources()` | `path("data/...")`, `html("95000.htm")` → путь для `NpcHtmlMessage.setFile` (`data/html/modules/<id>/95000.htm`) |
@@ -38,7 +38,7 @@ public interface GameModule {
 Классы модуля грузит отдельный class loader: сначала ядро и платформа, потом свой jar, потом jar'ы объявленных зависимостей.
 Другие модули невидимы.
 
-История: **1.6.0** (рейты) — `onDrops`, `onQuestReward` (модуль `rates-floating`, хуки `P7-DROP-FLOAT`, `P7-QUEST-REWARD`); **1.5.0** (фаза 6) — `onBotPartyRequest` (модуль `bots-core`, хук `P6-BOT-PARTY`); **1.4.0** (фаза 5, хук из фазы 6) — `onBotTradeRequest` (модуль `economy-market`, хук `P6-BOT-TRADE`); **1.3.0** (фаза 5) — `onStoreDeal` (хук `P5-STORE-DEAL`); модули с `^1.0`–`^1.3` работают как раньше.
+История: **1.7.0** (extras) — `handlers().wrapBypass` (модуль `rates-floating`: дроп в shift+клике); **1.6.0** (рейты) — `onDrops`, `onQuestReward` (модуль `rates-floating`, хуки `P7-DROP-FLOAT`, `P7-QUEST-REWARD`); **1.5.0** (фаза 6) — `onBotPartyRequest` (модуль `bots-core`, хук `P6-BOT-PARTY`); **1.4.0** (фаза 5, хук из фазы 6) — `onBotTradeRequest` (модуль `economy-market`, хук `P6-BOT-TRADE`); **1.3.0** (фаза 5) — `onStoreDeal` (хук `P5-STORE-DEAL`); модули с `^1.0`–`^1.3` работают как раньше.
 **1.2.0** (фаза 3) — `botPresence` и `cleanup` (модуль `bots-core`, хуки `P3-BOT-CHARINFO`, `P3-BOT-WHISPER`);
 модули с `^1.0`/`^1.1` работают как раньше.
 **1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);

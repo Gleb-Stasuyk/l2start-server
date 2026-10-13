@@ -7,14 +7,15 @@ package org.l2start.rates.floating;
  * level of the party.</li>
  * <li>Item chance: ordinary monster DropChance x F (drop) / SpoilChance x F (spoil), raid RaidChance, epic x1 (stock).</li>
  * <li>Adena exactly x AdenaRate (raid RaidAdena, epic stock), never floating.</li>
+ * <li>Champions (EXTRAS_PLAN §1): item chance x ChampionChance more, adena x ChampionAdena more, 2 more extra rolls.</li>
  * <li>Stackable amount x A, A = 1 + (AmountMax - 1) x u^Skew (u uniform 0..1), independent of F.</li>
  * </ul>
  */
 public record Rules(Curve levelCurve, Curve diffCurve, double fMin, double fMax, double dropChance, double spoilChance, double raidChance, double adenaRate, double raidAdena,
-    double amountMax, double skew, boolean raidAmount, int maxExtraRolls) {
+    double amountMax, double skew, boolean raidAmount, int maxExtraRolls, double championChance, double championAdena) {
     public static final String LEVEL_CURVE = "1:1.5,20:1.5,40:1.2,52:1.0,61:0.85,76:0.7,80:0.7";
     public static final String DIFF_CURVE = "-8:0.4,-5:0.7,-3:0.9,-2:1.0,2:1.0,3:1.1,5:1.25,7:1.3";
-    public static final Rules DEFAULT = new Rules(Curve.parse(LEVEL_CURVE), Curve.parse(DIFF_CURVE), 0.35, 1.5, 3, 3, 2, 5, 5, 3, 2, false, 4);
+    public static final Rules DEFAULT = new Rules(Curve.parse(LEVEL_CURVE), Curve.parse(DIFF_CURVE), 0.35, 1.5, 3, 3, 2, 5, 5, 3, 2, false, 4, 2, 3);
 
     public double f(int level, int mobLevel) {
         final double f = levelCurve.at(level) * diffCurve.at(mobLevel - level);

@@ -35,6 +35,7 @@ public final class RatesFloatingModule implements GameModule {
     private final AtomicLong kills = new AtomicLong();
     private final AtomicLong spoils = new AtomicLong();
     private final AtomicLong rolls = new AtomicLong();
+    private final AtomicLong champions = new AtomicLong();
     private final AtomicLong stockAdena = new AtomicLong();
     private final AtomicLong adena = new AtomicLong();
     private final AtomicLong stackLines = new AtomicLong();
@@ -49,12 +50,15 @@ public final class RatesFloatingModule implements GameModule {
         c.onDrops(this::onDrops);
         c.onQuestReward(this::onQuestReward);
         c.handlers().admin(new AdminRates(this));
+        if (c.config().getBoolean("DropView")) {
+            c.handlers().wrapBypass("NpcViewMod", stock -> new DropView(this, stock));
+        }
         final Duration every = c.config().getDuration("StatsInterval");
         if (every.toMillis() > 0) {
             c.scheduler().fixedRate("rates-stats", every, every, this::logStats);
         }
-        c.log().info(String.format(Locale.ROOT, "enabled: drop chance %.1fxF, spoil %.1fxF, raid x%.1f, epic x1, adena x%.1f (raid x%.1f), amount x1..x%.1f (mean %.2f), F %.2f..%.2f, quest x1 list %d items",
-            rules.dropChance(), rules.spoilChance(), rules.raidChance(), rules.adenaRate(), rules.raidAdena(), rules.amountMax(), rules.meanAmount(), rules.fMin(), rules.fMax(),
+        c.log().info(String.format(Locale.ROOT, "enabled: drop chance %.1fxF, spoil %.1fxF, raid x%.1f, epic x1, champion x%.1f (adena x%.1f), adena x%.1f (raid x%.1f), amount x1..x%.1f (mean %.2f), F %.2f..%.2f, quest x1 list %d items",
+            rules.dropChance(), rules.spoilChance(), rules.raidChance(), rules.championChance(), rules.championAdena(), rules.adenaRate(), rules.raidAdena(), rules.amountMax(), rules.meanAmount(), rules.fMin(), rules.fMax(),
             kinds.questX1Listed()));
     }
 
@@ -75,7 +79,8 @@ public final class RatesFloatingModule implements GameModule {
         final var cf = ctx.config();
         final double[] clamp = pair(cf.getString("FClamp"), 0.35, 1.5);
         return new Rules(Curve.parse(cf.getString("LevelCurve")), Curve.parse(cf.getString("DiffCurve")), clamp[0], clamp[1], cf.getDouble("DropChance"), cf.getDouble("SpoilChance"),
-            cf.getDouble("RaidChance"), cf.getDouble("AdenaRate"), cf.getDouble("RaidAdena"), cf.getDouble("AmountMax"), cf.getDouble("AmountSkew"), false, cf.getInt("MaxExtraRolls"));
+            cf.getDouble("RaidChance"), cf.getDouble("AdenaRate"), cf.getDouble("RaidAdena"), cf.getDouble("AmountMax"), cf.getDouble("AmountSkew"), false, cf.getInt("MaxExtraRolls"),
+            cf.getDouble("ChampionChance"), cf.getDouble("ChampionAdena"));
     }
 
     static double[] pair(String s, double lo, double hi) {
@@ -108,8 +113,13 @@ public final class RatesFloatingModule implements GameModule {
         final Rules r = rules;
         final boolean raid = victim.isRaid() && !victim.isRaidMinion();
         final double f = raid ? 1 : r.f(refLevel(killer), victim.getLevel());
-        final double chance = raid ? r.raidChance() : r.chance(spoil, f);
-        final DropFloat.Result res = DropFloat.build(stockRoll, kinds::of, chance, r.maxExtraRolls(), raid ? r.raidAdena() : r.adenaRate(), !raid, r, ThreadLocalRandom.current());
+        final boolean champion = !raid && victim.isChampion();
+        final double chance = (raid ? r.raidChance() : r.chance(spoil, f)) * (champion ? r.championChance() : 1);
+        final double adenaRate = (raid ? r.raidAdena() : r.adenaRate()) * (champion ? r.championAdena() : 1);
+        final DropFloat.Result res = DropFloat.build(stockRoll, kinds::of, chance, r.maxExtraRolls() + (champion ? 2 : 0), adenaRate, !raid, r, ThreadLocalRandom.current());
+        if (champion) {
+            champions.incrementAndGet();
+        }
         (spoil ? spoils : kills).incrementAndGet();
         rolls.addAndGet(res.rolls());
         stockAdena.addAndGet(res.stockAdena());
@@ -130,7 +140,7 @@ public final class RatesFloatingModule implements GameModule {
     String stats() {
         final long k = kills.get() + spoils.get();
         final long lines = stackLines.get();
-        return String.format(Locale.ROOT, "RATES kills=%d spoils=%d rolls/kill=%.2f F=%.2f adena x%.2f amount x%.2f (%d stack lines)", kills.get(), spoils.get(),
+        return String.format(Locale.ROOT, "RATES kills=%d spoils=%d champions=%d rolls/kill=%.2f F=%.2f adena x%.2f amount x%.2f (%d stack lines)", kills.get(), spoils.get(), champions.get(),
             k == 0 ? 0.0 : rolls.get() / (double) k, k == 0 ? 0.0 : fSum.sum() / k, stockAdena.get() == 0 ? 0.0 : adena.get() / (double) stockAdena.get(),
             lines == 0 ? 0.0 : amountSum.sum() / lines, lines);
     }

@@ -10,6 +10,7 @@
 <rates>
 	<exact name="Life Stone" />           <!-- 8723-8762, all four sorts -->
 	<exact name="Soul Crystal" />         <!-- red / green / blue, all stages -->
+	<keep ids="6393" />                   <!-- champion event medal (stock ChampionRewardItems): once per kill -->
 	<questX1 ids="1458,1459,1460,1461,1462" /> <!-- Crystal: D..S Grade -->
 	<questX1 ids="2130,2131,2132,2133,2134" /> <!-- Gemstone D..S -->
 	<questX1 ids="7562" />                <!-- Dimensional Diamond (3rd class chains) -->

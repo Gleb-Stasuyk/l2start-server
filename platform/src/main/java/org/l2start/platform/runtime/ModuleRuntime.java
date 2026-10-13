@@ -299,6 +299,34 @@ public final class ModuleRuntime implements ModuleContext {
             reg.registerHandler(wrapped);
             ownership.add("bypass", String.join(",", handler.getCommandList()), () -> reg.removeHandler(wrapped));
         }
+
+        @Override
+        public void wrapBypass(String command, java.util.function.UnaryOperator<IBypassHandler> wrapper) {
+            final BypassHandler reg = BypassHandler.getInstance();
+            final IBypassHandler previous = reg.getHandler(command);
+            if (previous == null) {
+                throw new IllegalStateException("bypass " + command + " is not registered, nothing to wrap");
+            }
+            final IBypassHandler mine = java.util.Objects.requireNonNull(wrapper.apply(previous), "wrapper result");
+            final IBypassHandler wrapped = new IBypassHandler() {
+                @Override
+                public boolean onCommand(String cmd, Player player, Creature origin) {
+                    final Boolean r = guard.call("bypass " + command, () -> mine.onCommand(cmd, player, origin), null);
+                    return (r != null) ? r : previous.onCommand(cmd, player, origin);
+                }
+
+                @Override
+                public String[] getCommandList() {
+                    return new String[] { command };
+                }
+            };
+            reg.registerHandler(wrapped);
+            ownership.add("bypass-wrap", command, () -> {
+                if (reg.getHandler(command) == wrapped) {
+                    reg.registerHandler(previous); // its other commands point to it already
+                }
+            });
+        }
     }
 
     private final class Scheduler implements ModuleScheduler {

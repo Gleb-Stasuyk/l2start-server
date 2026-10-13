@@ -2,7 +2,7 @@
   "id": "bots-brain-basic",
   "name": "Bots: basic brain",
   "description": "The minimal bot brain of phase 3 (step 3d): bots stroll in their starting village, walk to hunting grounds of their level (data/levelzones.xml, from stock spawns), kill monsters (warriors hit, mystics nuke), pick up their drops, rest, die and come back, learn skills for SP. Step 3e: follows the orders of the presence director (town errands and groups, hunting on the given ground, leaving out of sight or by the gatekeeper) and never takes a monster a real player fights or stands next to. Phase 6b/6c: answers a real player's party invitation by level, role, character and memory, then plays with him (follows, fights his monster, heals, buffs and raises him, obeys his party chat commands, leaves politely). Registers brain 'basic' with bots-core.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "kind": "jar",
   "platform": "^1.2",
   "entrypoint": "org.l2start.bots.brain.basic.BotsBrainBasicModule",

@@ -698,6 +698,9 @@ public final class BasicBrain implements Brain {
             if (n.aggressive() && (lvl <= 5)) {
                 continue;
             }
+            if (n.champion() && (n.level() > (lvl - 5))) {
+                continue; // EXTRAS_PLAN §1: x6 HP, a solo bot only takes champions well below its level
+            }
             if (n.engagedByOther() || ((n.targetId() != 0) && (n.targetId() != me.objectId()))) {
                 continue; // somebody else's
             }

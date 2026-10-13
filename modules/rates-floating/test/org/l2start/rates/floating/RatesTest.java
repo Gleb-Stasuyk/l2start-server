@@ -114,4 +114,22 @@ class RatesTest {
         assertTrue(r.questX1.contains(1458) && r.questX1.contains(7562));
         assertTrue(!r.exactName("Crystal: D-Grade"));
     }
+
+    @Test
+    void championDefaultsAndMedalKept() throws Exception {
+        assertEquals(2, R.championChance(), 1e-9);
+        assertEquals(3, R.championAdena(), 1e-9);
+        final ItemRules r = ItemRules.load(Path.of("modules/rates-floating/data/exact-items.xml"));
+        assertTrue(r.keep.contains(6393));
+    }
+
+    @Test
+    void dropViewChanceOfSeveralRolls() {
+        assertEquals(0.5, DropView.shown(0.5, 1), 1e-9);
+        assertEquals(0.25, DropView.shown(0.5, 0.5), 1e-9);
+        assertEquals(0.75, DropView.shown(0.5, 2), 1e-9);
+        assertEquals(1 - (0.5 * 0.75), DropView.shown(0.5, 1.5), 1e-9);
+        assertEquals(1.0, DropView.shown(1.0, 3), 1e-9);
+        assertTrue(DropView.shown(0.01, 6) < 0.06);
+    }
 }
