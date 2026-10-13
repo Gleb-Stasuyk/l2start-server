@@ -8,9 +8,11 @@
 | `starter-kit` | стартовая экипировка 9 стартовых классов (NG-топ + 1000 зарядов), как на сборке E: | `P2-DATA-INITEQUIP` |
 | `lw-fixes` | исправления из Living Worlds без хуков: обновление клиента после выпадения проклятого оружия | нет |
 | `bots-core` | ядро ботов (фаза 3): персонажи без клиента, создание «как у игрока», вход/выход, `//bots`; **только `solo`** | `P3-BOT-CHARINFO`, `P3-BOT-WHISPER` |
-| `rates-floating` | рейты x10: плавающий дроп и спойл (шанс 3×F доп. стоковыми роллами, адена ровно x5, стакающиеся x1..x3, «ровно 1» для экипировки и т. п.), ценные квестовые награды x1 (`docs/RATES_PLAN.md`) | `P7-DROP-FLOAT`, `P7-QUEST-REWARD` |
+| `rates-floating` | рейты x10: плавающий дроп и спойл (шанс 3×F доп. стоковыми роллами, адена ровно x5, стакающиеся x1..x3, «ровно 1» для экипировки и т. п.), ценные квестовые награды x1 (`docs/RATES_PLAN.md`); дроп чемпионов и shift+клик дроп/спойл с нашими шансами (`docs/EXTRAS_PLAN.md`) | `P7-DROP-FLOAT`, `P7-QUEST-REWARD` |
+| `world-info` | уровни монстров в списках телепортов («Cruma Tower (40-47)») | `P8-TELEPORT-NAME` |
+| `town-buffer` | платные бафферы-пророки у ГК Глудио/Диона/Гирана/Адена/Годдарда, 20k…200k за баф | нет (данные модуля) |
 
-`starter-kit` , `lw-fixes` и `rates-floating` включены в `solo` и `online`, `bots-core` — только в `solo`.
+`starter-kit`, `lw-fixes`, `rates-floating`, `world-info` и `town-buffer` включены в `solo` и `online`, `bots-core` — только в `solo`.
 
 Всё остальное в обоих профилях — стоковые механики и рейты Mobius (x1). Выключить модуль: `L2_MODULE_<ID>=off`
 (или `modules.ini`); выключить все: `L2_PLATFORM__DISABLEALL=true`.
