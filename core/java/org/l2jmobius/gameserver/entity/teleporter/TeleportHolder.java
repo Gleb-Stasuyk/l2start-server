@@ -133,6 +133,7 @@ public class TeleportHolder
 		for (TeleportLocation loc : _teleportData)
 		{
 			String finalName = loc.getName();
+			finalName = org.l2start.platform.hooks.CoreHooks.teleportName(player, loc, finalName); // [HOOK:P8-TELEPORT-NAME] monster levels
 			String confirmDesc = loc.getName();
 			if (shouldPayFee(player, loc))
 			{

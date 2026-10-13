@@ -10,6 +10,7 @@ import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.item.holders.ItemHolder;
 import org.l2start.platform.api.DropListener;
 import org.l2start.platform.api.QuestRewardListener;
+import org.l2start.platform.api.TeleportNameListener;
 
 /** Listeners of hooks P7-DROP-FLOAT and P7-QUEST-REWARD, each owned by a module (added and removed by the platform). */
 public final class DropHooks {
@@ -19,6 +20,10 @@ public final class DropHooks {
     private record OwnedQuest(String moduleId, QuestRewardListener listener) {
     }
 
+    private record OwnedName(String moduleId, TeleportNameListener listener) {
+    }
+
+    private static final List<OwnedName> NAMES = new CopyOnWriteArrayList<>();
     private static final List<OwnedDrop> DROPS = new CopyOnWriteArrayList<>();
     private static final List<OwnedQuest> QUESTS = new CopyOnWriteArrayList<>();
     /** Set while a listener runs: its stock rolls (nested calculateDrops) stay stock. */
@@ -43,8 +48,31 @@ public final class DropHooks {
         QUESTS.removeIf(o -> o.moduleId().equals(moduleId) && (o.listener() == l));
     }
 
+    public static void addName(String moduleId, TeleportNameListener l) {
+        NAMES.add(new OwnedName(moduleId, l));
+    }
+
+    public static void removeName(String moduleId, TeleportNameListener l) {
+        NAMES.removeIf(o -> o.moduleId().equals(moduleId) && (o.listener() == l));
+    }
+
     public static int size() {
         return DROPS.size() + QUESTS.size();
+    }
+
+    static boolean noNames() {
+        return NAMES.isEmpty();
+    }
+
+    static String teleportName(Player player, org.l2jmobius.gameserver.entity.Location where, String name) {
+        String out = name;
+        for (OwnedName o : NAMES) {
+            final String n = o.listener().onTeleportName(player, where, out);
+            if (n != null) {
+                out = n;
+            }
+        }
+        return out;
     }
 
     /** First listener with an answer wins; null = stock. Mutable list (the stock caller clears it). */

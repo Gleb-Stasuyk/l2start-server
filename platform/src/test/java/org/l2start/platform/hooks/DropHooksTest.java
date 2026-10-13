@@ -49,4 +49,17 @@ class DropHooksTest {
         }
         assertEquals(0, DropHooks.size());
     }
+
+    @Test
+    void teleportNameChain() {
+        assertEquals("Giran", CoreHooks.teleportName(null, null, "Giran"));
+        final org.l2start.platform.api.TeleportNameListener l = (p, w, n) -> n + " (1-2)";
+        DropHooks.addName("t", l);
+        try {
+            assertEquals("Giran (1-2)", CoreHooks.teleportName(null, null, "Giran"));
+        } finally {
+            DropHooks.removeName("t", l);
+        }
+        assertEquals("Giran", CoreHooks.teleportName(null, null, "Giran"));
+    }
 }

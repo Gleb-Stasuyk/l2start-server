@@ -136,6 +136,14 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onTeleportName(org.l2start.platform.api.TeleportNameListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.TeleportNameListener guarded = (p, where, name) -> guard.call("teleport name", () -> listener.onTeleportName(p, where, name), name);
+        org.l2start.platform.hooks.DropHooks.addName(entry.id(), guarded);
+        ownership.add("teleportName", entry.id(), () -> org.l2start.platform.hooks.DropHooks.removeName(entry.id(), guarded));
+    }
+
+    @Override
     public void onQuestReward(org.l2start.platform.api.QuestRewardListener listener) {
         java.util.Objects.requireNonNull(listener, "listener");
         final org.l2start.platform.api.QuestRewardListener guarded = (p, id, base, rated) -> {

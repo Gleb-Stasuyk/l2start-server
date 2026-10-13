@@ -77,4 +77,12 @@ public interface ModuleContext {
     default void onQuestReward(QuestRewardListener listener) {
         throw new UnsupportedOperationException("onQuestReward needs platform API 1.6");
     }
+
+    /**
+     * Since API 1.7. Names of destinations in gatekeeper teleport lists (hook P8-TELEPORT-NAME). Guarded; removed when the
+     * module is disabled.
+     */
+    default void onTeleportName(TeleportNameListener listener) {
+        throw new UnsupportedOperationException("onTeleportName needs platform API 1.7");
+    }
 }

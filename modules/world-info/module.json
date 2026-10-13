@@ -1,0 +1,17 @@
+{
+  "id": "world-info",
+  "name": "World info",
+  "description": "Gatekeeper teleport lists show the monster levels around each destination, e.g. 'Cruma Tower (40-47)' (EXTRAS_PLAN §4).",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.7",
+  "entrypoint": "org.l2start.modules.worldinfo.WorldInfoModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "config": {
+    "TeleportLevels": { "type": "bool", "default": true, "reloadable": true, "description": "Add the monster level range to destination names in teleport lists." },
+    "Radius": { "type": "int", "default": 4000, "min": 500, "max": 20000, "reloadable": false, "description": "Monsters spawned within this distance of the destination count." },
+    "MinSpawns": { "type": "int", "default": 5, "min": 1, "max": 1000, "reloadable": false, "description": "Fewer monster spawns around: no range shown." },
+    "LowPercentile": { "type": "int", "default": 10, "min": 0, "max": 50, "reloadable": false, "description": "Range from this percentile of monster levels (drops rare low outliers)." },
+    "HighPercentile": { "type": "int", "default": 90, "min": 50, "max": 100, "reloadable": false, "description": "Range up to this percentile of monster levels (drops rare high outliers)." }
+  }
+}

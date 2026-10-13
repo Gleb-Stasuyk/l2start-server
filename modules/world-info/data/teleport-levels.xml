@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Manual level ranges for teleport destinations (instead of the computed one): x and y of the destination
+  (within 300), levels = text shown in brackets, "" = show nothing.
+  Example: <point x="17225" y="114173" levels="40-47" />
+-->
+<list>
+</list>

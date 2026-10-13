@@ -197,4 +197,20 @@ public final class CoreHooks {
             return rated;
         }
     }
+
+    /**
+     * [HOOK:P8-TELEPORT-NAME] TeleportHolder.showTeleportList: the name of a destination (world-info adds the monster
+     * levels there). Without listeners the stock name.
+     */
+    public static String teleportName(org.l2jmobius.gameserver.entity.actor.Player player, org.l2jmobius.gameserver.entity.Location where, String name) {
+        try {
+            if (DropHooks.noNames()) {
+                return name;
+            }
+            return DropHooks.teleportName(player, where, name);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: teleport name listener failed", t);
+            return name;
+        }
+    }
 }
