@@ -1,0 +1,15 @@
+{
+  "id": "town-buffer",
+  "name": "Town buffer",
+  "description": "Paid buffer NPCs in Gludio, Dion, Giran, Aden and Goddard: Prophet buffs at the levels a Prophet of 48/55/64/74/78 has, 20k..200k adena per buff, stock duration (EXTRAS_PLAN §5).",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.7",
+  "entrypoint": "org.l2start.modules.townbuffer.TownBufferModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "data": { "npcs": "data/npcs", "spawns": "data/spawns", "html": "data/html" },
+  "reserves": { "npcs": [[95200, 95299]] },
+  "config": {
+    "PriceMultiplier": { "type": "double", "default": 1.0, "min": 0, "max": 100, "reloadable": true, "description": "All prices x this (the NPC titles keep the base price)." }
+  }
+}

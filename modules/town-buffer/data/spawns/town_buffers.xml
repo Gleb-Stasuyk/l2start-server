@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list enabled="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../data/xsd/spawns.xsd">
+	<spawn name="TownBuffers">
+		<npc id="95200" x="-12796" y="122811" z="-3114" heading="49152" respawnDelay="60" /> <!-- Gludio, Prophet 48, 20k -->
+		<npc id="95201" x="15569" y="142884" z="-2704" heading="16000" respawnDelay="60" /> <!-- Dion, Prophet 55, 62k -->
+		<npc id="95202" x="83461" y="147904" z="-3404" heading="16384" respawnDelay="60" /> <!-- Giran, Prophet 64, 116k -->
+		<npc id="95203" x="146736" y="25858" z="-2013" heading="0" respawnDelay="60" /> <!-- Aden, Prophet 74, 176k -->
+		<npc id="95204" x="148024" y="-55235" z="-2728" heading="48000" respawnDelay="60" /> <!-- Goddard, Prophet 78, 200k -->
+	</spawn>
+</list>
