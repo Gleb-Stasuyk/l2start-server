@@ -119,7 +119,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 15 discovered: 9 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 17 discovered: 11 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -186,7 +186,7 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 15 discovered: 4 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots disabled (+ world-info, town-buffer)" grep -qE 'Platform: profile=online, 17 discovered: 6 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
 check "online: stock no-store zones kept" hasnt "stores anywhere:" "$OUT/5-online.log"
 check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
@@ -230,7 +230,7 @@ say "   rates selftest:"; rates_lines "$OUT/6-solo.log" | sed -E 's/.*SELFTEST /
 check "rates SELFTEST finished" grep -qE 'Module\[rates-floating\]: SELFTEST done' "$OUT/6-solo.log"
 check "rates SELFTEST: adena exactly x5 at levels 20/40/60" rates_adena "$OUT/6-solo.log"
 check "rates SELFTEST: spoil x1.5..x9 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
-check "summary: 6 running, fixtures disabled" grep -qE 'Platform: profile=solo, 15 discovered: 6 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "summary: 8 running, fixtures disabled" grep -qE 'Platform: profile=solo, 17 discovered: 8 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
 check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bots-core\]: brain 'basic' registered \(in use\)" "$OUT/6-solo.log"
