@@ -4,8 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -13,38 +12,55 @@ import org.junit.jupiter.api.Test;
 
 class TownBufferTest {
     @Test
-    void pricesOfTheSpec() {
+    void pricesAndTitles() {
         assertEquals(20_000, Towns.price(48));
         assertEquals(62_000, Towns.price(55));
         assertEquals(116_000, Towns.price(64));
         assertEquals(176_000, Towns.price(74));
         assertEquals(200_000, Towns.price(78));
-        assertEquals("Баф 62k", Towns.title(62_000));
+        for (Towns.Town t : Towns.ALL) {
+            assertTrue(Towns.title(t.level(), t.price()).length() <= 16, t.name());
+        }
+        assertEquals("Баф 55 ур - 62k", Towns.title(55, 62_000));
+        assertEquals("Баф 64 ур - 116k", Towns.title(64, 116_000));
     }
 
     @Test
-    void npcTitlesAndSpawnsMatch() throws Exception {
-        final String npcs = Files.readString(Path.of("modules/town-buffer/data/npcs/town_buffers.xml"));
-        final String spawns = Files.readString(Path.of("modules/town-buffer/data/spawns/town_buffers.xml"));
-        for (Towns.Town t : Towns.ALL) {
-            assertTrue(npcs.contains("id=\"" + t.npcId() + "\"") && npcs.contains("name=\"" + t.name() + " Buffer\"") && npcs.contains("title=\"" + Towns.title(t.price()) + "\""), t.name());
-            assertTrue(spawns.contains("npc id=\"" + t.npcId() + "\""), t.name());
-            assertTrue((t.npcId() >= 95200) && (t.npcId() <= 95299));
+    void onlyAdenaAtLeastThePrice() {
+        assertEquals(Deal.Verdict.OK, Deal.check(List.of(new long[] { 57, 62_000 }), 0, 62_000));
+        assertEquals(Deal.Verdict.OK, Deal.check(List.of(new long[] { 57, 70_000 }), 0, 62_000)); // overpay kept, like x100
+        assertEquals(Deal.Verdict.NOT_ENOUGH, Deal.check(List.of(new long[] { 57, 61_999 }), 0, 62_000));
+        assertEquals(Deal.Verdict.NOT_ENOUGH, Deal.check(List.of(), 0, 62_000));
+        assertEquals(Deal.Verdict.WRONG, Deal.check(List.of(new long[] { 57, 62_000 }, new long[] { 1835, 1 }), 0, 62_000));
+        assertEquals(Deal.Verdict.WRONG, Deal.check(List.of(new long[] { 57, 62_000 }), 1, 62_000)); // the bot gives nothing
+    }
+
+    @Test
+    void mageAndWarriorSetsOfTheOldServer() {
+        final Map<Integer, Integer> lv = new LinkedHashMap<>();
+        for (int id : Towns.BUFFS) {
+            lv.put(id, 2);
         }
+        lv.remove(1388); // Greater Might not learned yet at this level
+        final List<int[]> w = Deal.plan(lv, false);
+        final List<int[]> m = Deal.plan(lv, true);
+        assertEquals(1204, w.get(0)[0]); // Wind Walk first, old order
+        assertTrue(w.stream().anyMatch(a -> a[0] == 1068) && w.stream().noneMatch(a -> a[0] == 1085));
+        assertTrue(m.stream().anyMatch(a -> a[0] == 1085) && m.stream().noneMatch(a -> (a[0] == 1068) || (a[0] == 1086)));
+        assertTrue(w.stream().noneMatch(a -> a[0] == 1388));
+        assertEquals(18 - 3 - 1, w.size());
+        assertEquals(18 - 6, m.size());
+        assertFalse(Towns.forClass(1389, false));
     }
 
     @Test
     void highestLearnedLevelOnly() {
         final List<BuffLevels.Learn> tree = List.of(new BuffLevels.Learn(1040, 1, 20), new BuffLevels.Learn(1040, 2, 40), new BuffLevels.Learn(1040, 3, 52), new BuffLevels.Learn(1086, 1, 44),
-            new BuffLevels.Learn(1086, 2, 56), new BuffLevels.Learn(1355, 1, 78), new BuffLevels.Learn(9999, 5, 1));
+            new BuffLevels.Learn(1086, 2, 56), new BuffLevels.Learn(9999, 5, 1));
         final Map<Integer, Integer> at48 = BuffLevels.at(tree, Towns.BUFFS, 48);
         assertEquals(2, at48.get(1040));
         assertEquals(1, at48.get(1086));
-        assertFalse(at48.containsKey(1355));
         assertFalse(at48.containsKey(9999));
-        final Map<Integer, Integer> at78 = BuffLevels.at(tree, Towns.BUFFS, 78);
-        assertEquals(3, at78.get(1040));
-        assertEquals(2, at78.get(1086));
-        assertEquals(1, at78.get(1355));
+        assertEquals(3, BuffLevels.at(tree, Towns.BUFFS, 78).get(1040));
     }
 }

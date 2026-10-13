@@ -1,126 +1,400 @@
 package org.l2start.modules.townbuffer;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.l2jmobius.gameserver.data.xml.SkillData;
 import org.l2jmobius.gameserver.data.xml.SkillTreeData;
-import org.l2jmobius.gameserver.entity.actor.Creature;
-import org.l2jmobius.gameserver.entity.actor.Npc;
+import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.actor.enums.player.PlayerClass;
 import org.l2jmobius.gameserver.entity.item.enums.ItemProcessType;
-import org.l2jmobius.gameserver.handler.IBypassHandler;
-import org.l2jmobius.gameserver.mechanics.events.EventType;
-import org.l2jmobius.gameserver.mechanics.events.holders.actor.npc.OnNpcFirstTalk;
 import org.l2jmobius.gameserver.mechanics.skill.Skill;
 import org.l2jmobius.gameserver.mechanics.skill.holders.SkillLearn;
-import org.l2jmobius.gameserver.network.serverpackets.NpcHtmlMessage;
+import org.l2jmobius.gameserver.network.enums.ChatType;
+import org.l2jmobius.gameserver.network.holders.TradeItem;
+import org.l2jmobius.gameserver.network.holders.TradeList;
+import org.l2jmobius.gameserver.network.serverpackets.CreatureSay;
+import org.l2jmobius.gameserver.network.serverpackets.SystemMessage;
+import org.l2jmobius.gameserver.network.SystemMessageId;
+import org.l2start.bots.trade.TraderPool;
 import org.l2start.platform.api.GameModule;
 import org.l2start.platform.api.ModuleContext;
 
-/** EXTRAS_PLAN §5: paid Prophet buffs in 5 towns, adena per buff, stock duration. */
+/**
+ * EXTRAS_PLAN §5, the x100 way: a paid buffer is a bot player (a Prophet persona of bots-core, status TRADER: no
+ * director, no brain) sitting at a gatekeeper. Trade it the price in adena (stock trade window; the bot answers the
+ * request through hook P6-BOT-TRADE and confirms last, only a deal of adena alone, at least the price), then it stands
+ * up and casts the full set for a mage or a warrior (by the payer's class), at the skill levels a Prophet of its level
+ * has, stock duration.
+ */
 public final class TownBufferModule implements GameModule {
-    private final Map<Integer, Map<Integer, Integer>> buffs = new ConcurrentHashMap<>();
+    private static final class Buffer {
+        final Towns.Town town;
+        int botId;
+        int requester;
+        long acceptAt;
+        long tradeSince;
+        long confirmAt;
+        int customer;
+        long paidAt;
+        boolean warnedFar;
+        boolean resting;
+        List<int[]> queue = List.of();
+        int index;
+
+        Buffer(Towns.Town town) {
+            this.town = town;
+        }
+    }
+
+    private final Map<String, Buffer> buffers = new ConcurrentHashMap<>();
+    private final Map<Integer, Map<Integer, Integer>> levels = new ConcurrentHashMap<>();
     private ModuleContext ctx;
+    private TraderPool pool;
 
     @Override
     public void onEnable(ModuleContext c) {
         ctx = c;
         for (Towns.Town t : Towns.ALL) {
-            c.events().<OnNpcFirstTalk> onNpc(t.npcId(), EventType.ON_NPC_FIRST_TALK, e -> page(e.getNpc(), e.getPlayer()));
+            buffers.put(t.name(), new Buffer(t));
         }
-        c.handlers().bypass(new IBypassHandler() {
-            @Override
-            public boolean onCommand(String command, Player player, Creature origin) {
-                if ((origin == null) || !origin.isNpc()) {
-                    return false;
-                }
-                buy(origin.asNpc(), player, command.substring("townbuff".length()).trim());
-                return true;
-            }
-
-            @Override
-            public String[] getCommandList() {
-                return new String[] { "townbuff" };
-            }
-        });
-        c.log().info("enabled: 5 buffers, prices " + Towns.ALL.stream().map(t -> t.name() + " " + Towns.title(t.price())).toList());
+        c.onBotTradeRequest(this::onTradeRequest);
     }
 
-    private Map<Integer, Integer> buffsOf(Towns.Town t) {
-        return buffs.computeIfAbsent(t.level(), lv -> {
+    @Override
+    public void onServerReady(ModuleContext c) {
+        pool = c.services().find(TraderPool.class).orElse(null);
+        if (pool == null) {
+            c.log().info("no bots-core (service TraderPool): buffers off");
+            return;
+        }
+        c.scheduler().schedule("buffers-enter", java.time.Duration.ofSeconds(20), this::enterAll);
+        c.scheduler().fixedRate("buffers-tick", java.time.Duration.ofSeconds(25), java.time.Duration.ofMillis(300), this::tick);
+    }
+
+    @Override
+    public void onShutdown(ModuleContext c) {
+        if (pool == null) {
+            return;
+        }
+        for (Buffer b : buffers.values()) {
+            final Player p = pool.player(b.botId);
+            if ((p != null) && (p.getActiveTradeList() != null)) {
+                p.cancelActiveTrade();
+            }
+            if (b.botId > 0) {
+                pool.leave(b.botId);
+            }
+        }
+    }
+
+    long price(Towns.Town t) {
+        return Math.round(t.price() * ctx.config().getDouble("PriceMultiplier"));
+    }
+
+    /** Buff id -> level of a Prophet of this level (stock skill tree). */
+    private Map<Integer, Integer> levelsAt(int level) {
+        return levels.computeIfAbsent(level, lv -> {
             final List<BuffLevels.Learn> tree = new ArrayList<>();
-            for (SkillLearn l : SkillTreeData.getInstance().getCompleteClassSkillTree(lv >= 76 ? PlayerClass.HIEROPHANT : PlayerClass.PROPHET).values()) {
+            for (SkillLearn l : SkillTreeData.getInstance().getCompleteClassSkillTree(PlayerClass.PROPHET).values()) {
                 tree.add(new BuffLevels.Learn(l.getSkillId(), l.getSkillLevel(), l.getGetLevel()));
             }
             return BuffLevels.at(tree, Towns.BUFFS, lv);
         });
     }
 
-    private long price(Towns.Town t) {
-        return Math.round(t.price() * ctx.config().getDouble("PriceMultiplier"));
-    }
+    // ---- login
 
-    private void page(Npc npc, Player player) {
-        final Towns.Town t = Towns.byNpc(npc.getId());
-        if (t == null) {
-            return;
-        }
-        final long price = price(t);
-        final Map<Integer, Integer> list = buffsOf(t);
-        final StringBuilder rows = new StringBuilder();
-        for (Map.Entry<Integer, Integer> b : list.entrySet()) {
-            final Skill s = SkillData.getInstance().getSkill(b.getKey(), b.getValue());
-            if (s != null) {
-                rows.append("<tr><td width=200><a action=\"bypass -h npc_%objectId%_townbuff ").append(b.getKey()).append("\">").append(s.getName()).append("</a></td><td width=60>").append(b.getValue()).append("</td></tr>");
+    private void enterAll() {
+        for (Buffer b : buffers.values()) {
+            try {
+                enter(b);
+            } catch (Exception e) {
+                ctx.log().warn("buffer " + b.town.name() + ": " + e);
             }
         }
-        final NpcHtmlMessage msg = new NpcHtmlMessage(npc.getObjectId());
-        msg.setFile(player, ctx.resources().html("buffer.htm"));
-        msg.replace("%rows%", rows.toString());
-        msg.replace("%level%", String.valueOf(t.level()));
-        msg.replace("%price%", String.format("%,d", price));
-        msg.replace("%all%", String.format("%,d", price * list.size()));
-        msg.replace("%objectId%", String.valueOf(npc.getObjectId()));
-        player.sendPacket(msg);
     }
 
-    private void buy(Npc npc, Player player, String arg) {
-        final Towns.Town t = Towns.byNpc(npc.getId());
-        if (t == null) {
+    private void enter(Buffer b) throws Exception {
+        final String table = ctx.db().table("bot");
+        b.botId = ctx.db().queryOne("SELECT bot_id FROM " + table + " WHERE town = ?", rs -> rs.getInt(1), b.town.name()).orElse(0);
+        if ((b.botId <= 0) || !pool.known(b.botId)) {
+            b.botId = pool.create(new TraderPool.Look(PlayerClass.PROPHET.getId(), true, null));
+            ctx.db().update("REPLACE INTO " + table + " (town, bot_id) VALUES (?, ?)", b.town.name(), b.botId);
+        }
+        final Towns.Town t = b.town;
+        final String why = pool.enter(b.botId, t.x(), t.y(), t.z(), t.heading(), t.level(), p -> {
+            final Map<Integer, Integer> lv = levelsAt(t.level());
+            for (Map.Entry<Integer, Integer> e : lv.entrySet()) {
+                final Skill s = SkillData.getInstance().getSkill(e.getKey(), e.getValue());
+                if (s != null) {
+                    p.addSkill(s, false);
+                }
+            }
+            p.setTitle(Towns.title(t.level(), price(t)));
+            p.setCurrentMp(p.getMaxMp());
+            p.broadcastUserInfo();
+            p.sitDown();
+        });
+        ctx.log().info("buffer " + t.name() + ": " + (why == null ? pool.name(b.botId) + " '" + Towns.title(t.level(), price(t)) + "', " + levelsAt(t.level()).size() + " buffs" : "not in the world: " + why));
+    }
+
+    // ---- trade request (game thread, hook P6-BOT-TRADE)
+
+    private Buffer of(Player bot) {
+        for (Buffer b : buffers.values()) {
+            if ((b.botId > 0) && (pool != null) && (pool.player(b.botId) == bot)) {
+                return b;
+            }
+        }
+        return null;
+    }
+
+    private boolean onTradeRequest(Player requester, Player bot) {
+        if (pool == null) {
+            return false;
+        }
+        final Buffer b = of(bot);
+        if (b == null) {
+            return false;
+        }
+        synchronized (b) {
+            if ((b.customer != 0) || (b.requester != 0) || (bot.getActiveTradeList() != null)) {
+                deny(requester, bot);
+                whisper(bot, requester, "Сейчас бафаю другого, подожди немного.");
+                return true;
+            }
+            b.requester = requester.getObjectId();
+            b.acceptAt = System.currentTimeMillis() + ctx.config().getDuration("AnswerDelay").toMillis();
+        }
+        if (bot.isSitting()) {
+            bot.standUp();
+        }
+        return true;
+    }
+
+    private static void deny(Player requester, Player bot) {
+        bot.setActiveRequester(null);
+        requester.onTransactionResponse();
+        final SystemMessage msg = new SystemMessage(SystemMessageId.S1_HAS_DENIED_YOUR_REQUEST_TO_TRADE);
+        msg.addString(bot.getName());
+        requester.sendPacket(msg);
+    }
+
+    private static void whisper(Player bot, Player to, String text) {
+        to.sendPacket(new CreatureSay(bot, ChatType.WHISPER, bot.getName(), text));
+    }
+
+    // ---- tick (task thread)
+
+    private void tick() {
+        final long now = System.currentTimeMillis();
+        for (Buffer b : buffers.values()) {
+            final Player bot = (b.botId > 0) ? pool.player(b.botId) : null;
+            if ((bot == null) || !bot.isOnline()) {
+                continue;
+            }
+            try {
+                synchronized (b) {
+                    step(b, bot, now);
+                }
+            } catch (Exception e) {
+                ctx.log().warn("buffer " + b.town.name() + ": " + e);
+                b.requester = 0;
+                b.customer = 0;
+                b.tradeSince = 0;
+            }
+        }
+    }
+
+    private void step(Buffer b, Player bot, long now) {
+        if (b.requester != 0) {
+            accept(b, bot, now);
             return;
         }
-        final Map<Integer, Integer> list = buffsOf(t);
-        final List<Skill> wanted = new ArrayList<>();
-        if ("all".equals(arg)) {
-            list.forEach((id, lv) -> wanted.add(SkillData.getInstance().getSkill(id, lv)));
-        } else {
-            try {
-                final int id = Integer.parseInt(arg);
-                if (list.containsKey(id)) {
-                    wanted.add(SkillData.getInstance().getSkill(id, list.get(id)));
+        if (b.tradeSince != 0) {
+            trade(b, bot, now);
+            return;
+        }
+        if (b.customer != 0) {
+            buff(b, bot, now);
+            return;
+        }
+        if (!bot.isSitting() && !bot.isCastingNow() && !bot.isDead()) {
+            bot.sitDown(); // a buffer in town sits (and restores MP)
+        }
+    }
+
+    private void accept(Buffer b, Player bot, long now) {
+        final Player r = World.getPlayer(b.requester);
+        if ((r == null) || !r.isOnline() || (bot.getActiveRequester() != r) || r.isRequestExpired()) {
+            b.requester = 0;
+            bot.setActiveRequester(null);
+            return;
+        }
+        if (now < b.acceptAt) {
+            return;
+        }
+        bot.startTrade(r); // like AnswerTradeRequest "yes"
+        bot.setActiveRequester(null);
+        r.onTransactionResponse();
+        b.requester = 0;
+        b.tradeSince = now;
+        b.confirmAt = 0;
+        whisper(bot, r, "Полный баф " + (isMage(r) ? "мага" : "воина") + " — " + String.format("%,d", price(b.town)) + " адены. Положи адену в окно и подтверди.");
+        ctx.log().info("buffer " + b.town.name() + ": trade with " + r.getName());
+    }
+
+    static boolean isMage(Player p) {
+        final PlayerClass c = p.getPlayerClass();
+        return (c != null) && c.isMage(); // old x100: by the payer's class
+    }
+
+    private void trade(Buffer b, Player bot, long now) {
+        final TradeList list = bot.getActiveTradeList();
+        if (list == null) {
+            b.tradeSince = 0; // cancelled by the player
+            return;
+        }
+        final Player p = list.getPartner();
+        if ((p == null) || !p.isOnline()) {
+            bot.cancelActiveTrade();
+            b.tradeSince = 0;
+            return;
+        }
+        if ((now - b.tradeSince) > ctx.config().getDuration("TradeTimeout").toMillis()) {
+            bot.cancelActiveTrade();
+            b.tradeSince = 0;
+            whisper(bot, p, "Время вышло, попробуй ещё раз.");
+            return;
+        }
+        final TradeList theirs = p.getActiveTradeList();
+        if ((theirs == null) || !theirs.isConfirmed()) {
+            b.confirmAt = 0;
+            return;
+        }
+        if (b.confirmAt == 0) {
+            b.confirmAt = now + ctx.config().getDuration("AnswerDelay").toMillis();
+            return;
+        }
+        if (now < b.confirmAt) {
+            return;
+        }
+        final long price = price(b.town);
+        final TradeList sync1 = (bot.getObjectId() > p.getObjectId()) ? theirs : list;
+        final TradeList sync2 = (sync1 == list) ? theirs : list;
+        final long before = bot.getAdena();
+        Deal.Verdict v;
+        synchronized (sync1) {
+            synchronized (sync2) {
+                if ((p.getActiveTradeList() != theirs) || (bot.getActiveTradeList() != list) || !theirs.isConfirmed() || theirs.isLocked() || list.isLocked()) {
+                    return;
                 }
-            } catch (NumberFormatException e) {
+                final List<long[]> lines = new ArrayList<>();
+                for (TradeItem ti : theirs.getItems()) {
+                    lines.add(new long[] { ti.getItem().getId(), ti.getCount() });
+                }
+                v = Deal.check(lines, list.getItems().size(), price);
+                if (v == Deal.Verdict.OK) {
+                    list.confirm(); // the player is confirmed: the stock exchange runs now
+                }
+            }
+        }
+        if (v != Deal.Verdict.OK) {
+            bot.cancelActiveTrade();
+            b.tradeSince = 0;
+            whisper(bot, p, v == Deal.Verdict.NOT_ENOUGH ? "Мало: полный баф стоит " + String.format("%,d", price) + " адены." : "Только адена, " + String.format("%,d", price) + ", больше ничего не клади.");
+            return;
+        }
+        final long got = bot.getAdena() - before;
+        b.tradeSince = 0;
+        if (got < price) {
+            ctx.log().warn("buffer " + b.town.name() + ": exchange with " + p.getName() + " did not run (got " + got + ")");
+            return;
+        }
+        bot.reduceAdena(ItemProcessType.DESTROY, (int) Math.min(Integer.MAX_VALUE, bot.getAdena()), null, false); // a sink: the bot keeps nothing
+        b.customer = p.getObjectId();
+        b.paidAt = now;
+        b.warnedFar = false;
+        b.resting = false;
+        b.queue = Deal.plan(levelsAt(b.town.level()), isMage(p));
+        b.index = 0;
+        ctx.metrics().counter("sets").inc();
+        ctx.metrics().counter("adena").add(got);
+        ctx.log().info("buffer " + b.town.name() + ": " + p.getName() + " paid " + got + ", " + b.queue.size() + " buffs (" + (isMage(p) ? "mage" : "warrior") + ")");
+    }
+
+    private void buff(Buffer b, Player bot, long now) {
+        final Player c = World.getPlayer(b.customer);
+        if ((c == null) || !c.isOnline() || c.isDead() || (b.index >= b.queue.size())) {
+            done(b, bot, c);
+            return;
+        }
+        if (bot.calculateDistance3D(c) > ctx.config().getInt("CastRange")) {
+            if ((now - b.paidAt) > ctx.config().getDuration("BuffWait").toMillis()) {
+                done(b, bot, c);
                 return;
             }
-        }
-        wanted.removeIf(s -> s == null);
-        if (wanted.isEmpty()) {
+            if (!b.warnedFar) {
+                b.warnedFar = true;
+                whisper(bot, c, "Подойди поближе, бафну.");
+            }
             return;
         }
-        final long cost = price(t) * wanted.size();
-        if ((cost > Integer.MAX_VALUE) || (player.getAdena() < cost) || !player.reduceAdena(ItemProcessType.FEE, (int) cost, npc, true)) {
-            player.sendMessage("Не хватает адены: нужно " + String.format("%,d", cost) + ".");
-            page(npc, player);
+        if (bot.isCastingNow()) {
             return;
         }
-        for (Skill s : wanted) {
-            s.applyEffects(npc, player);
+        final int[] next = b.queue.get(b.index);
+        Skill s = bot.getKnownSkill(next[0]);
+        if ((s == null) || (s.getLevel() != next[1])) {
+            final Skill want = SkillData.getInstance().getSkill(next[0], next[1]);
+            if (want == null) {
+                b.index++;
+                return;
+            }
+            bot.addSkill(want, false);
+            s = want;
         }
-        ctx.metrics().counter("buffs").add(wanted.size());
-        page(npc, player);
+        final double mpPct = (bot.getCurrentMp() * 100) / Math.max(1, bot.getMaxMp());
+        if (bot.isSitting()) {
+            if ((bot.getCurrentMp() >= s.getMpConsume()) && (!b.resting || (mpPct >= ctx.config().getInt("StandMpPercent")))) {
+                b.resting = false;
+                bot.standUp();
+            }
+            return;
+        }
+        if (bot.getCurrentMp() < s.getMpConsume()) {
+            b.resting = true; // out of MP: sit up to StandMpPercent before going on
+            bot.sitDown();
+            return;
+        }
+        if (bot.isSkillDisabled(s)) {
+            return;
+        }
+        bot.setTarget(c);
+        if (bot.useMagic(s, false, true)) {
+            b.index++;
+        }
+    }
+
+    private void done(Buffer b, Player bot, Player c) {
+        if ((c != null) && c.isOnline() && (b.index >= b.queue.size()) && !b.queue.isEmpty()) {
+            whisper(bot, c, "Готово, удачной охоты!");
+        }
+        ctx.log().info("buffer " + b.town.name() + ": " + b.index + "/" + b.queue.size() + " buffs cast");
+        b.customer = 0;
+        b.queue = List.of();
+        b.index = 0;
+        bot.setTarget(null);
+    }
+
+    Map<String, Object> describe() {
+        final Map<String, Object> m = new HashMap<>();
+        buffers.forEach((k, v) -> m.put(k, v.botId));
+        return m;
     }
 }
