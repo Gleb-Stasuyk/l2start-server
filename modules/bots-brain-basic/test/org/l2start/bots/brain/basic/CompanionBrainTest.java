@@ -196,25 +196,33 @@ class CompanionBrainTest {
     }
 
     @Test
-    void impatientBotLeavesWhenItsMateTeleportsAway() {
+    void catchesUpViaGatekeeperWhenMateTeleports() {
         final FakeWorld w = BasicBrainTest.world(65, false);
         final BrainHarness h = joined(w, 65, false, 0.2);
-        moveGleb(w, gleb(new Pos(w.pos().x() + 20_000, w.pos().y(), 0), 6));
-        h.run(60_000);
-        assertTrue(w.chat.contains("leaveParty"), "still in the party: " + w.chat + " " + h.notes());
-        assertEquals(0, brain(h).mateId());
-        assertTrue(h.memory().of(GLEB).has(Memory.Tag.PARTY));
+        final Pos homeGk = new Pos(w.pos().x() + 80, w.pos().y(), 0);
+        final Pos farGk = new Pos(w.pos().x() + 18_000, w.pos().y(), 0);
+        final Pos mateAt = new Pos(farGk.x() + 120, farGk.y(), 0);
+        w.addGk(homeGk);
+        w.addGk(farGk);
+        w.addGkHop(homeGk, farGk);
+        moveGleb(w, gleb(mateAt, 6));
+        h.run(3 * MIN);
+        assertFalse(w.chat.contains("leaveParty"), "left instead of catching up: " + h.notes());
+        assertTrue(w.gkTeleports >= 1, "never used the gatekeeper: " + h.act().calls() + " " + h.notes());
+        assertTrue(w.pos().distance2d(mateAt) < BasicBrain.MATE_FAR, "did not catch up: bot=" + w.pos() + " mate=" + mateAt + " " + h.notes());
+        assertTrue(brain(h).mateId() == GLEB, "left the party while catching up");
     }
 
     @Test
-    void patientBotWaitsUpToTenMinutes() {
+    void leavesAfterTenMinutesIfCannotCatchUp() {
         final FakeWorld w = BasicBrainTest.world(66, false);
         final BrainHarness h = joined(w, 66, false, 0.9);
-        moveGleb(w, gleb(new Pos(w.pos().x() + 20_000, w.pos().y(), 0), 6));
+        // farther than a bot can run in 10 min at FakeWorld speed (~72k), no GK hops
+        moveGleb(w, gleb(new Pos(w.pos().x() + 100_000, w.pos().y(), 0), 6));
         h.run(5 * MIN);
         assertFalse(w.chat.contains("leaveParty"), "left too early: " + h.notes());
         h.run(7 * MIN);
-        assertTrue(w.chat.contains("leaveParty"), "waits forever: " + h.notes());
+        assertTrue(w.chat.contains("leaveParty"), "catches up forever: " + h.notes());
     }
 
     @Test

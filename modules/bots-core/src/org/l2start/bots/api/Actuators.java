@@ -117,4 +117,21 @@ public interface Actuators {
     default ActionResult social(int id) {
         return ActionResult.INVALID;
     }
+
+    /**
+     * Nearest gatekeeper walk target from the world catalogue (KT12 F1 catch-up). Null when the catalogue is unknown
+     * (tests without one, or no GK anchors).
+     */
+    default Pos nearestGk() {
+        return null;
+    }
+
+    /**
+     * One stock gatekeeper hop toward {@code dest} (TeleporterData NORMAL destination). Must stand next to a GK NPC.
+     * {@link ActionResult#NOT_REACHABLE} = walk closer to {@link #nearestGk()} first; never teleports straight to the
+     * player from the air.
+     */
+    default ActionResult teleportViaGk(Pos dest) {
+        return ActionResult.INVALID;
+    }
 }

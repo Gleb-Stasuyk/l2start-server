@@ -54,6 +54,11 @@ public final class FakeWorld {
     public int soeUsed;
     public int logouts;
     private long escapeAt;
+    /** KT12 F1: gatekeeper anchors and hop landings for catch-up tests. */
+    public final List<Pos> gkAnchors = new ArrayList<>();
+    /** From a GK position → list of stock-like landing positions (other towns). */
+    public final Map<Pos, List<Pos>> gkHops = new HashMap<>();
+    public int gkTeleports;
     /** Phase 4c: heals that put 30 % HP back on whoever they are cast on (the bot or its summon). */
     public static final java.util.Set<Integer> HEALS = java.util.Set.of(1011, 1015, 1217, 1218, 1401, 1127);
     public static final int SPOIL_ID = 254;
@@ -1084,7 +1089,81 @@ public final class FakeWorld {
             logouts++;
             return ActionResult.OK;
         }
+
+        @Override
+        public Pos nearestGk() {
+            Pos best = null;
+            double bestD = Double.POSITIVE_INFINITY;
+            for (Pos g : gkAnchors) {
+                final double d = pos.distance2d(g);
+                if (d < bestD) {
+                    bestD = d;
+                    best = g;
+                }
+            }
+            return best;
+        }
+
+        @Override
+        public ActionResult teleportViaGk(Pos dest) {
+            if (dead || sitting || (dest == null)) {
+                return ActionResult.INVALID;
+            }
+            Pos at = null;
+            for (Pos g : gkAnchors) {
+                if (pos.distance2d(g) <= 200) {
+                    at = g;
+                    break;
+                }
+            }
+            if (at == null) {
+                return ActionResult.NOT_REACHABLE;
+            }
+            final List<Pos> hops = gkHops.getOrDefault(at, List.of());
+            Pos land = null;
+            double bestD = Double.POSITIVE_INFINITY;
+            for (Pos h : hops) {
+                final double d = h.distance2d(dest);
+                if (d < bestD) {
+                    bestD = d;
+                    land = h;
+                }
+            }
+            if (land == null) {
+                // no hop table: land at the nearest other GK to dest (still not the player's exact spot)
+                for (Pos g : gkAnchors) {
+                    if (g.equals(at)) {
+                        continue;
+                    }
+                    final double d = g.distance2d(dest);
+                    if (d < bestD) {
+                        bestD = d;
+                        land = g;
+                    }
+                }
+            }
+            if (land == null) {
+                return ActionResult.INVALID;
+            }
+            if (land.distance2d(dest) >= pos.distance2d(dest)) {
+                return ActionResult.OK; // already as close as this GK allows
+            }
+            gkTeleports++;
+            teleport(land);
+            pending.add(new BotEvent.Teleported(land));
+            return ActionResult.OK;
+        }
     };
+
+    /** Register a gatekeeper anchor for catch-up tests. */
+    public void addGk(Pos gk) {
+        gkAnchors.add(gk);
+    }
+
+    /** From this GK the bot may teleport to these landings (stock-like hops). */
+    public void addGkHop(Pos fromGk, Pos landing) {
+        gkHops.computeIfAbsent(fromGk, k -> new ArrayList<>()).add(landing);
+    }
 
     /** Casts of added skills that failed when they went off (Backstab from the front, a skill without its charges). */
     public int extraFailures;

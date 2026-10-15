@@ -153,6 +153,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     private final Map<String, BrainFactory> factories = new ConcurrentHashMap<>();
     private final Map<Integer, Mind> minds = new ConcurrentHashMap<>();
     private volatile java.util.function.Supplier<java.util.List<Pos>> anchors = java.util.List::of;
+    private volatile org.l2start.bots.director.GkGraph gkGraph;
     private volatile Ticker ticker;
     private final org.l2start.bots.runtime.Overload overload = new org.l2start.bots.runtime.Overload();
     private volatile String brainId = "basic";
@@ -317,6 +318,15 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
                 // the bot is leaving anyway
             }
         }
+    }
+
+    void setGkGraph(org.l2start.bots.director.GkGraph g) {
+        gkGraph = g;
+    }
+
+    @Override
+    public org.l2start.bots.director.GkGraph gkGraph() {
+        return gkGraph;
     }
 
     void setAnchors(java.util.function.Supplier<java.util.List<Pos>> a) {

@@ -2,15 +2,20 @@ package org.l2start.bots.core;
 
 import org.l2jmobius.gameserver.config.GeoEngineConfig;
 import org.l2jmobius.gameserver.data.xml.MapRegionData;
+import org.l2jmobius.gameserver.data.xml.TeleporterData;
 import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.WorldObject;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.actor.Summon;
+import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportType;
 import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportWhereType;
+import org.l2jmobius.gameserver.entity.actor.instance.Teleporter;
 import org.l2jmobius.gameserver.entity.item.enums.ItemLocation;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
+import org.l2jmobius.gameserver.entity.teleporter.TeleportHolder;
+import org.l2jmobius.gameserver.entity.teleporter.TeleportLocation;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
 import org.l2jmobius.gameserver.handler.IItemHandler;
 import org.l2jmobius.gameserver.handler.ItemHandler;
@@ -20,6 +25,7 @@ import org.l2jmobius.gameserver.network.serverpackets.CreatureSay;
 import org.l2start.bots.api.ActionResult;
 import org.l2start.bots.api.Actuators;
 import org.l2start.bots.api.Pos;
+import org.l2start.bots.director.GkGraph;
 
 /**
  * {@link Actuators} on stock AI intentions and requests, each one checked by a validator first (alive, distance,
@@ -31,6 +37,9 @@ final class MobiusActuators implements Actuators {
     static final int MAX_TARGET = 2500;
     static final int SAY_PER_MINUTE = 6;
 
+    /** Interaction range with a gatekeeper NPC (stock dialog distance). */
+    static final int GK_RANGE = 150;
+
     /** Where actions are reported (action log, metrics) and how a bot leaves the world. */
     interface Sink {
         void done(BotRecord r, String action, Object arg, ActionResult result);
@@ -41,6 +50,11 @@ final class MobiusActuators implements Actuators {
         void async(String name, Runnable task);
 
         long now();
+
+        /** Gatekeeper graph for catch-up (null without the presence director). */
+        default GkGraph gkGraph() {
+            return null;
+        }
     }
 
     private final BotRecord r;
@@ -512,5 +526,68 @@ final class MobiusActuators implements Actuators {
         }
         sink.logout(r);
         return done("logout", "", ActionResult.OK);
+    }
+
+    @Override
+    public Pos nearestGk() {
+        final GkGraph g = sink.gkGraph();
+        final Player p = r.player();
+        if ((g == null) || (p == null)) {
+            return null;
+        }
+        return g.nearestGk(new Pos(p.getX(), p.getY(), p.getZ()));
+    }
+
+    @Override
+    public ActionResult teleportViaGk(Pos dest) {
+        final Player p = alive();
+        if ((p == null) || (dest == null)) {
+            return done("teleportViaGk", dest, ActionResult.INVALID);
+        }
+        final Teleporter npc = World.getFirstVisibleObjectInRange(p, Teleporter.class, GK_RANGE);
+        if (npc == null) {
+            return done("teleportViaGk", dest, ActionResult.NOT_REACHABLE);
+        }
+        final GkGraph graph = sink.gkGraph();
+        final TeleportHolder holder = TeleporterData.getInstance().getHolder(npc.getId(), TeleportType.NORMAL.name());
+        if (holder == null) {
+            return done("teleportViaGk", dest, ActionResult.INVALID);
+        }
+        final int locId;
+        if (graph != null) {
+            final GkGraph.Hop hop = graph.nextHop(npc.getId(), dest);
+            if (hop == null) {
+                return done("teleportViaGk", "already", ActionResult.OK); // right town: brain runs to the mate
+            }
+            locId = hop.locId();
+        } else {
+            // no graph: pick the NORMAL destination closest to dest (still a stock GK landing)
+            TeleportLocation best = null;
+            double bestD = Double.POSITIVE_INFINITY;
+            for (TeleportLocation loc : holder.getLocations()) {
+                final double d = Math.hypot(loc.getX() - dest.x(), loc.getY() - dest.y());
+                if (d < bestD) {
+                    bestD = d;
+                    best = loc;
+                }
+            }
+            if (best == null) {
+                return done("teleportViaGk", dest, ActionResult.INVALID);
+            }
+            locId = best.getId();
+        }
+        final TeleportLocation loc = holder.getLocation(locId);
+        if (loc == null) {
+            return done("teleportViaGk", dest, ActionResult.INVALID);
+        }
+        if (p.isSitting()) {
+            p.standUp();
+        }
+        p.abortAttack();
+        p.abortCast();
+        p.getAI().setIntentionActive();
+        // stock GK destination (not the player's coordinates); fee skipped — bots have no client wallet for this path
+        p.teleToLocation(loc, true);
+        return done("teleportViaGk", loc.getX() + "," + loc.getY(), ActionResult.OK);
     }
 }

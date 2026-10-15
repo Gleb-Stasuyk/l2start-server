@@ -1953,6 +1953,10 @@ public final class BasicBrain implements Brain {
     private long ptFarSince;
     private boolean ptWaiting;
     private boolean ptAgreedWait;
+    /** KT12 F1: catching up via gatekeeper (not sitting until the mate returns). */
+    private boolean ptCatchingUp;
+    /** Position when the last GK hop was asked; if unchanged, run to the mate instead of hopping again. */
+    private Pos ptGkTriedAt;
     private PartyMode ptMode = PartyMode.ASSIST;
     private boolean ptBuffAsked;
     private boolean ptHealAsked;
@@ -2406,6 +2410,8 @@ public final class BasicBrain implements Brain {
         ptFarSince = 0;
         ptWaiting = false;
         ptAgreedWait = false;
+        ptCatchingUp = false;
+        ptGkTriedAt = null;
         ptMode = PartyMode.ASSIST;
         ptBuffAsked = false;
         ptHealAsked = false;
@@ -2507,42 +2513,14 @@ public final class BasicBrain implements Brain {
         if (ptLeaveAt > 0) {
             return 500;
         }
-        // the mate is gone (teleported, escaped, in town after a death)
+        // the mate is gone (teleported, escaped, in town after a death): catch up via GK (KT12 F1)
         if (mate.distance() > MATE_FAR) {
-            if (ptFarSince == 0) {
-                ptFarSince = now;
-            }
-            if (!ptWaiting && ((now - ptFarSince) > 15_000)) {
-                if (ptAgreedWait || (ctx.info().patience() >= 0.6)) {
-                    ptWaiting = true;
-                    speak(ctx, "PARTY", null, "WAIT", Map.of(), now + ctx.reactionDelay());
-                    ctx.note("waits for " + ptMate + " (up to 10 min)");
-                } else {
-                    beginLeave(ctx, "STAY_HERE", now, ptMate + " went away");
-                    return 500;
-                }
-            }
-            if (ptWaiting && ((now - ptFarSince) > MATE_WAIT_MS)) {
-                beginLeave(ctx, "BYE", now, "waited 10 min");
-                return 500;
-            }
-            if (fightId != 0) {
-                final long d = fight(ctx, w, me, now);
-                if (d > 0) {
-                    return d;
-                }
-            }
-            if (attacker != null) {
-                return startFight(ctx, me, attacker, now);
-            }
-            if (!me.sitting() && !me.moving() && (aggroNear(w, me, AGGRO_NEAR) == null)) {
-                ctx.act().sit();
-            }
-            detail = "waits for " + ptMate;
-            return 3000;
+            return catchUp(ctx, w, me, mate, now, attacker);
         }
         ptFarSince = 0;
         ptWaiting = false;
+        ptCatchingUp = false;
+        ptGkTriedAt = null;
         // heal, raise and buff the party (the mate included)
         if (ptHealAsked && !mate.dead() && (mate.hpPct() < 95) && (mate.distance() < 900) && !me.casting()) {
             final SkillView h = healSkill(me);
@@ -2680,13 +2658,72 @@ public final class BasicBrain implements Brain {
 
     private long ctxNow;
 
+    /**
+     * Mate is farther than {@link #MATE_FAR}: walk to the nearest gatekeeper, take stock TeleporterData hops toward
+     * him, then run. Timeout {@link #MATE_WAIT_MS} → goodbye. Never air-teleports to the player.
+     */
+    private long catchUp(BrainContext ctx, WorldView w, SelfView me, PartyMember mate, long now, NpcView attacker) {
+        if (ptFarSince == 0) {
+            ptFarSince = now;
+        }
+        if ((now - ptFarSince) > MATE_WAIT_MS) {
+            beginLeave(ctx, "BYE", now, "could not catch up in 10 min");
+            return 500;
+        }
+        if (!ptCatchingUp) {
+            ptCatchingUp = true;
+            ptWaiting = true; // "жди" / patience still means we try; phrase is WAIT
+            speak(ctx, "PARTY", null, "WAIT", Map.of(), now + ctx.reactionDelay());
+            ctx.note("catches up to " + ptMate + " via gatekeeper (up to 10 min)");
+        }
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (attacker != null) {
+            return startFight(ctx, me, attacker, now);
+        }
+        standIfSitting(ctx, me);
+        final Pos gk = ctx.act().nearestGk();
+        final double meToMate = me.pos().distance2d(mate.pos());
+        if (gk != null) {
+            final double dGk = me.pos().distance2d(gk);
+            // walk to the GK when it is not farther from the mate than we are (hop can help)
+            final boolean towardMate = gk.distance2d(mate.pos()) <= (meToMate + 200);
+            if ((dGk > 150) && towardMate) {
+                ptGkTriedAt = null;
+                detail = "catch-up to gk";
+                return walk(ctx, w, me, gk, now);
+            }
+            if (dGk <= 150) {
+                // hop already asked here with no move: same town — run to the mate
+                if ((ptGkTriedAt != null) && (ptGkTriedAt.distance2d(me.pos()) < 80)) {
+                    detail = "catch-up run";
+                    return walk(ctx, w, me, mate.pos(), now);
+                }
+                ptGkTriedAt = me.pos();
+                final org.l2start.bots.api.ActionResult r = ctx.act().teleportViaGk(mate.pos());
+                detail = "catch-up teleport";
+                if (r == org.l2start.bots.api.ActionResult.NOT_REACHABLE) {
+                    return walk(ctx, w, me, gk, now);
+                }
+                return 2500;
+            }
+        }
+        ptGkTriedAt = null;
+        detail = "catch-up run";
+        return walk(ctx, w, me, mate.pos(), now);
+    }
+
     /** For //bots info. */
     private String companionDetails(long now) {
         if (ptMateId == 0) {
             return ptParties == 0 ? "" : "\nParties with players: " + ptParties + ", invitations " + ptInvites;
         }
         return "\nParty with " + ptMate + " for " + ((now - ptSince) / 60_000) + " min, mode " + ptMode + ", commands " + ptCommands + ", deaths " + ptDeaths
-            + (ptWaiting ? ", waiting" : "") + (ptWarned ? ", leaving soon" : "");
+            + (ptCatchingUp ? ", catching up" : ptWaiting ? ", waiting" : "") + (ptWarned ? ", leaving soon" : "");
     }
 
     // ------------------------------------------------------------------ roles (4c, second part): summons, sweep, heals, back
