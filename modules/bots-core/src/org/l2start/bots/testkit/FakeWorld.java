@@ -70,8 +70,14 @@ public final class FakeWorld {
     public static final java.util.Set<Integer> CHARGE_GAIN = java.util.Set.of(8, 50);
     public static final int MAX_CHARGES = 7;
 
-    /** A skill added by a test: {@link #addSkill}. */
-    public record Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed) {
+    /**
+     * A skill added by a test: {@link #addSkill}.
+     * @param buffLeft BUFF: seconds left on the bot (phase 6e THANKS_BUFF tests); 0 = none
+     */
+    public record Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed, int buffLeft) {
+        public Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed) {
+            this(id, kind, mp, reuseMs, itemId, itemCount, chargesUsed, 0);
+        }
     }
 
     public static final class Mob {
@@ -693,8 +699,8 @@ public final class FakeWorld {
             }
         }
         for (Extra e : extras.values()) {
-            skills.add(new SkillView(e.id(), 1, e.kind(), e.mp(), e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : 40, now >= skillReadyAt.getOrDefault(e.id(), 0L), 0, e.itemId(),
-                e.itemCount()));
+            skills.add(new SkillView(e.id(), 1, e.kind(), e.mp(), e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : 40, now >= skillReadyAt.getOrDefault(e.id(), 0L), e.buffLeft(),
+                e.itemId(), e.itemCount()));
         }
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,

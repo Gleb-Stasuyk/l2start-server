@@ -158,4 +158,4 @@
 
 Остальное поведение — константы мозга; выключение — `//module disable bots-brain-basic` или `Brain=` в `bots-core`.
 
-**Фаза 6 (6b–6d):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect` для пар ботов). Подробно — `docs/BOTS_RUNTIME.md`, раздел «Фаза 6».
+**Фаза 6 (6b–6e):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect` для пар ботов); ответы на шёпот по шаблонам (`WhisperParse`) и реакции только в пати-чате (GRATS / спасибо за баф / сорри за моба — без `SocialAction`). Подробно — `docs/BOTS_RUNTIME.md`, раздел «Фаза 6».
