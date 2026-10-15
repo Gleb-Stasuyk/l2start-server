@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.l2jmobius.gameserver.config.GeoEngineConfig;
+import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.mechanics.events.EventType;
@@ -48,11 +49,13 @@ public final class BotsCoreModule implements GameModule {
     private Random seeds;
     private volatile PersonaGenerator personas;
     private DirectorRunner director;
+    private PkLedger pkLedger;
 
     @Override
     public void onEnable(ModuleContext context) throws Exception {
         ctx = context;
         repo = new BotRepository(ctx.db());
+        pkLedger = new PkLedger(ctx.db());
         final long seed = ctx.config().getLong("Seed");
         seeds = seed == 0 ? new Random() : new Random(seed);
         personas = buildPersonas(); // bad dictionary or weights: the module fails to enable with a clear message
@@ -151,6 +154,7 @@ public final class BotsCoreModule implements GameModule {
             }
         });
         ctx.onBotDuelRequest(this::onDuelRequest); // phase 7b, hook P7-BOT-DUEL
+        ctx.onBotAttackable(this::forcePkAttackable); // phase 7c, hook P7-ATTACKABLE
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
@@ -164,8 +168,49 @@ public final class BotsCoreModule implements GameModule {
         final NameDictionary dict = NameDictionary.load(ctx.resources().path("data/names"));
         final ClassPicker classes = new ClassPicker(ctx.config().getList("ClassWeights"), ctx.config().getList("FaceWeights"), ctx.config().getList("HairColorWeights"),
             ctx.config().getList("HairStyleWeightsMale"), ctx.config().getList("HairStyleWeightsFemale"));
-        return new PersonaGenerator(dict, NameGenerator.parseStyles(ctx.config().getList("NameStyles")), classes,
+        final PersonaGenerator g = new PersonaGenerator(dict, NameGenerator.parseStyles(ctx.config().getList("NameStyles")), classes,
             PersonaGenerator.parseTimezones(ctx.config().getList("Timezones")), PersonaGenerator.parseChronotypes(ctx.config().getList("Chronotypes")));
+        g.setPkShare(pkShareOf(ctx.config().getString("PkBotShare")));
+        return g;
+    }
+
+    /** Phase 7c: 1–3 % of new personas are PK ({@code PkBotShare}). */
+    static double pkShareOf(String raw) {
+        try {
+            return Math.max(0, Math.min(0.03, Double.parseDouble(raw == null ? "0.02" : raw.trim())));
+        } catch (RuntimeException e) {
+            return 0.02;
+        }
+    }
+
+    PkLedger pkLedger() {
+        return pkLedger;
+    }
+
+    /**
+     * Phase 7c, hook P7-ATTACKABLE: a PK-persona bot may open on a white player/bot outside mutual PvP (stock would
+     * refuse). Peace and under-20 stay blocked here too.
+     */
+    private boolean forcePkAttackable(Player target, org.l2jmobius.gameserver.entity.actor.Creature attacker) {
+        final Player atk = attacker == null ? null : attacker.asPlayer();
+        if ((atk == null) || !registry.isBot(atk) || (target == null) || !target.isPlayer()) {
+            return false;
+        }
+        final BotRecord r = registry.byCharId(atk.getObjectId());
+        if ((r == null) || (r.persona() == null) || !r.persona().pk()) {
+            return false;
+        }
+        if (atk.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.PEACE) || target.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.PEACE)
+            || atk.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.NO_PVP) || target.isInsideZone(org.l2jmobius.gameserver.entity.zone.ZoneId.NO_PVP)) {
+            return false;
+        }
+        if (target.getLevel() < 20) {
+            return false;
+        }
+        if (registry.isBot(target) && (target.getObjectId() == atk.getObjectId())) {
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -362,6 +407,9 @@ public final class BotsCoreModule implements GameModule {
                 ctx.log().warn("bad PartyShare: " + ctx.config().getString("PartyShare"));
             }
             director.setAnchors(anchors(ctx.config().getList("Anchors")));
+        }
+        if (personas != null) {
+            personas.setPkShare(pkShareOf(ctx.config().getString("PkBotShare")));
         }
     }
 
@@ -597,8 +645,24 @@ public final class BotsCoreModule implements GameModule {
         }
         r.died();
         ctx.metrics().counter("deaths").inc();
+        if ((r.persona() != null) && r.persona().pk() && (pkLedger != null) && dead.isPlayer()) {
+            try {
+                pkLedger.sync(r.botId(), dead.asPlayer()); // stock karma drop removed object ids from the bag
+            } catch (Exception ex) {
+                ctx.log().warn("pk ledger sync after death of " + r.name() + ": " + ex.getMessage());
+            }
+            brains.pvp().notePkDeath(r.botId(), System.currentTimeMillis());
+        }
         if (director != null) {
             logDeath(r, e.getAttacker());
+        }
+        // PK kill: attacker is a PK bot that killed a player
+        final Creature killer = e.getAttacker();
+        if ((killer != null) && killer.isPlayer()) {
+            final BotRecord pk = registry.byCharId(killer.getObjectId());
+            if ((pk != null) && (pk.persona() != null) && pk.persona().pk()) {
+                brains.pvp().notePkKill(pk.botId(), System.currentTimeMillis());
+            }
         }
         brains.post(r, new BotEvent.Died(e.getAttacker() == null ? 0 : e.getAttacker().getObjectId()));
         scheduleReturn(r);
@@ -723,6 +787,56 @@ public final class BotsCoreModule implements GameModule {
 
     public BotWorld world() {
         return world;
+    }
+
+    /**
+     * Phase 7c admin: mark persona as PK, give entry karma, spawn / move next to the GM for a drop test.
+     * @return short status for the GM
+     */
+    public String makePkNear(String name, Player gm) throws Exception {
+        final BotRecord r = registry.byName(name);
+        if (r == null) {
+            return "No bot named " + name;
+        }
+        if (r.status() == BotRecord.Status.TRADER) {
+            return name + " is a trader, not a PK";
+        }
+        org.l2start.bots.persona.Persona p = r.persona();
+        if (p == null) {
+            return name + " has no persona";
+        }
+        if (!p.pk()) {
+            p = p.withPk(true);
+            r.setPersona(p);
+            repo.savePersona(r.botId(), p);
+        }
+        final Location near = new Location(gm.getX() + 80, gm.getY() + 80, gm.getZ());
+        if (r.inWorld()) {
+            final Player bot = r.player();
+            if (bot != null) {
+                if (bot.getKarma() <= 0) {
+                    bot.setKarma(Materializer.PK_ENTRY_KARMA);
+                }
+                bot.teleToLocation(near, true);
+            }
+            return name + " is PK (karma " + (bot == null ? 0 : bot.getKarma()) + "), moved here";
+        }
+        final Materializer mat;
+        if (director != null) {
+            mat = director.materializer();
+        } else {
+            mat = new Materializer(GearTable.load(ctx.resources().path("data/gear.xml")));
+            mat.setPkLedger(pkLedger);
+            mat.setSupplies(() -> ctx.services().find(org.l2start.bots.trade.Supplies.class).orElse(null));
+        }
+        final int level = Math.max(20, gm.getLevel());
+        final String why = world.enterPrepared(r, near, player -> mat.prepare(player, r, level));
+        if (why != null) {
+            return "spawn failed: " + why;
+        }
+        ctx.metrics().counter("logins").inc();
+        final Player bot = r.player();
+        return name + " is PK, spawned here (karma " + (bot == null ? 0 : bot.getKarma()) + ")";
     }
 
     /** Phase 6a: what a bot remembers of real players, for //bots info. */

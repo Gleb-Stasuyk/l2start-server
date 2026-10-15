@@ -113,6 +113,9 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "pvp":
                     showPvp(gm);
                     return true;
+                case "pk":
+                    makePk(gm, st.hasMoreTokens() ? st.nextToken() : "");
+                    return true;
                 case "pause":
                 case "resume":
                     core.brains().setPaused("pause".equals(sub));
@@ -147,7 +150,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -354,7 +357,7 @@ public final class AdminBots implements IAdminCommandHandler {
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 
-    /** Phase 7b: hourly PvP counters. */
+    /** Phase 7b/7c: hourly PvP counters + online PK bots. */
     private void showPvp(Player gm) {
         final org.l2start.bots.chat.PvpBoard board = core.brains().pvp();
         final long now = System.currentTimeMillis();
@@ -366,16 +369,49 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("Revenge: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.REVENGE, 0)).append("<br>");
         sb.append("Flees: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.FLEE, 0)).append("<br>");
         sb.append("Call help: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, 0)).append("<br>");
+        sb.append("PK hunts: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.PK_HUNT, 0)).append("<br>");
         sb.append("Duels accepted: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DUEL_OK, 0)).append(", declined: ")
             .append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DUEL_NO, 0)).append("<br>");
         sb.append("Blocked by cooldown: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.LIMIT, 0)).append("<br>");
         sb.append("Blocked by peace zone: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.ZONE, 0)).append("<br>");
+        sb.append("PK kills: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.PK_KILL, 0)).append(", deaths: ")
+            .append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.PK_DEATH, 0)).append("<br>");
+        sb.append("<br><font color=\"LEVEL\">PK bots online</font><br>");
+        int n = 0;
+        for (BotRecord r : core.registry().all()) {
+            if (!r.inWorld() || (r.persona() == null) || !r.persona().pk()) {
+                continue;
+            }
+            n++;
+            final Player p = r.player();
+            final int karma = p == null ? 0 : p.getKarma();
+            sb.append(r.name()).append(" karma ").append(karma).append(" K/D ")
+                .append(board.pkKillsHour(r.botId(), now)).append('/').append(board.pkDeathsHour(r.botId(), now)).append("<br>");
+        }
+        if (n == 0) {
+            sb.append("(none — //bots pk &lt;name&gt;)<br>");
+        }
         sb.append("<br><table width=280><tr>");
         button(sb, "Refresh", "pvp");
         button(sb, "Social", "social");
         button(sb, "List", "list");
         sb.append("</tr></table></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7c: mark persona as PK and spawn next to the GM for testing. */
+    private void makePk(Player gm, String name) {
+        if (name == null || name.isBlank()) {
+            gm.sendMessage("Usage: //bots pk <name>");
+            return;
+        }
+        try {
+            final String msg = core.makePkNear(name, gm);
+            gm.sendMessage(msg);
+        } catch (Exception e) {
+            gm.sendMessage("pk failed: " + e.getMessage());
+            core.ctx().log().warn("//bots pk failed", e);
+        }
     }
 
     /** Phase 6g: hourly social counters and who is ANNOYED. */

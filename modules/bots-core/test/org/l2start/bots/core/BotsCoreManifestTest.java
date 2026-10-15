@@ -18,7 +18,8 @@ class BotsCoreManifestTest {
         assertEquals("bots-core", m.id());
         final String json = Files.readString(dir.resolve("module.json"));
         assertTrue(json.contains("\"defaultEnabled\": { \"solo\": true, \"online\": false }"));
-        assertTrue(json.contains("\"platform\": \"^1.5\""));
+        assertTrue(json.contains("\"platform\": \"^1.10\""));
+        assertTrue(json.contains("PkBotShare"));
     }
 
     @Test
@@ -30,11 +31,21 @@ class BotsCoreManifestTest {
             }
         }
         assertTrue(all.toString().contains("mod_bots_core_persona") && all.toString().contains("mod_bots_core_state"));
+        assertTrue(all.toString().contains("mod_bots_core_pk_ledger"));
         for (String line : all.toString().split("\n")) {
             if (line.toUpperCase().contains("CREATE TABLE")) {
                 assertTrue(line.contains("mod_bots_core_"), line);
             }
             assertTrue(!line.trim().toUpperCase().matches("(ALTER|DROP|UPDATE|DELETE|INSERT|REPLACE|TRUNCATE|RENAME)\\b.*"), "migration must not touch stock tables: " + line);
         }
+    }
+
+    @Test
+    void pkBotShareClampedToPlan() {
+        assertEquals(0.02, BotsCoreModule.pkShareOf(null), 1e-9);
+        assertEquals(0.02, BotsCoreModule.pkShareOf("0.02"), 1e-9);
+        assertEquals(0.03, BotsCoreModule.pkShareOf("0.05"), 1e-9);
+        assertEquals(0.0, BotsCoreModule.pkShareOf("0"), 1e-9);
+        assertEquals(0.02, BotsCoreModule.pkShareOf("nope"), 1e-9);
     }
 }

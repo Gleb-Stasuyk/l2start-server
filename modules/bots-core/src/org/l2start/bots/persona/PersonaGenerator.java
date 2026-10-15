@@ -19,6 +19,8 @@ public final class PersonaGenerator {
     private final ClassPicker classes;
     private final Weights<String> timezones;
     private final Weights<Chronotype> chronotypes;
+    /** Phase 7c: share of new personas that are PK (0..1). */
+    private volatile double pkShare = 0.02;
 
     public PersonaGenerator(NameDictionary dict, Weights<NameGenerator.Style> styles, ClassPicker classes, Weights<String> timezones, Weights<Chronotype> chronotypes) {
         this.dict = dict;
@@ -30,6 +32,14 @@ public final class PersonaGenerator {
 
     public PersonaGenerator(NameDictionary dict) {
         this(dict, NameGenerator.parseStyles(NameGenerator.DEFAULT_STYLES), new ClassPicker(), parseTimezones(DEFAULT_TIMEZONES), parseChronotypes(DEFAULT_CHRONOTYPES));
+    }
+
+    public void setPkShare(double share) {
+        pkShare = Math.max(0, Math.min(0.03, share)); // plan: 1–3 %
+    }
+
+    public double pkShare() {
+        return pkShare;
     }
 
     public static Weights<String> parseTimezones(List<String> entries) {
@@ -58,7 +68,8 @@ public final class PersonaGenerator {
         final ClassPicker.Look look = classes.look(cls, rLook);
         final NameGenerator.Named named = new NameGenerator(rName, dict, styles).next(taken, look.female());
         final Persona.Lang lang = lang(named.style(), rName);
-        return new Persona(Persona.VERSION, seed, named.name(), named.style().name(), lang, cls, future, look.female(), look.face(), look.hairStyle(), look.hairColor(), Traits.random(rTraits), chronotypes.pick(rTime), timezones.pick(rTime));
+        final boolean pk = part(seed, 6).nextDouble() < pkShare;
+        return new Persona(Persona.VERSION, seed, named.name(), named.style().name(), lang, cls, future, look.female(), look.face(), look.hairStyle(), look.hairColor(), Traits.random(rTraits), chronotypes.pick(rTime), timezones.pick(rTime), pk);
     }
 
     /** Persona for a bot made before personas existed (step 3a): its real name, class and look, the rest from the seed. */
@@ -68,7 +79,8 @@ public final class PersonaGenerator {
         final Random rName = part(seed, 5);
         final String style = guessStyle(name);
         final Persona.Lang lang = style.equals("UNKNOWN") ? Persona.Lang.MIX : lang(NameGenerator.Style.valueOf(style), rName);
-        return new Persona(Persona.VERSION, seed, name, style, lang, classId, ClassPicker.futureClass(classId, rClass), female, face, hairStyle, hairColor, Traits.random(part(seed, 3)), chronotypes.pick(rTime), timezones.pick(rTime));
+        final boolean pk = part(seed, 6).nextDouble() < pkShare;
+        return new Persona(Persona.VERSION, seed, name, style, lang, classId, ClassPicker.futureClass(classId, rClass), female, face, hairStyle, hairColor, Traits.random(part(seed, 3)), chronotypes.pick(rTime), timezones.pick(rTime), pk);
     }
 
     private String guessStyle(String name) {

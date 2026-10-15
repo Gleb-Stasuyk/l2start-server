@@ -365,7 +365,19 @@ public final class BasicBrain implements Brain {
             final PvpDecision.Situation sit = new PvpDecision.Situation(me.inPvpZone(), p.inPvpZone(), initiative, hit, revenge, allyHit, !p.bot(),
                 pvpProtectParty, pvpProtectClan, pvpRevenge, pvpMode, me.level(), p.level(), me.mage(), isMageClass(p.classId()), enemies, allies,
                 me.hpPct(), me.mpPct(), ctx.info().aggression(), cd, p.level() < PvpDecision.MIN_TARGET_LEVEL);
-            final PvpDecision.Verdict v = PvpDecision.decide(sit);
+            PvpDecision.Verdict v = PvpDecision.decide(sit);
+            // phase 7c: PK persona opens chaotic fights (peace / <20 / off / cooldown already in decide)
+            if ((v.intent() == PvpDecision.Intent.NONE) && initiative && ctx.info().pk() && me.inPvpZone() && p.inPvpZone()
+                && (me.hpPct() >= 40) && !(p.level() < PvpDecision.MIN_TARGET_LEVEL)
+                && !( !p.bot() && (pvpMode == PvpDecision.Mode.OFF) )
+                && !( !p.bot() && cd )) {
+                v = new PvpDecision.Verdict(PvpDecision.Intent.FIGHT, "pk");
+            }
+            // phase 7c: high-aggression bots hunt reds (players or bots)
+            if ((v.intent() == PvpDecision.Intent.NONE) && !ctx.info().pk() && p.pvpMarked() && (ctx.info().aggression() >= 0.65)
+                && me.inPvpZone() && p.inPvpZone() && (me.hpPct() >= 40)) {
+                v = new PvpDecision.Verdict(PvpDecision.Intent.FIGHT, "pk-hunt");
+            }
             if (v.intent() == PvpDecision.Intent.NONE) {
                 notePvpBlock(ctx, p, initiative, v.why(), now);
                 continue;
@@ -373,7 +385,8 @@ public final class BasicBrain implements Brain {
             if ((bestV == null) || rank(v.intent()) > rank(bestV.intent())) {
                 best = p;
                 bestV = v;
-                bestInit = initiative && (v.intent() == PvpDecision.Intent.FIGHT) && !p.bot();
+                bestInit = initiative && (v.intent() == PvpDecision.Intent.FIGHT) && !p.bot()
+                    && !"pk-hunt".equals(v.why()); // hunter CD separate? reuse initiative CD for live reds
             }
         }
         if (bestV != null) {
@@ -446,8 +459,9 @@ public final class BasicBrain implements Brain {
         if ((pvpId == p.objectId()) && (pvpFight == fight)) {
             return; // already in that mood toward them
         }
-        if ((pvpId != 0) && (pvpId != p.objectId()) && pvpFight && !"protect".equals(why) && !"revenge".equals(why)) {
-            return; // finish the current fight unless protect/revenge overrides
+        if ((pvpId != 0) && (pvpId != p.objectId()) && pvpFight && !"protect".equals(why) && !"revenge".equals(why) && !"pk-hunt".equals(why)
+            && !"pk".equals(why)) {
+            return; // finish the current fight unless protect/revenge/pk overrides
         }
         final boolean fresh = pvpId != p.objectId();
         pvpId = p.objectId();
@@ -475,6 +489,7 @@ public final class BasicBrain implements Brain {
         final org.l2start.bots.chat.PvpBoard.Stat s = switch (why) {
             case "protect", "attacked" -> org.l2start.bots.chat.PvpBoard.Stat.DEFEND;
             case "revenge" -> org.l2start.bots.chat.PvpBoard.Stat.REVENGE;
+            case "pk-hunt" -> org.l2start.bots.chat.PvpBoard.Stat.PK_HUNT;
             default -> org.l2start.bots.chat.PvpBoard.Stat.ATTACK;
         };
         ctx.pvp().note(s, now);
@@ -660,7 +675,7 @@ public final class BasicBrain implements Brain {
         }
         // initiative / revenge / protect: stay engaged while the foe is near (not only when they hit us)
         final boolean planned = "initiative".equals(lastPvpWhy) || "revenge".equals(lastPvpWhy) || "protect".equals(lastPvpWhy)
-            || "need help".equals(lastPvpWhy) || "outnumbered".equals(lastPvpWhy);
+            || "need help".equals(lastPvpWhy) || "outnumbered".equals(lastPvpWhy) || "pk".equals(lastPvpWhy) || "pk-hunt".equals(lastPvpWhy);
         final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY)
             || ((p.targetId() == me.objectId()) && p.inCombat())
             || (planned && (p.pos().distance2d(me.pos()) < 1200)));

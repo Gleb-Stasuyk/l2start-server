@@ -51,6 +51,7 @@ class BrainConfigTest {
         assertEquals(PvpDecision.Mode.OFF, PvpDecision.Mode.of("off"));
         assertEquals(PvpDecision.Mode.LOW, PvpDecision.Mode.of("low"));
         assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of("normal"));
+        assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of("on"));
         assertEquals(PvpDecision.Mode.HIGH, PvpDecision.Mode.of("HIGH"));
         assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of(""));
     }

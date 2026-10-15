@@ -56,7 +56,7 @@ final class TraderService implements TraderPool {
             final String name = ((look.name() != null) && !look.name().isEmpty() && !BotFactory.nameTaken(look.name())) ? look.name() : p.name();
             final int hair = look.female() ? p.hairStyle() : Math.min(p.hairStyle(), 4); // male styles 0-4, female 0-6
             return new Persona(p.version(), p.seed(), name, p.nameStyle(), p.lang(), p.classId(), (future == start) ? p.futureClassId() : future, look.female(), p.face(), hair, p.hairColor(), p.traits(),
-                p.chronotype(), p.timezone());
+                p.chronotype(), p.timezone(), false); // traders are never PK
         });
         repo.setStatus(r.botId(), BotRecord.Status.TRADER.name());
         r.setStatus(BotRecord.Status.TRADER);

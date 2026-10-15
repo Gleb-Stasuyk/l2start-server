@@ -44,6 +44,11 @@ public final class DirectorRunner {
         this.materializer = new Materializer(gear);
         // phase 5d: a market module (economy-market) lets hunters pay for shots and potions; looked up at every arrival
         this.materializer.setSupplies(() -> module.ctx().services().find(org.l2start.bots.trade.Supplies.class).orElse(null));
+        this.materializer.setPkLedger(module.pkLedger());
+    }
+
+    Materializer materializer() {
+        return materializer;
     }
 
     public Director director() {
@@ -372,7 +377,7 @@ public final class DirectorRunner {
             final Player p = r.player();
             if (p != null) {
                 try {
-                    materializer.cleanup(p);
+                    materializer.cleanup(p, (r.persona() != null) && r.persona().pk());
                 } catch (Exception e) {
                     ctx.log().warn("director: cleanup of " + r.name() + " failed", e);
                 }
@@ -399,7 +404,7 @@ public final class DirectorRunner {
                 continue;
             }
             try {
-                materializer.cleanup(p);
+                materializer.cleanup(p, (r.persona() != null) && r.persona().pk());
                 final long now = System.currentTimeMillis();
                 r.setProgress(p.getLevel(), now, p.getLevel());
                 module.repo().saveProgress(r.botId(), p.getLevel(), now);

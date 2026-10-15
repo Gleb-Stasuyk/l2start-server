@@ -1,6 +1,7 @@
 package org.l2start.bots.persona;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -65,6 +66,30 @@ class PersonaGeneratorTest {
     private static void assertNear(int pct, int count, int n) {
         final double p = (100.0 * count) / n;
         assertTrue(Math.abs(p - pct) <= 3, p + "% vs " + pct + "%");
+    }
+
+    @Test
+    void pkFlagRoundTripsInJson() {
+        final Persona base = gen.generate(99, -1, s -> false);
+        final Persona pk = base.withPk(true);
+        assertTrue(pk.pk());
+        assertEquals(pk, Persona.fromJson(pk.toJson()));
+        assertTrue(pk.summary().contains("PK"));
+        assertFalse(pk.withPk(false).pk());
+    }
+
+    @Test
+    void pkShareAroundTwoPercent() {
+        gen.setPkShare(0.02);
+        int pk = 0;
+        final int n = 10_000;
+        for (long seed = 0; seed < n; seed++) {
+            if (gen.generate(seed, -1, s -> false).pk()) {
+                pk++;
+            }
+        }
+        final double share = pk / (double) n;
+        assertTrue(share >= 0.01 && share <= 0.03, "pk share " + share);
     }
 
     @Test

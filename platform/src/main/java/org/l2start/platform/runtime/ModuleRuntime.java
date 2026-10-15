@@ -202,6 +202,18 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onBotAttackable(org.l2start.platform.api.BotAttackableListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotAttackableListener guarded = (t, a) -> {
+            final boolean[] out = { false };
+            guard.run("bot attackable", () -> out[0] = listener.forceAttackable(t, a));
+            return out[0];
+        };
+        org.l2start.platform.hooks.AttackableHooks.add(entry.id(), guarded);
+        ownership.add("botAttackable", entry.id(), () -> org.l2start.platform.hooks.AttackableHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
     public void cleanup(String name, Runnable action) {
         java.util.Objects.requireNonNull(action, "action");
         ownership.add("cleanup", name, action);

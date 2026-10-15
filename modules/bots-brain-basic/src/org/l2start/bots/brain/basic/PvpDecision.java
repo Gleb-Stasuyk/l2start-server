@@ -22,6 +22,7 @@ public final class PvpDecision {
                 case "off" -> OFF;
                 case "low" -> LOW;
                 case "high" -> HIGH;
+                case "on", "normal" -> NORMAL;
                 default -> NORMAL;
             };
         }

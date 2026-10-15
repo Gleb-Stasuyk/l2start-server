@@ -1,4 +1,4 @@
-# API платформы для модулей (версия 1.9.0)
+# API платформы для модулей (версия 1.10.0)
 
 Пакет `org.l2start.platform.api`. Модуль kind `jar` реализует `GameModule`; всё остальное приходит через `ModuleContext`.
 Правило: **регистрируй всё только через контекст** — тогда платформа знает, что принадлежит модулю, и снимает это
@@ -32,6 +32,7 @@ public interface GameModule {
 | `onBotTradeRequest(BotTradeListener)` | с 1.4: настоящий игрок запросил трейд у бота (хук `P6-BOT-TRADE`, стоковый запрос уже отправлен); слушатель может ответить за бота (`true` = ответил: принял через `bot.startTrade(requester)` или отказал). Только когда партнёр — бот; снимается при выключении |
 | `onBotPartyRequest(BotPartyListener)` | с 1.5: настоящий игрок пригласил бота в пати (хук `P6-BOT-PARTY`, стоковое приглашение висит 15 с, у бота `activeRequester` = игрок); слушатель берёт ответ на себя (`true`) и отвечает позже со своего потока, как стоковый `RequestAnswerJoinParty`. С 1.8: `onPartyBusy` — бот уже в пати (пара ботов): модуль может ответить социально вместо стокового «член другой пати». Только когда цель — бот; снимается при выключении |
 | `onBotDuelRequest(BotDuelListener)` | с 1.9: настоящий игрок вызвал бота на дуэль (хук `P7-BOT-DUEL`, стоковый `ExDuelAskStart` уже ушёл); слушатель отвечает позже, как стоковый `RequestDuelAnswerStart`. Только когда цель — бот; снимается при выключении |
+| `onBotAttackable(BotAttackableListener)` | с 1.10: стоковый `Player.isAutoAttackable` вернул false; слушатель может всё же разрешить атаку (хук `P7-ATTACKABLE`, ПК-боты на белых вне взаимного PvP). Без слушателей = сток; снимается при выключении |
 | `onDrops(DropListener)` | с 1.6: дроп и спойл мёртвого монстра (хук `P7-DROP-FLOAT`): слушатель может собрать их из стоковых роллов (`stockRoll`), `null` = сток |
 | `onQuestReward(QuestRewardListener)` | с 1.6: количество предмета-награды квеста после стоковых рейтов (хук `P7-QUEST-REWARD`) |
 | `metrics()` | `counter(name).inc()/add()/get()`, `snapshot()`; видны в `//module info` |
@@ -39,7 +40,7 @@ public interface GameModule {
 Классы модуля грузит отдельный class loader: сначала ядро и платформа, потом свой jar, потом jar'ы объявленных зависимостей.
 Другие модули невидимы.
 
-История: **1.9.0** (фаза 7b) — `onBotDuelRequest` (хук `P7-BOT-DUEL`); **1.8.0** (фаза 6d) — `BotPartyListener.onPartyBusy` (хук `P6-BOT-PARTY` busy); **1.7.0** (extras) — `handlers().wrapBypass`; **1.6.0** (рейты) — `onDrops`, `onQuestReward`; **1.5.0** (фаза 6) — `onBotPartyRequest`; **1.4.0** (фаза 5) — `onBotTradeRequest`; **1.3.0** (фаза 5) — `onStoreDeal`; модули с `^1.0`–`^1.8` работают как раньше.
+История: **1.10.0** (фаза 7c) — `onBotAttackable` (хук `P7-ATTACKABLE`); **1.9.0** (фаза 7b) — `onBotDuelRequest` (хук `P7-BOT-DUEL`); **1.8.0** (фаза 6d) — `BotPartyListener.onPartyBusy` (хук `P6-BOT-PARTY` busy); **1.7.0** (extras) — `handlers().wrapBypass`; **1.6.0** (рейты) — `onDrops`, `onQuestReward`; **1.5.0** (фаза 6) — `onBotPartyRequest`; **1.4.0** (фаза 5) — `onBotTradeRequest`; **1.3.0** (фаза 5) — `onStoreDeal`; модули с `^1.0`–`^1.9` работают как раньше.
 **1.2.0** (фаза 3) — `botPresence` и `cleanup` (модуль `bots-core`, хуки `P3-BOT-CHARINFO`, `P3-BOT-WHISPER`);
 модули с `^1.0`/`^1.1` работают как раньше.
 **1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);

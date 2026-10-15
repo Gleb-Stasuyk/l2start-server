@@ -190,7 +190,7 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         final Persona p = r.persona();
         final Traits t = p == null ? new Traits(0.5, 0.5, 0.5, 0.5, 0.5, 0.5) : p.traits();
         return new BotInfo(r.botId(), r.charId(), r.name(), r.classId(), (p != null) && p.female(), p == null ? "RU" : String.valueOf(p.lang()), t.aggression(), t.sociability(),
-            t.greed(), t.patience(), t.skill(), t.chattiness(), t.reactionMs(), new Pos(r.homeX(), r.homeY(), r.homeZ()), p == null ? r.charId() : p.seed());
+            t.greed(), t.patience(), t.skill(), t.chattiness(), t.reactionMs(), new Pos(r.homeX(), r.homeY(), r.homeZ()), p == null ? r.charId() : p.seed(), (p != null) && p.pk());
     }
 
     /** Reads the runtime keys; the shard count and wave settings take effect on the next start. */

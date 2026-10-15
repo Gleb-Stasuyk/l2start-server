@@ -71,6 +71,14 @@ public interface ModuleContext {
     }
 
     /**
+     * Since API 1.10. Stock {@code isAutoAttackable} was false; the listener may still allow the attack (hook
+     * {@code P7-ATTACKABLE}, PK bots). Guarded; removed when the module is disabled.
+     */
+    default void onBotAttackable(BotAttackableListener listener) {
+        throw new UnsupportedOperationException("onBotAttackable needs platform API 1.10");
+    }
+
+    /**
      * Since API 1.6. The drop and spoil of dead monsters (hook P7-DROP-FLOAT): the listener may calculate them out of
      * stock rolls. Guarded like every listener; removed when the module is disabled.
      */

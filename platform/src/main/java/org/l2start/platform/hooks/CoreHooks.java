@@ -175,6 +175,22 @@ public final class CoreHooks {
     }
 
     /**
+     * [HOOK:P7-ATTACKABLE] Player.isAutoAttackable, when stock would return false: a module may still allow the attack
+     * (PK bot opening on a white outside mutual PvP). Inert without listeners.
+     */
+    public static boolean forceAutoAttackable(org.l2jmobius.gameserver.entity.actor.Player target, org.l2jmobius.gameserver.entity.actor.Creature attacker) {
+        try {
+            if ((AttackableHooks.size() == 0) || (target == null) || (attacker == null)) {
+                return false;
+            }
+            return AttackableHooks.force(target, attacker);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: attackable listener failed", t);
+            return false;
+        }
+    }
+
+    /**
      * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
      * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
      * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing
