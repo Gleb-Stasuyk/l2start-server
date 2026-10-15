@@ -286,6 +286,11 @@ public final class FakeWorld {
         townRadius = r;
     }
 
+    /** Force peace / hunt for KT12 F4 buff tests (otherwise derived from distance to town). */
+    public void setPeace(boolean peace) {
+        peaceZone = peace;
+    }
+
     public void teleport(Pos p) {
         pos = p;
         moveDest = null;

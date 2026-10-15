@@ -196,6 +196,22 @@ class CompanionBrainTest {
     }
 
     @Test
+    void inTownCompanionCastsOnlyWindWalk() {
+        final FakeWorld w = BasicBrainTest.world(68, true);
+        w.addSkill(PartyBuffs.WIND_WALK, SkillView.Kind.OTHER, 10, 2000);
+        w.addSkill(1068, SkillView.Kind.OTHER, 20, 2000); // Might — must not cast in town
+        final BrainHarness h = joined(w, 68, true, 0.5);
+        w.teleport(BasicBrainTest.TOWN);
+        w.setPeace(true);
+        w.setMp(w.maxMp());
+        moveGleb(w, gleb(beside(w, 150), 6, 100, false, 0, false));
+        w.event(new BotEvent.Chat("PARTY", GLEB, "Gleb", "бафни"));
+        h.run(20_000);
+        assertTrue(w.partyCasts.stream().anyMatch(c -> c.equals(PartyBuffs.WIND_WALK + ">" + GLEB)), "no Wind Walk: " + w.partyCasts + " " + h.notes());
+        assertTrue(w.partyCasts.stream().noneMatch(c -> c.equals("1068>" + GLEB)), "Might in town: " + w.partyCasts);
+    }
+
+    @Test
     void catchesUpViaGatekeeperWhenMateTeleports() {
         final FakeWorld w = BasicBrainTest.world(65, false);
         final BrainHarness h = joined(w, 65, false, 0.2);
