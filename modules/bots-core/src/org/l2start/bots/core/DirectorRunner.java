@@ -182,14 +182,18 @@ public final class DirectorRunner {
         };
     }
 
-    /** A starting class of that race (fighter or mystic), -1 = any. */
+    /**
+     * A starting class of that race (fighter or mystic), -1 = any. KT12 F2: about 40% of the time pick the
+     * fighter/mystic line that can become BD/SWS/PP/SE/BP so support bots show up around the player.
+     */
     static int startClass(int race) {
-        final boolean mystic = java.util.concurrent.ThreadLocalRandom.current().nextBoolean();
+        final java.util.concurrent.ThreadLocalRandom rnd = java.util.concurrent.ThreadLocalRandom.current();
+        final boolean preferBuffer = rnd.nextDouble() < org.l2start.bots.persona.SupportRoles.FUTURE_BIAS;
         return switch (race) {
-            case 0 -> mystic ? 10 : 0;
-            case 1 -> mystic ? 25 : 18;
-            case 2 -> mystic ? 38 : 31;
-            case 3 -> mystic ? 49 : 44;
+            case 0 -> preferBuffer || rnd.nextBoolean() ? 10 : 0; // Human Mystic → Bishop/Prophet
+            case 1 -> preferBuffer ? (rnd.nextBoolean() ? 18 : 25) : (rnd.nextBoolean() ? 25 : 18); // SWS / Elder
+            case 2 -> preferBuffer ? (rnd.nextBoolean() ? 31 : 38) : (rnd.nextBoolean() ? 38 : 31); // BD / SE
+            case 3 -> rnd.nextBoolean() ? 49 : 44;
             case 4 -> 53;
             default -> -1;
         };

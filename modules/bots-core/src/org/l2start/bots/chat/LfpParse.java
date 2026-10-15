@@ -34,10 +34,10 @@ public final class LfpParse {
     private static final Pattern LEVEL = Pattern.compile("(?:(?:level|lvl|lv|ур(?:овень)?|лвл?)\\s*\\.?\\s*)?(\\d{1,2})\\s*\\+?", RX);
 
     private static final Pattern HEAL = Pattern.compile(
-        "\\b(?:heal(?:er)?|bishop|ee|se|шэ|ее|хил(?:ер|а|ы)?|епископ|elder|oracle)\\b", RX);
+        "\\b(?:heal(?:er)?|bishop|ee|se|шэ|се|ее|хил(?:ер|а|ы)?|епископ|elder|oracle)\\b", RX);
 
     private static final Pattern BUFF = Pattern.compile(
-        "\\b(?:buff(?:er)?|bd|sws|prophet|pp|wc|ол|баф(?:ер|ера|ы|а)?|пророк|варкраер|оверлорд|бд)\\b", RX);
+        "\\b(?:buff(?:er)?|bd|sws|swordsinger|bladedancer|prophet|pp|wc|ол|баф(?:ер|ера|ы|а)?|пророк|варкраер|оверлорд|бд|свс|пп)\\b", RX);
 
     private static final Pattern DD = Pattern.compile(
         "\\b(?:dd|dps|tank|spoiler|dagger|archer|mage|wiz(?:ard)?|дд|дпс|танк|спойлер|маг|лук|даг)\\b", RX);
