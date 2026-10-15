@@ -25,9 +25,17 @@ public interface Chat {
     /**
      * A line for this intent ({@code PARTY_HELLO}, {@code DECLINE_SOLO}, ...) with {@code {player}}-style variables
      * filled in; empty = nothing to say (no such intent, or the same line was used in the last 10 minutes and there is
-     * no other). Usually one line, two with a typo and its correction.
+     * no other). Usually one line, two with a typo and its correction. Uses the persona's language.
      */
     List<String> lines(String intent, Map<String, String> vars);
+
+    /**
+     * Same as {@link #lines(String, Map)} but forces the phrase language ({@code RU}/{@code EN}/{@code MIX}).
+     * Phase 6e: whisper replies follow the player's language when the persona knows it. Default ignores {@code lang}.
+     */
+    default List<String> lines(String intent, Map<String, String> vars, String lang) {
+        return lines(intent, vars);
+    }
 
     /** How long a person of this persona types this text (ms): reaction + length, +-25 %. */
     long typingMs(String text);

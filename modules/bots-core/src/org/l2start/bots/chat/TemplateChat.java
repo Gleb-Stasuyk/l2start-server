@@ -21,8 +21,27 @@ public final class TemplateChat implements Chat {
 
     @Override
     public List<String> lines(String intent, Map<String, String> vars) {
-        return brain.pick(new ChatRequest(info.botId(), intent, "", info.lang(), info.chattiness(), "", List.of(), vars))
+        return lines(intent, vars, null);
+    }
+
+    @Override
+    public List<String> lines(String intent, Map<String, String> vars, String lang) {
+        final String use = replyLang(lang);
+        return brain.pick(new ChatRequest(info.botId(), intent, "", use, info.chattiness(), "", List.of(), vars))
             .map(l -> Humanizer.style(l, care(info), rnd)).orElse(List.of());
+    }
+
+    /** Player language if the persona knows it (RU/EN/MIX); else persona language. */
+    String replyLang(String playerLang) {
+        if (playerLang == null || playerLang.isBlank()) {
+            return info.lang();
+        }
+        final String p = playerLang.toUpperCase();
+        final String mine = info.lang() == null ? "RU" : info.lang().toUpperCase();
+        if ("MIX".equals(mine) || mine.startsWith(p) || p.startsWith(mine)) {
+            return playerLang;
+        }
+        return info.lang();
     }
 
     @Override

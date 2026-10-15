@@ -23,7 +23,9 @@ class ChatTest {
         final Phrases p = Phrases.load(FILE);
         assertTrue(p.intents().size() >= 15, "intents: " + p.intents());
         for (String i : List.of("PARTY_HELLO", "DECLINE_SOLO", "DECLINE_LEAVING", "DECLINE_LEVEL", "DECLINE_FULL", "DECLINE_AGAIN", "ACK", "HUH", "BUFFED", "NO_RES",
-            "THANKS_RES", "RESSED", "WARN_LEAVE", "BYE", "STAY_HERE", "WAIT", "AFK_BYE", "LEADER", "GRATS", "LFP", "LFM", "LFP_REPLY", "ASK_OK", "ASK_NO", "PAIR_REDIRECT")) {
+            "THANKS_RES", "RESSED", "WARN_LEAVE", "BYE", "STAY_HERE", "WAIT", "AFK_BYE", "LEADER", "GRATS", "LFP", "LFM", "LFP_REPLY", "ASK_OK", "ASK_NO", "PAIR_REDIRECT",
+            "GREET", "WHISPER_BYE", "WHISPER_THANKS", "WHISPER_SORRY", "HOW_ARE_YOU", "ASK_LEVEL", "ASK_CLASS", "ASK_SPOT", "WHERE_TO_HUNT", "ASK_RES", "ASK_BUFF",
+            "INSULT", "WHISPER_HUH", "BUSY_COMBAT", "THANKS_BUFF", "SORRY_KS")) {
             assertFalse(p.lines(i, "RU").isEmpty(), i + " RU");
             assertFalse(p.lines(i, "EN").isEmpty(), i + " EN");
         }

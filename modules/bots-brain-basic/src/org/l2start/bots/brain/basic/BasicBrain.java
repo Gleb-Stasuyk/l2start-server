@@ -20,8 +20,10 @@ import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
 import org.l2start.bots.api.SkillView;
 import org.l2start.bots.api.WorldView;
+import org.l2start.bots.chat.ClassLabels;
 import org.l2start.bots.chat.LfpParse;
 import org.l2start.bots.chat.SocialBoard;
+import org.l2start.bots.chat.WhisperParse;
 
 /**
  * The minimal brain of phase 3 (plan section 10): TOWN_IDLE / LEVEL / REST / DEAD. Proves the loop "stroll in town ->
@@ -128,6 +130,7 @@ public final class BasicBrain implements Brain {
         final long now = ctx.now();
         ctxNow = now;
         socialEvents(ctx, w, me, now);
+        flushPendingWhisper(ctx, w, me, now);
         answerInvite(ctx, me, now);
         flushSpeech(ctx, now);
         flushInvite(ctx, now);
@@ -1972,6 +1975,18 @@ public final class BasicBrain implements Brain {
     long lfpNextTry;
     String askInviteTo;
     long askInviteAt;
+    // phase 6e: whisper replies (never first) and party-chat reactions
+    private static final long WHISPER_COOLDOWN_MS = 8_000L;
+    private static final long WHISPER_DIALOG_MS = 15 * 60_000L;
+    private static final long PARTY_REACT_COOLDOWN_MS = 150_000L; // 2.5 min mid of 2–3
+    private final Map<Integer, Long> whisperNextAt = new HashMap<>();
+    private final Map<Integer, WhisperDialog> whisperDialog = new HashMap<>();
+    private String pendingWhFrom;
+    private String pendingWhText;
+    private long pendingWhBusy;
+    private long partyReactAt;
+    private int ptMateLevel;
+    private java.util.Set<Integer> ptSeenBuffs = java.util.Set.of();
 
     public PartyMode partyMode() {
         return ptMode;
@@ -2001,7 +2016,7 @@ public final class BasicBrain implements Brain {
         for (BotEvent e : w.events()) {
             switch (e) {
                 case BotEvent.PartyInvite inv -> onInvite(ctx, w, me, inv, now);
-                case BotEvent.Whisper wh -> onPartyWhisper(ctx, w, me, wh, now);
+                case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
                 case BotEvent.Chat c -> {
                     if ("PARTY".equals(c.channel()) && (c.fromId() == ptMateId) && (ptMateId != 0)) {
                         onPartyCommand(ctx, w, me, c.text(), now);
@@ -2026,15 +2041,21 @@ public final class BasicBrain implements Brain {
         return "SHOUT".equals(channel) || "TRADE".equals(channel) || "ALL".equals(channel);
     }
 
-    /** Phase 6d: player whispered about party (often after the bot's LFP/LFM). */
-    private void onPartyWhisper(BrainContext ctx, WorldView w, SelfView me, BotEvent.Whisper wh, long now) {
-        if (!social || !LfpParse.isPartyAsk(wh.text())) {
-            return;
-        }
+    /** Phase 6d/6e: whisper from a live player — party-ask first (6d), else template reply (6e). Never first. */
+    private void onWhisper(BrainContext ctx, WorldView w, SelfView me, BotEvent.Whisper wh, long now) {
         final PlayerView from = playerByName(w, wh.from());
         if ((from == null) || from.bot()) {
             return;
         }
+        if (social && LfpParse.isPartyAsk(wh.text())) {
+            onPartyWhisper(ctx, w, me, from, wh, now);
+            return;
+        }
+        onSocialWhisper(ctx, w, me, from, wh.text(), now, false);
+    }
+
+    /** Phase 6d: player whispered about party (often after the bot's LFP/LFM). */
+    private void onPartyWhisper(BrainContext ctx, WorldView w, SelfView me, PlayerView from, BotEvent.Whisper wh, long now) {
         ctx.social().noteAgreed(from.objectId(), me.objectId(), now);
         final boolean leaving = leavingSocial(ctx);
         final boolean can = canInvitePlayer(w, me, from, leaving);
@@ -2045,6 +2066,152 @@ public final class BasicBrain implements Brain {
         } else {
             speak(ctx, "WHISPER", from.name(), "ASK_NO", vars, now + ctx.reactionDelay());
         }
+    }
+
+    /**
+     * Phase 6e: template whisper reply. Defers in combat; cooldown and short dialog memory; ANNOYED on insult.
+     * @param afterCombat true when flushing a deferred line (preface with BUSY_COMBAT)
+     */
+    private void onSocialWhisper(BrainContext ctx, WorldView w, SelfView me, PlayerView from, String text, long now, boolean afterCombat) {
+        if (WhisperParse.isFlood(text)) {
+            return;
+        }
+        if (!afterCombat && (inCombat() || me.attacking() || (fightId != 0))) {
+            pendingWhFrom = from.name();
+            pendingWhText = text;
+            pendingWhBusy = now;
+            return;
+        }
+        final Long next = whisperNextAt.get(from.objectId());
+        if ((next != null) && (now < next)) {
+            return;
+        }
+        final WhisperParse.Intent intent = WhisperParse.parse(text);
+        rememberWhisper(from.objectId(), intent, text, now);
+        if (intent == WhisperParse.Intent.ASK_PARTY && social) {
+            onPartyWhisper(ctx, w, me, from, new BotEvent.Whisper(from.name(), text), now);
+            return;
+        }
+        if (intent == WhisperParse.Intent.INSULT) {
+            ctx.memory().note(from.objectId(), -15, org.l2start.bots.api.Memory.Tag.ANNOYED, true);
+            if (ctx.rnd().nextDouble() > (0.35 + (ctx.info().chattiness() * 0.4))) {
+                whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+                return; // short or silent — no long fights
+            }
+        }
+        if (intent == WhisperParse.Intent.UNKNOWN) {
+            if (ctx.rnd().nextDouble() > ctx.info().chattiness()) {
+                whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+                return;
+            }
+        }
+        if (ctx.memory().of(from.objectId()).has(org.l2start.bots.api.Memory.Tag.ANNOYED)
+            && (intent != WhisperParse.Intent.INSULT) && (ctx.rnd().nextDouble() < 0.7)) {
+            return; // annoyed: usually ignore further chat (6g will harden "отстань")
+        }
+        final String lang = WhisperParse.langOf(text);
+        final String phrase = whisperPhrase(intent);
+        if (phrase == null) {
+            return;
+        }
+        // buff/res asks while in party with this player: act like a party command
+        if ((from.objectId() == ptMateId) && (ptMateId != 0)) {
+            if (intent == WhisperParse.Intent.ASK_BUFF && canBuff(me)) {
+                ptBuffAsked = true;
+                partyBuffed.keySet().removeIf(k -> k.endsWith(">" + ptMateId));
+                partyTried = 0;
+            } else if (intent == WhisperParse.Intent.ASK_RES) {
+                if (skill(me, RESURRECTION) == null) {
+                    speak(ctx, "WHISPER", from.name(), "NO_RES", whisperVars(ctx, me, from, lang), now + ctx.reactionDelay(), lang);
+                    whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+                    return;
+                }
+                ptResAsked = true;
+            }
+        }
+        long due = now + ctx.reactionDelay();
+        if (afterCombat) {
+            speak(ctx, "WHISPER", from.name(), "BUSY_COMBAT", whisperVars(ctx, me, from, lang), due, lang);
+            due = Math.max(speechDue(), due) + 400;
+        }
+        speak(ctx, "WHISPER", from.name(), phrase, whisperVars(ctx, me, from, lang), due, lang);
+        whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+    }
+
+    private void flushPendingWhisper(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if ((pendingWhFrom == null) || inCombat() || me.attacking() || (fightId != 0)) {
+            return;
+        }
+        if ((now - pendingWhBusy) > 120_000L) {
+            pendingWhFrom = null;
+            pendingWhText = null;
+            return;
+        }
+        final String fromName = pendingWhFrom;
+        final String text = pendingWhText;
+        pendingWhFrom = null;
+        pendingWhText = null;
+        final PlayerView from = playerByName(w, fromName);
+        if ((from == null) || from.bot()) {
+            return;
+        }
+        onSocialWhisper(ctx, w, me, from, text, now, true);
+    }
+
+    private static String whisperPhrase(WhisperParse.Intent intent) {
+        return switch (intent) {
+            case GREET -> "GREET";
+            case BYE -> "WHISPER_BYE";
+            case THANKS -> "WHISPER_THANKS";
+            case SORRY -> "WHISPER_SORRY";
+            case HOW_ARE_YOU -> "HOW_ARE_YOU";
+            case ASK_LEVEL -> "ASK_LEVEL";
+            case ASK_CLASS -> "ASK_CLASS";
+            case ASK_SPOT -> "ASK_SPOT";
+            case WHERE_TO_HUNT -> "WHERE_TO_HUNT";
+            case ASK_RES -> "ASK_RES";
+            case ASK_BUFF -> "ASK_BUFF";
+            case INSULT -> "INSULT";
+            case UNKNOWN -> "WHISPER_HUH";
+            case ASK_PARTY -> null;
+        };
+    }
+
+    private Map<String, String> whisperVars(BrainContext ctx, SelfView me, PlayerView from, String lang) {
+        final Assignment order = ctx.assignment();
+        String spot = (order == null) || (order.place() == null) || order.place().isBlank() ? "" : order.place();
+        if (spot.isEmpty()) {
+            spot = (lang != null && lang.toUpperCase(java.util.Locale.ROOT).startsWith("EN")) ? "around here" : "тут рядом";
+        }
+        final String useLang = lang == null ? ctx.info().lang() : lang;
+        return Map.of(
+            "player", from.name(),
+            "level", Integer.toString(me.level()),
+            "class", ClassLabels.name(me.classId(), useLang),
+            "role", roleWord(me.classId(), useLang),
+            "spot", spot);
+    }
+
+    private void rememberWhisper(int charId, WhisperParse.Intent intent, String text, long now) {
+        final WhisperDialog d = whisperDialog.computeIfAbsent(charId, k -> new WhisperDialog());
+        if ((now - d.lastAt) > WHISPER_DIALOG_MS) {
+            d.intents.clear();
+            d.lines.clear();
+        }
+        d.lastAt = now;
+        d.intents.addLast(intent);
+        d.lines.addLast(text == null ? "" : text);
+        while (d.intents.size() > 6) {
+            d.intents.removeFirst();
+            d.lines.removeFirst();
+        }
+    }
+
+    /** Short dialog memory with one player (last 6 lines / intents, 15 min). */
+    private static final class WhisperDialog {
+        final java.util.ArrayDeque<WhisperParse.Intent> intents = new java.util.ArrayDeque<>();
+        final java.util.ArrayDeque<String> lines = new java.util.ArrayDeque<>();
+        long lastAt;
     }
 
     /** Phase 6d: player's LFP/LFM in shout/trade/all — a fitting bot may whisper back. */
@@ -2273,8 +2440,13 @@ public final class BasicBrain implements Brain {
 
     /** Queue a phrase of this intent: it is "typed" first (Humanizer), a typo fix comes right after. */
     private void speak(BrainContext ctx, String channel, String to, String intent, Map<String, String> vars, long from) {
+        speak(ctx, channel, to, intent, vars, from, null);
+    }
+
+    /** Same as {@link #speak} with an optional phrase language (phase 6e whisper replies). */
+    private void speak(BrainContext ctx, String channel, String to, String intent, Map<String, String> vars, long from, String lang) {
         long due = Math.max(from, speech.isEmpty() ? from : speech.get(speech.size() - 1).due());
-        for (String line : ctx.chat().lines(intent, vars)) {
+        for (String line : ctx.chat().lines(intent, vars, lang)) {
             due += line.startsWith("*") ? 600 + ctx.rnd().nextInt(900) : ctx.chat().typingMs(line);
             speech.add(new Speech(channel, to, line, due));
         }
@@ -2423,9 +2595,71 @@ public final class BasicBrain implements Brain {
         ptDeaths = 0;
         ptDeadInParty = false;
         ptParties++;
+        ptMateLevel = mate.level();
+        ptSeenBuffs = activeBuffIds(ctx.world().self());
+        partyReactAt = 0;
         endFight();
         errand = null;
         enter(ctx, Phase.LEVEL, "party with " + mate.name());
+    }
+
+    /**
+     * Phase 6e: party-chat only — GRATS on mate level-up, thanks for a new buff, rare KS sorry.
+     * Cooldown 2–3 min; never whispers first.
+     */
+    private void partyReact(BrainContext ctx, WorldView w, SelfView me, PartyMember mate, long now) {
+        if (mate.level() > ptMateLevel) {
+            ptMateLevel = mate.level();
+            partySay(ctx, "GRATS", Map.of("player", mate.name()), now + ctx.reactionDelay());
+        } else {
+            ptMateLevel = mate.level();
+        }
+        final java.util.Set<Integer> buffs = activeBuffIds(me);
+        if (!buffs.equals(ptSeenBuffs)) {
+            boolean gained = false;
+            for (Integer id : buffs) {
+                if (!ptSeenBuffs.contains(id)) {
+                    gained = true;
+                    break;
+                }
+            }
+            // startCompanion already baselined ptSeenBuffs; only thank when a new buff appears after that
+            if (gained && (mate.distance() < 1200) && !mate.dead()) {
+                ctx.memory().note(ptMateId, 2, org.l2start.bots.api.Memory.Tag.BUFFED_ME, false);
+                partySay(ctx, "THANKS_BUFF", Map.of("player", mate.name()), now + ctx.reactionDelay());
+            }
+        }
+        ptSeenBuffs = buffs;
+    }
+
+    private void maybeSorryKs(BrainContext ctx, PartyMember mate, int deadMobId, long now) {
+        if ((ptMode != PartyMode.FREE) || (deadMobId == 0) || (mate.targetId() != deadMobId)) {
+            return;
+        }
+        if (ctx.rnd().nextDouble() > 0.22) {
+            return;
+        }
+        partySay(ctx, "SORRY_KS", Map.of("player", mate.name()), now + ctx.reactionDelay());
+    }
+
+    /** Party chat with the 2–3 min reaction cooldown (phase 6e). */
+    private void partySay(BrainContext ctx, String intent, Map<String, String> vars, long from) {
+        final long now = from;
+        if ((partyReactAt > 0) && (now < partyReactAt)) {
+            return;
+        }
+        speak(ctx, "PARTY", null, intent, vars, from);
+        partyReactAt = now + PARTY_REACT_COOLDOWN_MS + ctx.rnd().nextInt(60_000);
+    }
+
+    private static java.util.Set<Integer> activeBuffIds(SelfView me) {
+        final java.util.HashSet<Integer> ids = new java.util.HashSet<>();
+        for (SkillView s : me.skills()) {
+            if ((s.kind() == SkillView.Kind.BUFF) && (s.buffLeft() > 0)) {
+                ids.add(s.id());
+            }
+        }
+        return ids.isEmpty() ? java.util.Set.of() : java.util.Set.copyOf(ids);
     }
 
     /** The party is over (left, kicked, disbanded): it remembers how it went and is an ordinary bot again. */
@@ -2475,6 +2709,7 @@ public final class BasicBrain implements Brain {
             }
             startCompanion(ctx, mate, now);
         }
+        partyReact(ctx, w, me, mate, now);
         if ((phase == Phase.DEAD) || ptDeadInParty) {
             ptDeadInParty = false;
             enter(ctx, Phase.LEVEL, "party with " + ptMate);
@@ -2577,7 +2812,12 @@ public final class BasicBrain implements Brain {
                 endFight();
                 ctx.act().stop();
             } else {
+                final int killing = fightId;
+                final boolean mateOnIt = mate.targetId() == killing;
                 final long d = fight(ctx, w, me, now);
+                if ((d == 0) && (fightId == 0) && mateOnIt) {
+                    maybeSorryKs(ctx, mate, killing, now);
+                }
                 if (d > 0) {
                     return d;
                 }

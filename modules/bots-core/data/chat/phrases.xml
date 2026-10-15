@@ -131,4 +131,70 @@
 		<ru>у нас пати, кидаю тебе|мы уже пати, сейчас кину|ок, инвайт от лидера</ru>
 		<en>we have a pt, inviting you|already in pt, inv coming|ok, lead invites you</en>
 	</intent>
+	<!-- phase 6e: whisper replies ({level} {class} {role} {spot} {player}) -->
+	<intent id="GREET">
+		<ru>ку|привет|прив|хай|здарова|о, привет|ку)</ru>
+		<en>hi|hey|yo|hello|hi there|hey)|sup</en>
+	</intent>
+	<intent id="WHISPER_BYE">
+		<ru>пока|бб|удачи|бывай|ок, пока</ru>
+		<en>bye|bb|cya|later|bye)|take care</en>
+	</intent>
+	<intent id="WHISPER_THANKS">
+		<ru>нп|да нп|пожалуйста|не за что|:)|ок)</ru>
+		<en>np|yw|sure|:)|no problem|anytime</en>
+	</intent>
+	<intent id="WHISPER_SORRY">
+		<ru>ок)|нормально|бывает|нп</ru>
+		<en>np|it's ok|no worries|all good</en>
+	</intent>
+	<intent id="HOW_ARE_YOU">
+		<ru>норм|нормально|ок, фармлю|хорошо)|занят немного|норм, ты как</ru>
+		<en>fine|good|ok, farming|busy a bit|alright|good, you</en>
+	</intent>
+	<intent id="ASK_LEVEL">
+		<ru>я {level}|{level} лвл|мне {level}|{level})</ru>
+		<en>i'm {level}|{level} lvl|lv {level}|{level})</en>
+	</intent>
+	<intent id="ASK_CLASS">
+		<ru>я {class}|{class}, {level} лвл|{class})</ru>
+		<en>i'm {class}|{class}, {level}|{class})</en>
+	</intent>
+	<intent id="ASK_SPOT">
+		<ru>на {spot}|тут на {spot}|фармлю {spot}|я на {spot}, {level} лвл|тут рядом</ru>
+		<en>at {spot}|farming {spot}|on {spot}|{spot}, {level}|around here</en>
+	</intent>
+	<intent id="WHERE_TO_HUNT">
+		<ru>попробуй {spot}|я б на {spot} пошёл|на {spot} норм|{spot} ок для твоего лвла|хз, {spot}?</ru>
+		<en>try {spot}|i'd go {spot}|{spot} is fine|{spot} for your lvl|dunno, {spot}?</en>
+	</intent>
+	<intent id="ASK_RES">
+		<ru>ок, ресаю|сейчас|рес есть|если умру рядом — ресну|реса нет, сорри</ru>
+		<en>ok rezzing|one sec|i have rez|if you die near me|no rez sorry</en>
+	</intent>
+	<intent id="ASK_BUFF">
+		<ru>ок, бафаю|сейчас|бафну|держи|ок)</ru>
+		<en>ok buffing|one sec|buffing|there|ok)</en>
+	</intent>
+	<intent id="INSULT">
+		<ru>...|ок|ну ок|бывай</ru>
+		<en>...|ok|sure|bye</en>
+	</intent>
+	<intent id="WHISPER_HUH">
+		<ru>?|чё?|не понял|??|а?</ru>
+		<en>?|huh|what?|??|eh</en>
+	</intent>
+	<intent id="BUSY_COMBAT">
+		<ru>сорри, был в бою|щас, дрался|был в файтах, сорри|ой, мобы были</ru>
+		<en>sorry, was fighting|sec, was in combat|was busy fighting sorry|mobs, sorry</en>
+	</intent>
+	<!-- phase 6e: party-chat reactions (no SocialAction) -->
+	<intent id="THANKS_BUFF">
+		<ru>спс за баф|спс)|благодарю|о, спс</ru>
+		<en>ty for buff|thx)|thanks|tyvm</en>
+	</intent>
+	<intent id="SORRY_KS">
+		<ru>сорри за моба|ой, сорри|не хотел|сорри)</ru>
+		<en>sorry for the mob|oops sorry|my bad|sorry)</en>
+	</intent>
 </phrases>
