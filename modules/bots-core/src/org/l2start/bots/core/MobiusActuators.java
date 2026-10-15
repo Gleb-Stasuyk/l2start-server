@@ -336,6 +336,14 @@ final class MobiusActuators implements Actuators {
     }
 
     @Override
+    public boolean playerBlocksUs(String playerName) {
+        final Player p = r.player();
+        final Player them = playerName == null ? null : World.getPlayer(playerName);
+        return (p != null) && (them != null)
+            && org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(them, p);
+    }
+
+    @Override
     public ActionResult whisper(String to, String text) {
         final Player p = r.player();
         final Player receiver = to == null ? null : World.getPlayer(to);

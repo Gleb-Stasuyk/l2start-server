@@ -65,7 +65,7 @@
 | `Summons` | `true` | этап 4c: саммонеры вызывают слугу на охоте, посылают его на цель, лечат его и берегут MP, пока он танкует; `false` = без слуг |
 | `Social` | `true` | этап 6d: поиск пати в городах (LFP/LFM шаут/трейд), ответы на шёпот и на LFP игрока; `false` = как до 6d (инвайты 6b/6c остаются) |
 | `LfpReplies` | `2` | этап 6d: сколько ботов максимум отвечают шёпотом на одно LFP/LFM игрока (0–5) |
-| `SocialNoise` | `normal` | этап 6d: `quiet` / `normal` / `lively` — как часто боты пишут LFP/LFM |
+| `SocialNoise` | `lively` | этап 6d/6g: `quiet` / `normal` / `lively` — как часто боты пишут LFP/LFM и болтают в пати |
 
 ## Выживание и кайт (этап 4a)
 - **Банки:** только в бою, ниже личного порога; лучшая из имеющихся (Greater → обычная → Lesser), не чаще отката (10 с).
@@ -158,4 +158,4 @@
 
 Остальное поведение — константы мозга; выключение — `//module disable bots-brain-basic` или `Brain=` в `bots-core`.
 
-**Фаза 6 (6b–6e):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect` для пар ботов); ответы на шёпот по шаблонам (`WhisperParse`) и реакции только в пати-чате (GRATS / спасибо за баф / сорри за моба — без `SocialAction`). Подробно — `docs/BOTS_RUNTIME.md`, раздел «Фаза 6».
+**Фаза 6 (6b–6g):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect`); ответы на шёпот (`WhisperParse`) и реакции в пати-чате (GRATS / THANKS_BUFF / SORRY_KS — без `SocialAction`); 6g — молчание при busy/BlockList/«отстань», `SocialNoise` на болтовню. Простым языком — `docs/BOTS_SOCIAL.md`.

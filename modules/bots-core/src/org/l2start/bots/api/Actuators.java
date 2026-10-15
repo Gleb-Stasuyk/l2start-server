@@ -95,6 +95,14 @@ public interface Actuators {
         return ActionResult.INVALID;
     }
 
+    /**
+     * Phase 6g: the named player has this bot on their stock {@code BlockList} (or {@code /blockall}). Brains stay
+     * silent and refuse party when true.
+     */
+    default boolean playerBlocksUs(String playerName) {
+        return false;
+    }
+
     /** Shout chat (stock {@code ChatShout}, region or global as the server is set). Phase 6d: LFP/LFM in towns. */
     default ActionResult sayShout(String text) {
         return ActionResult.INVALID;

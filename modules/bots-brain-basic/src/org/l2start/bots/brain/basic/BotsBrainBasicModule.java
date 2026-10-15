@@ -35,7 +35,12 @@ public final class BotsBrainBasicModule implements GameModule {
         BasicBrain.afkShare = clamp(num(ctx.config().getString("AfkShare"), 0.15), 0, 1);
         BasicBrain.social = ctx.config().getBoolean("Social");
         BasicBrain.lfpReplies = Math.max(0, Math.min(5, ctx.config().getInt("LfpReplies")));
-        BasicBrain.socialNoise = switch (ctx.config().getString("SocialNoise").trim().toLowerCase(java.util.Locale.ROOT)) {
+        BasicBrain.socialNoise = socialNoiseOf(ctx.config().getString("SocialNoise"));
+    }
+
+    /** Phase 6g: quiet / normal / lively multipliers for LFP and party chatter. */
+    static double socialNoiseOf(String value) {
+        return switch (value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT)) {
             case "quiet" -> 0.5;
             case "lively" -> 2.0;
             default -> 1.0;

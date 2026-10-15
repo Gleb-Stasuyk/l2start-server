@@ -117,8 +117,9 @@ public final class BotsCoreModule implements GameModule {
         brains.setTemplates(new org.l2start.bots.chat.TemplateBrain(phrases, System::currentTimeMillis, new java.util.Random()));
         ctx.log().info("chat: " + phrases.intents().size() + " intents (phase 6 phrase banks)");
         final org.l2start.bots.chat.SocialBoard social = new org.l2start.bots.chat.SocialBoard(ctx.config().getInt("LfpShoutPerHour"));
+        social.setWhispersPerHour(ctx.config().getInt("WhisperPerHour"));
         brains.setSocial(social);
-        ctx.log().info("social: LFP shouts " + social.shoutsPerHour() + "/hour (phase 6d)");
+        ctx.log().info("social: LFP shouts " + social.shoutsPerHour() + "/hour, whisper answers " + social.whispersPerHour() + "/bot/hour (phase 6d/6g)");
         final MemoryStore memories = new MemoryStore(ctx.db());
         brains.setMemories(memories);
         ctx.scheduler().fixedRate("bot memory", Duration.ofMinutes(1), Duration.ofMinutes(1), () -> {
@@ -347,6 +348,7 @@ public final class BotsCoreModule implements GameModule {
         final org.l2start.bots.chat.SocialBoard social = brains.social();
         if (social != null) {
             social.setShoutsPerHour(ctx.config().getInt("LfpShoutPerHour"));
+            social.setWhispersPerHour(ctx.config().getInt("WhisperPerHour"));
         }
         if (director != null) {
             final int[] lag = ints(ctx.config().getList("GradeLag"), 2, "GradeLag");
@@ -518,6 +520,10 @@ public final class BotsCoreModule implements GameModule {
         final BotRecord r = registry.byCharId(bot.getObjectId());
         if ((r == null) || !r.inWorld() || registry.isBot(requester)) {
             return false;
+        }
+        // phase 6g: /block or /blockall — ignore the invite (no answer dialog for the bot)
+        if (org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(requester, bot)) {
+            return true;
         }
         ctx.metrics().counter("partyInvites").inc();
         final int members = requester.getParty() == null ? 0 : requester.getParty().getMemberCount();
@@ -723,6 +729,28 @@ public final class BotsCoreModule implements GameModule {
             }
         }
         return new MemoryView(out);
+    }
+
+    /** Phase 6g: {@code //bots social} — bots that remember someone as ANNOYED (at most 20 lines). */
+    public java.util.List<String> annoyedSummary() {
+        final MemoryStore ms = brains == null ? null : brains.memories();
+        final java.util.List<String> out = new java.util.ArrayList<>();
+        if (ms == null) {
+            return out;
+        }
+        for (BotRecord r : registry.sorted()) {
+            for (org.l2start.bots.api.Memory.Of o : ms.summary(r.botId())) {
+                if (!o.has(org.l2start.bots.api.Memory.Tag.ANNOYED)) {
+                    continue;
+                }
+                final org.l2jmobius.gameserver.entity.actor.Player who = org.l2jmobius.gameserver.entity.World.getPlayer(o.charId());
+                out.add(r.name() + " ← " + (who == null ? "#" + o.charId() : who.getName()) + " (aff " + o.affinity() + ")");
+                if (out.size() >= 20) {
+                    return out;
+                }
+            }
+        }
+        return out;
     }
 
     public BrainHost brains() {

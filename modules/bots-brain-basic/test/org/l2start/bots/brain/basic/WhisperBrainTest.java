@@ -37,6 +37,7 @@ class WhisperBrainTest {
     void restoreSocial() {
         BasicBrain.social = prevSocial;
         BasicBrain.afkShare = 0.15;
+        BasicBrain.socialNoise = 1.0;
     }
 
     private static BotInfo chatty(boolean mage, int classId) {
@@ -109,8 +110,73 @@ class WhisperBrainTest {
     }
 
     @Test
+    void leaveAloneMutesWhisperDay() {
+        final FakeWorld w = new FakeWorld(90, TOWN, false);
+        final BrainHarness h = townBot(w, 90, 0);
+        h.run(1_000);
+        w.whisperFrom("Gleb", "отстань");
+        h.run(8_000);
+        assertTrue(h.memory().of(GLEB).has(Memory.Tag.ANNOYED), "ANNOYED: " + h.memory().of(GLEB));
+        w.chat.clear();
+        w.whisperFrom("Gleb", "привет");
+        h.run(12_000);
+        assertFalse(w.chat.stream().anyMatch(c -> c.startsWith("whisper:Gleb:")),
+            "must stay silent after leave-alone: " + w.chat);
+    }
+
+    @Test
+    void silentWhenPlayerBusyOrBlocked() {
+        final FakeWorld w = new FakeWorld(91, TOWN, false);
+        final BrainHarness h = townBot(w, 91, 0);
+        h.run(1_000);
+        w.clearPlayers();
+        w.addPlayer(new PlayerView(GLEB, "Gleb", 40, 0, TOWN, 50, 0, false, true, 0, false)); // in combat
+        w.whisperFrom("Gleb", "привет");
+        h.run(12_000);
+        assertFalse(w.chat.stream().anyMatch(c -> c.startsWith("whisper:Gleb:")),
+            "no reply in combat: " + w.chat);
+
+        w.chat.clear();
+        w.clearPlayers();
+        w.addPlayer(new PlayerView(GLEB, "Gleb", 40, 0, TOWN, 50, 0, false, false, 0, false, true, false)); // store
+        w.whisperFrom("Gleb", "привет");
+        h.run(12_000);
+        assertFalse(w.chat.stream().anyMatch(c -> c.startsWith("whisper:Gleb:")),
+            "no reply in store: " + w.chat);
+
+        w.chat.clear();
+        w.clearPlayers();
+        w.addPlayer(new PlayerView(GLEB, "Gleb", 40, 0, TOWN, 50, 0, false, false, 0, false));
+        w.blockedBy.add("gleb");
+        w.whisperFrom("Gleb", "привет");
+        h.run(12_000);
+        assertFalse(w.chat.stream().anyMatch(c -> c.startsWith("whisper:Gleb:")),
+            "no reply when blocked: " + w.chat);
+    }
+
+    @Test
+    void whisperHourLimitStopsReplies() {
+        final FakeWorld w = new FakeWorld(92, TOWN, false);
+        final BrainHarness h = townBot(w, 92, 0);
+        final SocialBoard board = new SocialBoard(60);
+        board.setWhispersPerHour(1);
+        h.setSocial(board);
+        h.run(1_000);
+        w.whisperFrom("Gleb", "привет");
+        h.run(12_000);
+        assertTrue(w.chat.stream().anyMatch(c -> c.startsWith("whisper:Gleb:")), "first reply: " + w.chat);
+        w.chat.clear();
+        h.run(9_000); // past per-player cooldown
+        w.whisperFrom("Gleb", "какой лвл?");
+        h.run(12_000);
+        assertFalse(w.chat.stream().anyMatch(c -> c.startsWith("whisper:Gleb:")),
+            "second reply must hit WhisperPerHour: " + w.chat);
+    }
+
+    @Test
     void partyGratsOnMateLevelUp() {
         BasicBrain.afkShare = 0;
+        BasicBrain.socialNoise = 2.0; // lively: keep party reactions
         final FakeWorld w = new FakeWorld(85, TOWN, false);
         w.setLevel(6);
         final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());
@@ -136,6 +202,7 @@ class WhisperBrainTest {
     @Test
     void partyThanksOnNewBuff() {
         BasicBrain.afkShare = 0;
+        BasicBrain.socialNoise = 2.0;
         final FakeWorld w = new FakeWorld(86, TOWN, false);
         w.setLevel(6);
         final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());

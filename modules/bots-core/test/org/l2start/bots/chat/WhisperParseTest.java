@@ -52,6 +52,16 @@ class WhisperParseTest {
     }
 
     @Test
+    void leaveAlonePhrases() {
+        assertTrue(WhisperParse.isLeaveAlone("отстань"));
+        assertTrue(WhisperParse.isLeaveAlone("не пиши мне"));
+        assertTrue(WhisperParse.isLeaveAlone("stop spam please"));
+        assertTrue(WhisperParse.isLeaveAlone("shut up"));
+        assertFalse(WhisperParse.isLeaveAlone("привет"));
+        assertFalse(WhisperParse.isLeaveAlone("нуб"));
+    }
+
+    @Test
     void unknownFloodAndLang() {
         assertEquals(WhisperParse.Intent.UNKNOWN, WhisperParse.parse("абракадабра xyz"));
         assertEquals(WhisperParse.Intent.UNKNOWN, WhisperParse.parse(null));

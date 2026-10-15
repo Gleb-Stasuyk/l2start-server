@@ -90,4 +90,25 @@ class LfpParseTest {
         assertTrue(b.tryReply(7, 10_100, 2));
         assertFalse(b.tryReply(7, 10_200, 2));
     }
+
+    @Test
+    void whisperHourLimitAndStats() {
+        final SocialBoard b = new SocialBoard(4);
+        b.setWhispersPerHour(2);
+        assertTrue(b.tryWhisper(1, 1000));
+        assertTrue(b.tryWhisper(1, 2000));
+        assertFalse(b.tryWhisper(1, 3000));
+        assertTrue(b.tryWhisper(2, 3000)); // another bot has its own budget
+        assertTrue(b.tryWhisper(1, 1000 + 3_600_000L));
+
+        b.noteInviteOk(5000);
+        b.noteInviteNo(5100);
+        b.noteEmote(5200);
+        final var c = b.hourCounts(5300);
+        assertTrue(c.get(SocialBoard.Stat.WHISPER) >= 3);
+        assertEquals(1, c.get(SocialBoard.Stat.INVITE_OK).intValue());
+        assertEquals(1, c.get(SocialBoard.Stat.INVITE_NO).intValue());
+        assertEquals(1, c.get(SocialBoard.Stat.EMOTE).intValue());
+        assertTrue(c.get(SocialBoard.Stat.LIMIT) >= 1);
+    }
 }

@@ -70,6 +70,11 @@ public final class RecordingActuators implements Actuators {
     @Override public ActionResult sayTrade(String text) { return rec("sayTrade", text, () -> next.sayTrade(text)); }
     @Override public ActionResult inviteParty(String name) { return rec("inviteParty", name, () -> next.inviteParty(name)); }
     @Override public ActionResult social(int id) { return rec("social", id, () -> next.social(id)); }
+
+    @Override
+    public boolean playerBlocksUs(String playerName) {
+        return next != null && next.playerBlocksUs(playerName);
+    }
     @Override public ActionResult logout() { return rec("logout", "", next::logout); }
     @Override public Pos nearestGk() { return next == null ? null : next.nearestGk(); }
     @Override public ActionResult teleportViaGk(Pos dest) { return rec("teleportViaGk", dest, () -> next.teleportViaGk(dest)); }

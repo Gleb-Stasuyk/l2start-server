@@ -258,8 +258,16 @@ public final class FakeWorld {
         return -1;
     }
 
+    /** Phase 6g: player names who have this bot on their BlockList (or /blockall). */
+    public final java.util.Set<String> blockedBy = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     public void addPlayer(PlayerView p) {
         players.add(p);
+    }
+
+    /** Phase 6g tests: replace visible players (e.g. mark one as in combat / store). */
+    public void clearPlayers() {
+        players.clear();
     }
 
     /** A bow in the hands: shoots from {@link #BOW_RANGE}. */
@@ -985,7 +993,15 @@ public final class FakeWorld {
         }
 
         @Override
+        public boolean playerBlocksUs(String playerName) {
+            return playerName != null && blockedBy.contains(playerName.toLowerCase(java.util.Locale.ROOT));
+        }
+
+        @Override
         public ActionResult whisper(String to, String text) {
+            if (playerBlocksUs(to)) {
+                return ActionResult.INVALID;
+            }
             chat.add("whisper:" + to + ":" + text);
             return ActionResult.OK;
         }

@@ -141,7 +141,8 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         social = board;
     }
 
-    org.l2start.bots.chat.SocialBoard social() {
+    /** Phase 6g: world social board for {@code //bots social} (null before start). */
+    public org.l2start.bots.chat.SocialBoard social() {
         return social;
     }
 

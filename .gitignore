@@ -23,3 +23,5 @@ docker/geodata.empty/*
 .idea/
 *.iml
 .vscode/
+
+.tools/

@@ -10,7 +10,7 @@
   "config": {
     "Social": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 6d: bots look for party in towns (LFP/LFM shout/trade), answer party whispers and the player's LFP. Off = phase 5 behaviour (party invite answers from 6b/6c still work)." },
     "LfpReplies": { "type": "int", "default": 2, "min": 0, "max": 5, "reloadable": true, "description": "Phase 6d: at most this many bots whisper back to one player LFP/LFM shout." },
-    "SocialNoise": { "type": "enum", "values": ["quiet", "normal", "lively"], "default": "normal", "reloadable": true, "description": "Phase 6d: how often bots post LFP/LFM (quiet ~half, lively ~double of normal)." },
+    "SocialNoise": { "type": "enum", "values": ["quiet", "normal", "lively"], "default": "lively", "reloadable": true, "description": "Phase 6d/6g: how often bots post LFP/LFM and party-chat chatter (quiet ~half, lively ~double of normal)." },
     "PvpFightBack": { "type": "string", "default": "0.5", "reloadable": true, "description": "When a real player attacks a bot: base chance that it fights back like a player in PvP (flag, karma rules), else it flees and leaves. Adjusted by level difference and persona aggression." },
     "Potions": { "type": "bool", "default": true, "reloadable": true, "description": "Bots drink HP potions in a fight (they get 20 of their grade when they appear); the potion reuse is respected." },
     "PotionHpPercent": { "type": "string", "default": "40,60", "reloadable": true, "description": "HP percent below which a bot drinks a potion: min,max; each persona has its own threshold in this range." },

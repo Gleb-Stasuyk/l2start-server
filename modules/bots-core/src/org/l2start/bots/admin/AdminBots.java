@@ -107,6 +107,9 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "stats":
                     showStats(gm);
                     return true;
+                case "social":
+                    showSocial(gm);
+                    return true;
                 case "pause":
                 case "resume":
                     core.brains().setPaused("pause".equals(sub));
@@ -141,7 +144,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -345,6 +348,41 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("<td><button value=\"").append(paused ? "Resume" : "Pause").append("\" action=\"bypass -h admin_bots ").append(paused ? "resume" : "pause").append("\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
         sb.append("<td><button value=\"List\" action=\"bypass -h admin_bots list\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table>");
         sb.append("</body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 6g: hourly social counters and who is ANNOYED. */
+    private void showSocial(Player gm) {
+        final org.l2start.bots.chat.SocialBoard board = core.brains().social();
+        if (board == null) {
+            gm.sendMessage("Social board is not ready.");
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        final java.util.Map<org.l2start.bots.chat.SocialBoard.Stat, Integer> c = board.hourCounts(now);
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: social</title><body>");
+        sb.append("<font color=\"LEVEL\">Social (last hour)</font><br>");
+        sb.append("LFP shouts: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.SHOUT, 0)).append(" / ").append(board.shoutsPerHour()).append("<br>");
+        sb.append("LFP replies: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.LFP_REPLY, 0)).append("<br>");
+        sb.append("Whisper answers: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.WHISPER, 0)).append(" (cap ").append(board.whispersPerHour()).append("/bot)<br>");
+        sb.append("Invites accepted: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.INVITE_OK, 0)).append(", declined: ")
+            .append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.INVITE_NO, 0)).append("<br>");
+        sb.append("Party reactions: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.EMOTE, 0)).append("<br>");
+        sb.append("Limit hits: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.LIMIT, 0)).append("<br>");
+        sb.append("<br><font color=\"LEVEL\">ANNOYED</font><br>");
+        final java.util.List<String> annoyed = core.annoyedSummary();
+        if (annoyed.isEmpty()) {
+            sb.append("(none)<br>");
+        } else {
+            for (String line : annoyed) {
+                sb.append(escape(line)).append("<br>");
+            }
+        }
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "social");
+        button(sb, "Stats", "stats");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 

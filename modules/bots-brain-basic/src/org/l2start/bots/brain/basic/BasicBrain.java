@@ -1980,6 +1980,8 @@ public final class BasicBrain implements Brain {
     private static final long WHISPER_DIALOG_MS = 15 * 60_000L;
     private static final long PARTY_REACT_COOLDOWN_MS = 150_000L; // 2.5 min mid of 2–3
     private final Map<Integer, Long> whisperNextAt = new HashMap<>();
+    /** Phase 6g: after «отстань» — no whisper replies until this time. */
+    private final Map<Integer, Long> whisperMuteUntil = new HashMap<>();
     private final Map<Integer, WhisperDialog> whisperDialog = new HashMap<>();
     private String pendingWhFrom;
     private String pendingWhText;
@@ -2041,13 +2043,19 @@ public final class BasicBrain implements Brain {
         return "SHOUT".equals(channel) || "TRADE".equals(channel) || "ALL".equals(channel);
     }
 
-    /** Phase 6d/6e: whisper from a live player — party-ask first (6d), else template reply (6e). Never first. */
+    /** Phase 6d/6e/6g: whisper from a live player — party-ask first (6d), else template reply (6e). Never first. */
     private void onWhisper(BrainContext ctx, WorldView w, SelfView me, BotEvent.Whisper wh, long now) {
         final PlayerView from = playerByName(w, wh.from());
         if ((from == null) || from.bot()) {
             return;
         }
-        if (social && LfpParse.isPartyAsk(wh.text())) {
+        if (ctx.act().playerBlocksUs(wh.from())) {
+            return; // stock BlockList /blockall
+        }
+        if (social && LfpParse.isPartyAsk(wh.text()) && !WhisperParse.isLeaveAlone(wh.text())) {
+            if (from.socialBusy()) {
+                return;
+            }
             onPartyWhisper(ctx, w, me, from, wh, now);
             return;
         }
@@ -2075,6 +2083,19 @@ public final class BasicBrain implements Brain {
     private void onSocialWhisper(BrainContext ctx, WorldView w, SelfView me, PlayerView from, String text, long now, boolean afterCombat) {
         if (WhisperParse.isFlood(text)) {
             return;
+        }
+        // phase 6g: «отстань» / stop spam — ANNOYED + 24 h silence
+        if (WhisperParse.isLeaveAlone(text)) {
+            ctx.memory().note(from.objectId(), -20, org.l2start.bots.api.Memory.Tag.ANNOYED, true);
+            whisperMuteUntil.put(from.objectId(), now + SocialBoard.ANNOYED_WHISPER_MS);
+            return;
+        }
+        final Long muted = whisperMuteUntil.get(from.objectId());
+        if ((muted != null) && (now < muted)) {
+            return;
+        }
+        if (from.socialBusy()) {
+            return; // player in combat / store / NPC dialog
         }
         if (!afterCombat && (inCombat() || me.attacking() || (fightId != 0))) {
             pendingWhFrom = from.name();
@@ -2107,7 +2128,10 @@ public final class BasicBrain implements Brain {
         }
         if (ctx.memory().of(from.objectId()).has(org.l2start.bots.api.Memory.Tag.ANNOYED)
             && (intent != WhisperParse.Intent.INSULT) && (ctx.rnd().nextDouble() < 0.7)) {
-            return; // annoyed: usually ignore further chat (6g will harden "отстань")
+            return;
+        }
+        if (!ctx.social().tryWhisper(ctx.info().botId(), now)) {
+            return; // per-bot whisper hour limit
         }
         final String lang = WhisperParse.langOf(text);
         String phrase = whisperPhrase(intent);
@@ -2232,6 +2256,13 @@ public final class BasicBrain implements Brain {
             return;
         }
         if (!LfpParse.fits(call.role(), me.classId()) || !LfpParse.levelOk(me.level(), call.level())) {
+            return;
+        }
+        final PlayerView from = playerByName(w, c.from());
+        if ((from != null) && (from.socialBusy() || from.bot())) {
+            return;
+        }
+        if ((from != null) && ctx.act().playerBlocksUs(from.name())) {
             return;
         }
         // phase 6f: acquaintances reply more readily; strangers often stay quiet
@@ -2431,6 +2462,7 @@ public final class BasicBrain implements Brain {
         if (a.yes()) {
             ctx.memory().note(inv.fromId(), 1, null, true);
             ptDeclined.remove(inv.fromId());
+            ctx.social().noteInviteOk(now);
             if (ctx.rnd().nextDouble() < (0.6 + (ctx.info().chattiness() * 0.4))) {
                 speak(ctx, "PARTY", null, a.intent, Map.of("player", inv.from()), now + 500);
             }
@@ -2438,6 +2470,7 @@ public final class BasicBrain implements Brain {
         }
         noteDeclined(inv.fromId(), now);
         ctx.memory().note(inv.fromId(), 0, org.l2start.bots.api.Memory.Tag.DECLINED, true);
+        ctx.social().noteInviteNo(now);
         if ((a.intent != null) && (ctx.rnd().nextDouble() < (0.35 + (ctx.info().chattiness() * 0.4)))) {
             speak(ctx, "WHISPER", inv.from(), a.intent, Map.of("player", inv.from()), now); // an answer to his invitation, never first
         }
@@ -2459,11 +2492,52 @@ public final class BasicBrain implements Brain {
 
     /** Same as {@link #speak} with an optional phrase language (phase 6e whisper replies). */
     private void speak(BrainContext ctx, String channel, String to, String intent, Map<String, String> vars, long from, String lang) {
+        if ("PARTY".equals(channel) && !partyChatOk(ctx, intent)) {
+            return;
+        }
+        if ("WHISPER".equals(channel) && (to != null) && ctx.act().playerBlocksUs(to)) {
+            return;
+        }
         long due = Math.max(from, speech.isEmpty() ? from : speech.get(speech.size() - 1).due());
+        boolean said = false;
         for (String line : ctx.chat().lines(intent, vars, lang)) {
             due += line.startsWith("*") ? 600 + ctx.rnd().nextInt(900) : ctx.chat().typingMs(line);
             speech.add(new Speech(channel, to, line, due));
+            said = true;
         }
+        if (said && isPartyEmote(intent)) {
+            ctx.social().noteEmote(ctx.now());
+        }
+    }
+
+    /**
+     * Phase 6g: while the mate is busy (combat / store / NPC), only urgent party lines («мобы» / «рес нет»).
+     * When free, command replies always go; spontaneous reactions are scaled by {@link #socialNoise}.
+     */
+    private boolean partyChatOk(BrainContext ctx, String intent) {
+        if (isUrgentParty(intent)) {
+            return true;
+        }
+        if (ptMateId != 0) {
+            final PlayerView mate = playerByName(ctx.world(), ptMate);
+            if ((mate != null) && mate.socialBusy()) {
+                return false;
+            }
+        }
+        if (!isPartyEmote(intent)) {
+            return true; // answers to party commands
+        }
+        // quiet ~0.55, normal ~0.7, lively ~1.0
+        return ctx.rnd().nextDouble() <= Math.min(1.0, 0.4 + (0.3 * socialNoise));
+    }
+
+    /** «рес нет» and «мобы» (SORRY_KS) — still said when the mate is in combat / store / NPC dialog. */
+    private static boolean isUrgentParty(String intent) {
+        return "NO_RES".equals(intent) || "SORRY_KS".equals(intent);
+    }
+
+    private static boolean isPartyEmote(String intent) {
+        return "GRATS".equals(intent) || "THANKS_BUFF".equals(intent) || "THANKS_RES".equals(intent) || "SORRY_KS".equals(intent);
     }
 
     private void flushSpeech(BrainContext ctx, long now) {

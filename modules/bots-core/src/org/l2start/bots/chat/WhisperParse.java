@@ -70,6 +70,18 @@ public final class WhisperParse {
         return text != null && CYRILLIC.matcher(text).find() ? "RU" : "EN";
     }
 
+    /**
+     * Phase 6g: «отстань» / «не пиши» / stop spam — the bot tags {@code ANNOYED} and stays silent on whispers for a day.
+     */
+    public static boolean isLeaveAlone(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        final String t = norm(text);
+        return t.contains("отстань") || t.contains("не пиши") || t.contains("stop spam") || t.contains("fuck off")
+            || t.equals("отвали") || t.contains("shut up");
+    }
+
     /** Caps-lock spam or empty junk — ignore (UNKNOWN, brain stays silent). */
     public static boolean isFlood(String text) {
         if (text == null) {

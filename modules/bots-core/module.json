@@ -65,6 +65,7 @@
     "Anchors": { "type": "list", "default": "", "reloadable": true, "description": "Test players for the director: x;y;z points treated as live players (smoke, load tests). Empty in real use." },
     "PartyBotsMax": { "type": "int", "default": 3, "min": 0, "max": 8, "reloadable": true, "description": "Phase 6b: a real player's party takes at most this many bots (a bot invited past it says no). While a bot is in a real player's party the director never sends it away (0 = bots never join a real player)." },
     "LfpShoutPerHour": { "type": "int", "default": 4, "min": 0, "max": 60, "reloadable": true, "description": "Phase 6d: how many LFP/LFM shout or trade lines bots may post per hour in the whole world (0 = never). One bot still waits 15 min between its own shouts." },
+    "WhisperPerHour": { "type": "int", "default": 30, "min": 0, "max": 200, "reloadable": true, "description": "Phase 6g: how many whisper answers one bot may send per hour (0 = never). Answers to the player's whisper only — bots never write first." },
     "StatsLogInterval": { "type": "duration", "default": "60s", "min": "0s", "description": "Runtime line 'BOTS world=... p99=... overrun=...' in the log this often while bots are in the world (0 = never)." }
   }
 }
