@@ -2525,6 +2525,15 @@ public final class BasicBrain implements Brain {
         ptWaiting = false;
         ptCatchingUp = false;
         ptGkTriedAt = null;
+        // KT12 F5: spoiler Sweep / Spoil while playing with a real player (companion path skips the solo sweep tick)
+        final long swept = sweep(ctx, w, me, now);
+        if (swept > 0) {
+            return swept;
+        }
+        final long spoiled = partySpoil(ctx, w, me, mate, now);
+        if (spoiled > 0) {
+            return spoiled;
+        }
         // heal, raise and buff the party (the mate included)
         if (ptHealAsked && !mate.dead() && (mate.hpPct() < 95) && (mate.distance() < 900) && !me.casting()) {
             final SkillView h = healSkill(me);
@@ -2738,9 +2747,16 @@ public final class BasicBrain implements Brain {
     static final double SUMMONER_NUKE_MP = 60;
     static final int SERVITOR_HEAL = 1127;
     static final int DASH = 4;
+    static final int SPOIL = 254;
     static final int SWEEPER = 42;
     /** The body of a spoiled monster waits this long for Sweeper. */
     static final long SWEEP_MS = 6000;
+    /** Scavenger / Bounty Hunter / Warsmith lines (KT12 F5 party spoil). */
+    static final java.util.Set<Integer> SPOILER_CLASSES = java.util.Set.of(54, 55, 56, 57, 117, 118);
+
+    static boolean spoiler(int classId) {
+        return SPOILER_CLASSES.contains(classId);
+    }
     /** Self heals, best first: Major Heal, Greater Battle Heal, Greater Heal, Battle Heal, Heal. */
     static final int[] HEALS = { 1401, 1218, 1217, 1015, 1011 };
     /** Out of a fight a healer heals itself below this HP % instead of sitting down. */
@@ -2893,6 +2909,13 @@ public final class BasicBrain implements Brain {
     /** Sweeper on the body of the monster it spoiled and killed. */
     private long sweep(BrainContext ctx, WorldView w, SelfView me, long now) {
         if (sweepId == 0) {
+            final NpcView near = spoiledCorpseNear(w, me, 600);
+            if (near != null) {
+                sweepId = near.objectId();
+                sweepUntil = now + SWEEP_MS;
+            }
+        }
+        if (sweepId == 0) {
             return 0;
         }
         final NpcView body = w.npc(sweepId);
@@ -2915,6 +2938,59 @@ public final class BasicBrain implements Brain {
             return 1200;
         }
         return 0;
+    }
+
+    /**
+     * KT12 F5: in a player's party a Scavenger/BH Spoils the mate's (or free-hunt) target when not yet spoiled,
+     * and queues Sweeper on spoiled corpses next to the mate.
+     */
+    private long partySpoil(BrainContext ctx, WorldView w, SelfView me, PartyMember mate, long now) {
+        if (me.casting() || me.sitting()) {
+            return 0;
+        }
+        final SkillView spoil = skill(me, SPOIL);
+        final SkillView sweeper = skill(me, SWEEPER);
+        if ((spoil == null) && (sweeper == null) && !spoiler(me.classId())) {
+            return 0;
+        }
+        if (sweeper != null) {
+            for (NpcView n : w.npcs()) {
+                if (n.dead() && n.spoiled() && (n.pos().distance2d(mate.pos()) < 900) && (n.distance() < 900)) {
+                    sweepId = n.objectId();
+                    sweepUntil = now + SWEEP_MS;
+                    return sweep(ctx, w, me, now);
+                }
+            }
+        }
+        if ((spoil == null) || !usable(me, spoil) || (ptMode == PartyMode.STOP) || (ptMode == PartyMode.SIT)) {
+            return 0;
+        }
+        NpcView target = mate.targetId() == 0 ? null : w.npc(mate.targetId());
+        if ((target == null) || target.dead() || !target.monster() || target.spoiled() || (target.distance() > 900)) {
+            if (ptMode == PartyMode.FREE) {
+                target = freeMob(w, me, mate);
+            } else {
+                return 0;
+            }
+        }
+        if ((target == null) || target.dead() || target.spoiled() || (target.distance() > 900)) {
+            return 0;
+        }
+        final ActionResult r = ctx.act().cast(SPOIL, target.objectId());
+        if (r.ok()) {
+            detail = "spoils for " + ptMate;
+            return 1500;
+        }
+        return 0;
+    }
+
+    private static NpcView spoiledCorpseNear(WorldView w, SelfView me, int range) {
+        for (NpcView n : w.npcs()) {
+            if (n.dead() && n.spoiled() && (n.distance() < range)) {
+                return n;
+            }
+        }
+        return null;
     }
 
     /** Dash before running away (rogues, daggers). */

@@ -196,6 +196,31 @@ class CompanionBrainTest {
     }
 
     @Test
+    void partySpoilerSpoilsAndSweepsMateTarget() {
+        final FakeWorld w = BasicBrainTest.world(69, false);
+        w.classId = 55; // Bounty Hunter
+        w.addSkill(FakeWorld.SPOIL_ID, SkillView.Kind.OTHER, 5, 2000);
+        w.addSkill(FakeWorld.SWEEPER_ID, SkillView.Kind.CORPSE, 3, 0);
+        final BrainHarness h = joined(w, 69, false, 0.5);
+        w.casts.clear();
+        final FakeWorld.Mob mob = w.addMob(2, 6, beside(w, 60));
+        moveGleb(w, gleb(beside(w, 80), 6, 100, false, mob.objectId, false));
+        w.setMp(w.maxMp());
+        h.run(8_000);
+        assertTrue(w.casts.stream().anyMatch(c -> c.equals(FakeWorld.SPOIL_ID + "->" + mob.objectId)),
+            "no Spoil on mate target: " + w.casts + " notes=" + h.notes());
+        // Spoil may have landed; assist may already have killed and Sweep cleared the flag
+        if (!mob.dead()) {
+            assertTrue(mob.spoiled, "alive mob not spoiled after Spoil cast");
+            mob.hp = 0;
+        }
+        h.run(12_000);
+        assertTrue(w.casts.stream().anyMatch(c -> c.equals(FakeWorld.SWEEPER_ID + "->" + mob.objectId))
+                || (w.sweeps >= 1) || (brain(h).sweeps() >= 1),
+            "no Sweep: casts=" + w.casts + " worldSweeps=" + w.sweeps + " brain=" + brain(h).sweeps() + " " + h.notes());
+    }
+
+    @Test
     void inTownCompanionCastsOnlyWindWalk() {
         final FakeWorld w = BasicBrainTest.world(68, true);
         w.addSkill(PartyBuffs.WIND_WALK, SkillView.Kind.OTHER, 10, 2000);
