@@ -53,6 +53,25 @@ class TownBufferTest {
         assertFalse(Towns.forClass(1389, false));
     }
 
+    /** KT12 F6: Berserker Spirit (1062) is shared and present in both paid sets. */
+    @Test
+    void berserkerSpiritInMageAndWarriorSets() {
+        assertTrue(Towns.forClass(1062, true));
+        assertTrue(Towns.forClass(1062, false));
+        final Map<Integer, Integer> lv = new LinkedHashMap<>();
+        for (int id : Towns.BUFFS) {
+            lv.put(id, 2);
+        }
+        final List<int[]> w = Deal.plan(lv, false);
+        final List<int[]> m = Deal.plan(lv, true);
+        assertTrue(w.stream().anyMatch(a -> a[0] == 1062), "warrior set missing Berserker Spirit");
+        assertTrue(m.stream().anyMatch(a -> a[0] == 1062), "mage set missing Berserker Spirit");
+        for (Towns.Town t : Towns.ALL) {
+            assertTrue(Towns.BUFFS.length > 0);
+            assertTrue(java.util.Arrays.stream(Towns.BUFFS).anyMatch(id -> id == 1062), t.name() + " town uses shared BUFFS with 1062");
+        }
+    }
+
     @Test
     void highestLearnedLevelOnly() {
         final List<BuffLevels.Learn> tree = List.of(new BuffLevels.Learn(1040, 1, 20), new BuffLevels.Learn(1040, 2, 40), new BuffLevels.Learn(1040, 3, 52), new BuffLevels.Learn(1086, 1, 44),
