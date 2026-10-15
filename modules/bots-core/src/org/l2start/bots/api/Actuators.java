@@ -95,6 +95,24 @@ public interface Actuators {
         return ActionResult.INVALID;
     }
 
+    /** Shout chat (stock {@code ChatShout}, region or global as the server is set). Phase 6d: LFP/LFM in towns. */
+    default ActionResult sayShout(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /** Trade chat (stock {@code ChatTrade}). Phase 6d: LFP/LFM alternate channel. */
+    default ActionResult sayTrade(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Invite an online real player to the bot's party (stock {@code RequestJoinParty} sequence). Phase 6d: only as an
+     * answer to the player's whisper or LFP reply — never first. The player gets the stock dialog.
+     */
+    default ActionResult inviteParty(String playerName) {
+        return ActionResult.INVALID;
+    }
+
     /** A social action (/socials: 2 greeting, 3 victory, 5 yes, 6 no, 7 bow, ...) seen by everybody around. */
     default ActionResult social(int id) {
         return ActionResult.INVALID;

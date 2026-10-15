@@ -337,6 +337,63 @@ final class MobiusActuators implements Actuators {
     }
 
     @Override
+    public ActionResult sayShout(String text) {
+        return channelSay("sayShout", ChatType.SHOUT, text);
+    }
+
+    @Override
+    public ActionResult sayTrade(String text) {
+        return channelSay("sayTrade", ChatType.TRADE, text);
+    }
+
+    /** Stock shout/trade handler (region or global as the server is set). */
+    private ActionResult channelSay(String name, ChatType type, String text) {
+        final Player p = alive();
+        if ((p == null) || !okText(text)) {
+            return done(name, text, ActionResult.INVALID);
+        }
+        if (!speak(sink.now())) {
+            return done(name, text, ActionResult.COOLDOWN);
+        }
+        final org.l2jmobius.gameserver.handler.IChatHandler h = org.l2jmobius.gameserver.handler.ChatHandler.getInstance().getHandler(type);
+        if (h == null) {
+            return done(name, text, ActionResult.INVALID);
+        }
+        h.onChat(type, p, null, text); // stock ChatShout / ChatTrade
+        return done(name, text, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult inviteParty(String playerName) {
+        final Player p = r.player();
+        final Player target = playerName == null ? null : World.getPlayer(playerName);
+        if ((p == null) || (target == null) || (target.getClient() == null) || target.getClient().isDetached()
+            || target.isInParty() || (target == p)
+            || org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(target, p)
+            || p.isProcessingRequest() || target.isProcessingRequest()) {
+            return done("inviteParty", playerName, ActionResult.INVALID);
+        }
+        final org.l2jmobius.gameserver.entity.groups.Party party = p.getParty();
+        if (party != null) {
+            if (!party.isLeader(p) || (party.getMemberCount() >= 9)
+                || (party.getPendingInvitation() && !party.isInvitationRequestExpired())) {
+                return done("inviteParty", playerName, ActionResult.INVALID);
+            }
+            p.onTransactionRequest(target);
+            target.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.AskJoinParty(p.getName(), party.getDistributionType()));
+            party.setPendingInvitation(true); // stock addTargetToParty; player answers (no botPartyRequest)
+            return done("inviteParty", playerName, ActionResult.OK);
+        }
+        final org.l2jmobius.gameserver.entity.groups.PartyDistributionType dist = p.getPartyDistributionType() == null
+            ? org.l2jmobius.gameserver.entity.groups.PartyDistributionType.FINDERS_KEEPERS : p.getPartyDistributionType();
+        target.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.AskJoinParty(p.getName(), dist));
+        target.setActiveRequester(p);
+        p.onTransactionRequest(target);
+        p.setPartyDistributionType(dist); // stock createNewParty; player answers
+        return done("inviteParty", playerName, ActionResult.OK);
+    }
+
+    @Override
     public ActionResult social(int id) {
         final Player p = alive();
         if ((p == null) || (id < 2) || (id > 16) || p.isSitting() || p.isCastingNow() || p.isAttackingNow() || p.isMoving()) {

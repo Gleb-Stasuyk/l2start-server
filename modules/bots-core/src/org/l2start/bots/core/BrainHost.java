@@ -108,6 +108,12 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             }
             return chat;
         }
+
+        @Override
+        public org.l2start.bots.chat.SocialBoard social() {
+            final org.l2start.bots.chat.SocialBoard b = social;
+            return b == null ? org.l2start.bots.chat.SocialBoard.NONE : b;
+        }
     }
 
     /** Phase 6a: memories of real players (null = no database: nothing is remembered). */
@@ -126,6 +132,17 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
 
     void setTemplates(org.l2start.bots.chat.TemplateBrain t) {
         templates = t;
+    }
+
+    /** Phase 6d: world LFP shout/reply limits (null = none). */
+    private volatile org.l2start.bots.chat.SocialBoard social;
+
+    void setSocial(org.l2start.bots.chat.SocialBoard board) {
+        social = board;
+    }
+
+    org.l2start.bots.chat.SocialBoard social() {
+        return social;
     }
 
     private final ModuleContext ctx;

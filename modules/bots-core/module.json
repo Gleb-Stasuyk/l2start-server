@@ -2,7 +2,7 @@
   "id": "bots-core",
   "name": "Bots: core",
   "description": "Bot framework core: bots are stock Player objects without a client on their own banned accounts. Phase 3a-3c: bot accounts and characters with personas (names, looks, traits, play times), login/logout into the world, restore after a restart, bot presence for hooks P3-BOT-*, the bot runtime (shards, mailboxes, LOD) and the brain API (service org.l2start.bots.api.BrainRegistry), //bots admin commands. Phase 3e: the presence director: bots appear only around real players, out of their sight, with level, class, skills and gear of the zone, and leave unseen.",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "kind": "jar",
   "platform": "^1.5",
   "entrypoint": "org.l2start.bots.core.BotsCoreModule",
@@ -64,6 +64,7 @@
     "OnlineCurve": { "type": "list", "default": "0.55,0.4,0.3,0.2,0.1,0.1,0.15,0.25,0.35,0.45,0.5,0.5,0.55,0.55,0.55,0.55,0.6,0.7,0.8,0.9,1,1,0.9,0.75", "reloadable": true, "description": "24 values 0..1 by server hour: 0 = night minimum, 0.5 = day, 1 = evening peak (town density, ground density)." },
     "Anchors": { "type": "list", "default": "", "reloadable": true, "description": "Test players for the director: x;y;z points treated as live players (smoke, load tests). Empty in real use." },
     "PartyBotsMax": { "type": "int", "default": 3, "min": 0, "max": 8, "reloadable": true, "description": "Phase 6b: a real player's party takes at most this many bots (a bot invited past it says no). While a bot is in a real player's party the director never sends it away (0 = bots never join a real player)." },
+    "LfpShoutPerHour": { "type": "int", "default": 4, "min": 0, "max": 60, "reloadable": true, "description": "Phase 6d: how many LFP/LFM shout or trade lines bots may post per hour in the whole world (0 = never). One bot still waits 15 min between its own shouts." },
     "StatsLogInterval": { "type": "duration", "default": "60s", "min": "0s", "description": "Runtime line 'BOTS world=... p99=... overrun=...' in the log this often while bots are in the world (0 = never)." }
   }
 }

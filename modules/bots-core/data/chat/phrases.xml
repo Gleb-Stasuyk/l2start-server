@@ -101,4 +101,34 @@
 		<ru>грац|поздравляю|гц|с апом</ru>
 		<en>grats|gz|congrats|gratz</en>
 	</intent>
+	<!-- phase 6d: bot looks for a party in town (shout/trade); {level} {role} {spot} optional -->
+	<intent id="LFP">
+		<ru>LFP {level}+ {role}|ищу пати {level}+ {role}|LF party {level} {role}|пати {level}+ кто нибудь|LFP {level} {spot}|ищу пати на {spot}</ru>
+		<en>LFP {level}+ {role}|LF party {level} {role}|looking for party {level}+|LFP {level} {spot}|anyone for {spot}?</en>
+	</intent>
+	<!-- phase 6d: bot has a party (pair) and wants one more -->
+	<intent id="LFM">
+		<ru>LFM {role} {level}+|нужен {role} {level}+|LFM DD {spot}|ещё нужен {role}|LFM {level}+ на {spot}</ru>
+		<en>LFM {role} {level}+|need {role} {level}+|LFM DD {spot}|one more {role}|LFM {level}+ {spot}</en>
+	</intent>
+	<!-- phase 6d: bot answers the player's LFP shout in a whisper -->
+	<intent id="LFP_REPLY">
+		<ru>я {role} {level}, инвайть|я {level} {role}, кидай пати|можешь инвайт, я {role}|+ я {role} {level}</ru>
+		<en>i'm {role} {level}, invite|invite me, {role} {level}|can inv, {role} here|+ {role} {level}</en>
+	</intent>
+	<!-- phase 6d: accepted a whisper ask, inviting now -->
+	<intent id="ASK_OK">
+		<ru>ок, кидаю|го, инвайт|секунду|кидаю пати|ок</ru>
+		<en>ok inviting|sure, inv|one sec|inviting|ok</en>
+	</intent>
+	<!-- phase 6d: cannot take the player (level / full / busy) -->
+	<intent id="ASK_NO">
+		<ru>сорри, уже набрали|нужен другой класс|уровень не тот, сорри|не сейчас, сорри</ru>
+		<en>sorry, full already|need another class|wrong lvl sorry|not now sorry</en>
+	</intent>
+	<!-- phase 6d: player invited a bot that is already in a bot pair — leader will invite the player -->
+	<intent id="PAIR_REDIRECT">
+		<ru>у нас пати, кидаю тебе|мы уже пати, сейчас кину|ок, инвайт от лидера</ru>
+		<en>we have a pt, inviting you|already in pt, inv coming|ok, lead invites you</en>
+	</intent>
 </phrases>

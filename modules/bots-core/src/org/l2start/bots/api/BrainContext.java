@@ -41,6 +41,14 @@ public interface BrainContext {
         return NO_MEMORY;
     }
 
+    /**
+     * Phase 6d: world-wide LFP shout/reply limits and the "we agreed to party" window. Shared by every bot;
+     * {@link org.l2start.bots.chat.SocialBoard#NONE} when the host has no board (tests without one).
+     */
+    default org.l2start.bots.chat.SocialBoard social() {
+        return org.l2start.bots.chat.SocialBoard.NONE;
+    }
+
     /** Forgets everything right away (no memory at all). */
     Memory NO_MEMORY = new Memory() {
         @Override

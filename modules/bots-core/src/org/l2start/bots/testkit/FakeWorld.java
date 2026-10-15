@@ -223,6 +223,16 @@ public final class FakeWorld {
         event(new BotEvent.PartyInvite(from.objectId(), from.name(), from.level(), from.classId(), partyMembers, botLimit));
     }
 
+    /** Phase 6d: a player whispered to the bot (name only; resolve id via {@link #players}). */
+    public void whisperFrom(String name, String text) {
+        event(new BotEvent.Whisper(name, text));
+    }
+
+    /** Phase 6d: a player wrote in shout (or pass channel ALL/TRADE). */
+    public void chatFrom(String channel, int id, String name, String text) {
+        event(new BotEvent.Chat(channel, id, name, text));
+    }
+
     public void setParty(PartyMember... members) {
         party.clear();
         party.addAll(List.of(members));
@@ -961,6 +971,36 @@ public final class FakeWorld {
         @Override
         public ActionResult whisper(String to, String text) {
             chat.add("whisper:" + to + ":" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayShout(String text) {
+            if (dead || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("shout:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayTrade(String text) {
+            if (dead || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("trade:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult inviteParty(String playerName) {
+            if (dead || (playerName == null) || playerName.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            if (!party.isEmpty() && !partyLeader) {
+                return ActionResult.INVALID;
+            }
+            chat.add("inviteParty:" + playerName);
             return ActionResult.OK;
         }
 

@@ -23,7 +23,7 @@ class ChatTest {
         final Phrases p = Phrases.load(FILE);
         assertTrue(p.intents().size() >= 15, "intents: " + p.intents());
         for (String i : List.of("PARTY_HELLO", "DECLINE_SOLO", "DECLINE_LEAVING", "DECLINE_LEVEL", "DECLINE_FULL", "DECLINE_AGAIN", "ACK", "HUH", "BUFFED", "NO_RES",
-            "THANKS_RES", "RESSED", "WARN_LEAVE", "BYE", "STAY_HERE", "WAIT", "AFK_BYE", "LEADER", "GRATS")) {
+            "THANKS_RES", "RESSED", "WARN_LEAVE", "BYE", "STAY_HERE", "WAIT", "AFK_BYE", "LEADER", "GRATS", "LFP", "LFM", "LFP_REPLY", "ASK_OK", "ASK_NO", "PAIR_REDIRECT")) {
             assertFalse(p.lines(i, "RU").isEmpty(), i + " RU");
             assertFalse(p.lines(i, "EN").isEmpty(), i + " EN");
         }
