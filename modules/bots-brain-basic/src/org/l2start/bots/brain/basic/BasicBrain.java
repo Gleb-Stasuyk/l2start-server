@@ -1640,7 +1640,7 @@ public final class BasicBrain implements Brain {
     /** A healer heals a party member below this HP %, even in a fight. */
     static final double PARTY_HEAL_HP = 60;
     static final int RESURRECTION = 1016;
-    /** Buffs a bot may put on a party member (prophet / elder / shillien elder lines and the like); what it knows of them. */
+    /** @deprecated KT12 F3: use {@link PartyBuffs#wanted}; kept for any external reference. */
     static final int[] PARTY_BUFFS = { 1204, 1040, 1068, 1045, 1048, 1086, 1077, 1242, 1085, 1059, 1062, 1035, 1078, 1240, 1087, 1268, 1044, 1036, 1243, 1257 };
     private final Map<String, Long> partyBuffed = new HashMap<>();
     private long partyTried;
@@ -1710,11 +1710,12 @@ public final class BasicBrain implements Brain {
         if (me.mpPct() < 50) {
             return 0;
         }
+        final boolean peace = me.inPeaceZone();
         for (PartyMember m : pm) {
             if (m.dead() || (m.distance() > 600)) {
                 continue;
             }
-            for (int id : PARTY_BUFFS) {
+            for (int id : PartyBuffs.wanted(me.classId(), m.classId(), peace)) {
                 final SkillView s = skill(me, id);
                 final String key = id + ">" + m.objectId();
                 if (!usable(me, s) || (partyBuffed.getOrDefault(key, 0L) > now)) {
@@ -2378,10 +2379,13 @@ public final class BasicBrain implements Brain {
     }
 
     private static boolean canBuff(SelfView me) {
-        for (int id : PARTY_BUFFS) {
+        for (int id : PartyBuffs.wanted(me.classId(), me.classId(), false)) {
             if (skill(me, id) != null) {
                 return true;
             }
+        }
+        if (PartyBuffs.isBladedancer(me.classId()) || PartyBuffs.isSwordsinger(me.classId())) {
+            return true; // dances/songs; FakeWorld may not list them until added
         }
         return false;
     }
