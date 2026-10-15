@@ -36,4 +36,14 @@ public final class PartyHooks {
         }
         return false;
     }
+
+    /** Phase 6d: bot already in a party — first listener that takes it wins (API 1.8). */
+    static boolean busy(Player requester, Player bot) {
+        for (Owned o : LISTENERS) {
+            if (o.listener().onPartyBusy(requester, bot)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

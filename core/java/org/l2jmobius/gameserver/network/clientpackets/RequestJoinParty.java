@@ -113,6 +113,12 @@ public class RequestJoinParty extends ClientPacket
 		}
 		
 		SystemMessage sm;
+		// >>> [HOOK:P6-BOT-PARTY]
+		if (org.l2start.platform.hooks.CoreHooks.botPartyBusy(requestor, target))
+		{
+			return;
+		}
+		// <<< [HOOK:P6-BOT-PARTY]
 		if (target.isInParty())
 		{
 			sm = new SystemMessage(SystemMessageId.S1_IS_A_MEMBER_OF_ANOTHER_PARTY_AND_CANNOT_BE_INVITED);

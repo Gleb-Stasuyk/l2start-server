@@ -114,6 +114,9 @@ public final class BotsCoreModule implements GameModule {
         final org.l2start.bots.chat.Phrases phrases = org.l2start.bots.chat.Phrases.load(ctx.resources().path("data/chat/phrases.xml"));
         brains.setTemplates(new org.l2start.bots.chat.TemplateBrain(phrases, System::currentTimeMillis, new java.util.Random()));
         ctx.log().info("chat: " + phrases.intents().size() + " intents (phase 6 phrase banks)");
+        final org.l2start.bots.chat.SocialBoard social = new org.l2start.bots.chat.SocialBoard(ctx.config().getInt("LfpShoutPerHour"));
+        brains.setSocial(social);
+        ctx.log().info("social: LFP shouts " + social.shoutsPerHour() + "/hour (phase 6d)");
         final MemoryStore memories = new MemoryStore(ctx.db());
         brains.setMemories(memories);
         ctx.scheduler().fixedRate("bot memory", Duration.ofMinutes(1), Duration.ofMinutes(1), () -> {
@@ -128,7 +131,17 @@ public final class BotsCoreModule implements GameModule {
 
         ctx.botPresence(registry::isBot);
         ctx.events().<OnPlayerChat> onGlobal(EventType.ON_PLAYER_CHAT, this::onChat);
-        ctx.onBotPartyRequest(this::onPartyRequest); // phase 6a, hook P6-BOT-PARTY
+        ctx.onBotPartyRequest(new org.l2start.platform.api.BotPartyListener() { // phase 6a/6d, hook P6-BOT-PARTY
+            @Override
+            public boolean onPartyRequest(Player requester, Player bot) {
+                return BotsCoreModule.this.onPartyRequest(requester, bot);
+            }
+
+            @Override
+            public boolean onPartyBusy(Player requester, Player bot) {
+                return BotsCoreModule.this.onPartyBusy(requester, bot);
+            }
+        });
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
@@ -324,6 +337,10 @@ public final class BotsCoreModule implements GameModule {
         org.l2start.bots.director.PaperLevel.setGlobalPace(Double.parseDouble(ctx.config().getString("PaperLevelPace").trim()));
         brains.applyConfig();
         org.l2start.bots.director.GearTable.setEnchantMax(ctx.config().getInt("EnchantMax"));
+        final org.l2start.bots.chat.SocialBoard social = brains.social();
+        if (social != null) {
+            social.setShoutsPerHour(ctx.config().getInt("LfpShoutPerHour"));
+        }
         if (director != null) {
             final int[] lag = ints(ctx.config().getList("GradeLag"), 2, "GradeLag");
             director.setGradeLag(lag[0], lag[1]);
@@ -507,6 +524,41 @@ public final class BotsCoreModule implements GameModule {
         }
         brains.post(r, new BotEvent.PartyInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), requester.getPlayerClass().getId(), members,
             bots >= ctx.config().getInt("PartyBotsMax")));
+        return true;
+    }
+
+    /**
+     * Phase 6d, hook P6-BOT-PARTY busy: player invited a bot that is already in a bot-only party. The invited bot
+     * whispers; the party leader invites the player into that party.
+     */
+    private boolean onPartyBusy(Player requester, Player bot) {
+        final BotRecord r = registry.byCharId(bot.getObjectId());
+        if ((r == null) || !r.inWorld() || registry.isBot(requester)) {
+            return false;
+        }
+        final org.l2jmobius.gameserver.entity.groups.Party party = bot.getParty();
+        if (party == null) {
+            return false;
+        }
+        for (Player m : party.getMembers()) {
+            if (!registry.isBot(m)) {
+                return false; // mixed party: stock "member of another party"
+            }
+        }
+        final boolean isLeader = party.isLeader(bot);
+        final int fromId = requester.getObjectId();
+        final String from = requester.getName();
+        final int fromLevel = requester.getLevel();
+        final int fromClass = requester.getPlayerClass().getId();
+        brains.post(r, new BotEvent.PartyRedirect(fromId, from, fromLevel, fromClass, true, isLeader));
+        if (!isLeader) {
+            final Player leader = party.getLeader();
+            final BotRecord lr = leader == null ? null : registry.byCharId(leader.getObjectId());
+            if ((lr != null) && lr.inWorld()) {
+                brains.post(lr, new BotEvent.PartyRedirect(fromId, from, fromLevel, fromClass, false, true));
+            }
+        }
+        ctx.metrics().counter("partyRedirects").inc();
         return true;
     }
 

@@ -66,4 +66,17 @@ public sealed interface BotEvent {
      */
     record Chat(String channel, int fromId, String from, String text) implements BotEvent {
     }
+
+    /**
+     * Phase 6d: a real player invited a bot that is already in a bot-only party (hook P6-BOT-PARTY busy path).
+     * The invited bot whispers; the party leader invites the player into that party.
+     * @param whisper say {@code PAIR_REDIRECT} to the player
+     * @param invite call {@link Actuators#inviteParty} (leader only)
+     */
+    record PartyRedirect(int fromId, String from, int fromLevel, int fromClassId, boolean whisper, boolean invite) implements BotEvent {
+        @Override
+        public String key() {
+            return "partyRedirect:" + fromId;
+        }
+    }
 }

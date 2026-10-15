@@ -30,7 +30,7 @@ public interface GameModule {
 | `cleanup(name, Runnable)` | действие при выключении модуля (disable, circuit breaker, остановка сервера), в обратном порядке регистраций — например вывести ботов из мира |
 | `onStoreDeal(StoreDealListener)` | с 1.3: каждая строка удачной сделки в стоковой частной лавке (`StoreDeal`: продавец, покупатель, предмет, количество, цена за штуку, лавка-скупка ли; хук `P5-STORE-DEAL`), боты тоже. Только сообщает, сделку не меняет; снимается при выключении |
 | `onBotTradeRequest(BotTradeListener)` | с 1.4: настоящий игрок запросил трейд у бота (хук `P6-BOT-TRADE`, стоковый запрос уже отправлен); слушатель может ответить за бота (`true` = ответил: принял через `bot.startTrade(requester)` или отказал). Только когда партнёр — бот; снимается при выключении |
-| `onBotPartyRequest(BotPartyListener)` | с 1.5: настоящий игрок пригласил бота в пати (хук `P6-BOT-PARTY`, стоковое приглашение висит 15 с, у бота `activeRequester` = игрок); слушатель берёт ответ на себя (`true`) и отвечает позже со своего потока, как стоковый `RequestAnswerJoinParty`. Только когда цель — бот; снимается при выключении |
+| `onBotPartyRequest(BotPartyListener)` | с 1.5: настоящий игрок пригласил бота в пати (хук `P6-BOT-PARTY`, стоковое приглашение висит 15 с, у бота `activeRequester` = игрок); слушатель берёт ответ на себя (`true`) и отвечает позже со своего потока, как стоковый `RequestAnswerJoinParty`. С 1.8: `onPartyBusy` — бот уже в пати (пара ботов): модуль может ответить социально вместо стокового «член другой пати». Только когда цель — бот; снимается при выключении |
 | `onDrops(DropListener)` | с 1.6: дроп и спойл мёртвого монстра (хук `P7-DROP-FLOAT`): слушатель может собрать их из стоковых роллов (`stockRoll`), `null` = сток |
 | `onQuestReward(QuestRewardListener)` | с 1.6: количество предмета-награды квеста после стоковых рейтов (хук `P7-QUEST-REWARD`) |
 | `metrics()` | `counter(name).inc()/add()/get()`, `snapshot()`; видны в `//module info` |
@@ -38,7 +38,7 @@ public interface GameModule {
 Классы модуля грузит отдельный class loader: сначала ядро и платформа, потом свой jar, потом jar'ы объявленных зависимостей.
 Другие модули невидимы.
 
-История: **1.7.0** (extras) — `handlers().wrapBypass` (модуль `rates-floating`: дроп в shift+клике); **1.6.0** (рейты) — `onDrops`, `onQuestReward` (модуль `rates-floating`, хуки `P7-DROP-FLOAT`, `P7-QUEST-REWARD`); **1.5.0** (фаза 6) — `onBotPartyRequest` (модуль `bots-core`, хук `P6-BOT-PARTY`); **1.4.0** (фаза 5, хук из фазы 6) — `onBotTradeRequest` (модуль `economy-market`, хук `P6-BOT-TRADE`); **1.3.0** (фаза 5) — `onStoreDeal` (хук `P5-STORE-DEAL`); модули с `^1.0`–`^1.3` работают как раньше.
+История: **1.8.0** (фаза 6d) — `BotPartyListener.onPartyBusy` (хук `P6-BOT-PARTY` busy: инвайт бота, уже в пати); **1.7.0** (extras) — `handlers().wrapBypass` (модуль `rates-floating`: дроп в shift+клике); **1.6.0** (рейты) — `onDrops`, `onQuestReward` (модуль `rates-floating`, хуки `P7-DROP-FLOAT`, `P7-QUEST-REWARD`); **1.5.0** (фаза 6) — `onBotPartyRequest` (модуль `bots-core`, хук `P6-BOT-PARTY`); **1.4.0** (фаза 5, хук из фазы 6) — `onBotTradeRequest` (модуль `economy-market`, хук `P6-BOT-TRADE`); **1.3.0** (фаза 5) — `onStoreDeal` (хук `P5-STORE-DEAL`); модули с `^1.0`–`^1.3` работают как раньше.
 **1.2.0** (фаза 3) — `botPresence` и `cleanup` (модуль `bots-core`, хуки `P3-BOT-CHARINFO`, `P3-BOT-WHISPER`);
 модули с `^1.0`/`^1.1` работают как раньше.
 **1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);

@@ -142,6 +142,24 @@ public final class CoreHooks {
     }
 
     /**
+     * [HOOK:P6-BOT-PARTY] RequestJoinParty, directly before the stock {@code target.isInParty()} check: when the
+     * target is a bot already in a party, a module may handle the invite socially (pair redirect) and skip the stock
+     * "member of another party" message. Only when the target is a bot and in a party; inert without listeners.
+     * @return true = handled, do not run the stock busy path
+     */
+    public static boolean botPartyBusy(org.l2jmobius.gameserver.entity.actor.Player requester, org.l2jmobius.gameserver.entity.actor.Player target) {
+        try {
+            if ((PartyHooks.size() == 0) || (requester == null) || (target == null) || !isBot(target) || !target.isInParty()) {
+                return false;
+            }
+            return PartyHooks.busy(requester, target);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot party busy listener failed", t);
+            return false;
+        }
+    }
+
+    /**
      * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
      * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
      * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing
