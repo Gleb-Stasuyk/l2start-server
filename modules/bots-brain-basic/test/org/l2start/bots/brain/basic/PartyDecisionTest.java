@@ -45,6 +45,19 @@ class PartyDecisionTest {
     }
 
     @Test
+    void partyAgreedAlwaysAccepts() {
+        final Random r = new Random(3);
+        final Memory.Of none = Memory.Of.none(GLEB);
+        for (int i = 0; i < 100; i++) {
+            // agreed window beats leaving/busy/low sociability (still after hard no: full / gap>=10 / recent declines)
+            assertEquals(PartyDecision.Answer.ACCEPT,
+                PartyDecision.decide(info(false, 0.1, 0.5), 20, inv(20, 0, false), PartyDecision.Doing.LEAVING, none, 0, 0, false, true, r));
+            assertEquals(PartyDecision.Answer.ACCEPT,
+                PartyDecision.decide(info(true, 0.05, 0.5), 20, inv(27, 0, false), PartyDecision.Doing.BUSY, none, 0, 0, false, true, r));
+        }
+    }
+
+    @Test
     void sociableHealerSaysYesMoreOftenThanALoneFighter() {
         final Random r = new Random(7);
         final Memory.Of none = Memory.Of.none(GLEB);

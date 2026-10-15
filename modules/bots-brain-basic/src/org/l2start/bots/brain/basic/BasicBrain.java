@@ -20,6 +20,8 @@ import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
 import org.l2start.bots.api.SkillView;
 import org.l2start.bots.api.WorldView;
+import org.l2start.bots.chat.LfpParse;
+import org.l2start.bots.chat.SocialBoard;
 
 /**
  * The minimal brain of phase 3 (plan section 10): TOWN_IDLE / LEVEL / REST / DEAD. Proves the loop "stroll in town ->
@@ -128,6 +130,8 @@ public final class BasicBrain implements Brain {
         socialEvents(ctx, w, me, now);
         answerInvite(ctx, me, now);
         flushSpeech(ctx, now);
+        flushInvite(ctx, now);
+        maybeShoutLfp(ctx, w, me, now);
         final long d = tickMain(ctx, w, me, now);
         final long due = socialDue();
         return due > 0 ? Math.max(100, Math.min(d, due - now)) : d;
@@ -1627,6 +1631,12 @@ public final class BasicBrain implements Brain {
 
     /** Phase 4g: heal, raise and buff party members; followers stay by the leader and fight its monster (bots-brain-basic PartyPlay). */
     static volatile boolean partyPlay = true;
+    /** Phase 6d: bots look for party in towns (LFP/LFM shout/trade), answer party whispers and the player's LFP. */
+    static volatile boolean social = true;
+    /** Phase 6d: at most this many bots whisper back to one player LFP/LFM shout. */
+    static volatile int lfpReplies = 2;
+    /** Phase 6d: quiet=0.5, normal=1, lively=2 — scales how often bots post LFP/LFM. */
+    static volatile double socialNoise = 1.0;
     /** A healer heals a party member below this HP %, even in a fight. */
     static final double PARTY_HEAL_HP = 60;
     static final int RESURRECTION = 1016;
@@ -1952,6 +1962,11 @@ public final class BasicBrain implements Brain {
     private int ptParties;
     private int ptInvites;
     private int ptCommands;
+    // phase 6d: LFP/LFM in towns
+    long lfpShoutAt;
+    long lfpNextTry;
+    String askInviteTo;
+    long askInviteAt;
 
     public PartyMode partyMode() {
         return ptMode;
@@ -1976,16 +1991,20 @@ public final class BasicBrain implements Brain {
         return null;
     }
 
-    /** Events of the party with real players; returns ms until something social is due (0 = nothing). */
+    /** Events of the party with real players and phase 6d town search (whispers, LFP shouts, pair redirect). */
     private void socialEvents(BrainContext ctx, WorldView w, SelfView me, long now) {
         for (BotEvent e : w.events()) {
             switch (e) {
                 case BotEvent.PartyInvite inv -> onInvite(ctx, w, me, inv, now);
+                case BotEvent.Whisper wh -> onPartyWhisper(ctx, w, me, wh, now);
                 case BotEvent.Chat c -> {
                     if ("PARTY".equals(c.channel()) && (c.fromId() == ptMateId) && (ptMateId != 0)) {
                         onPartyCommand(ctx, w, me, c.text(), now);
+                    } else if (social && isLfpChannel(c.channel())) {
+                        onLfpChat(ctx, w, me, c, now);
                     }
                 }
+                case BotEvent.PartyRedirect pr -> onPartyRedirect(ctx, pr, now);
                 case BotEvent.Died d -> {
                     if (ptMateId != 0) {
                         ptDeaths++;
@@ -1996,6 +2015,192 @@ public final class BasicBrain implements Brain {
                 }
             }
         }
+    }
+
+    private static boolean isLfpChannel(String channel) {
+        return "SHOUT".equals(channel) || "TRADE".equals(channel) || "ALL".equals(channel);
+    }
+
+    /** Phase 6d: player whispered about party (often after the bot's LFP/LFM). */
+    private void onPartyWhisper(BrainContext ctx, WorldView w, SelfView me, BotEvent.Whisper wh, long now) {
+        if (!social || !LfpParse.isPartyAsk(wh.text())) {
+            return;
+        }
+        final PlayerView from = playerByName(w, wh.from());
+        if ((from == null) || from.bot()) {
+            return;
+        }
+        ctx.social().noteAgreed(from.objectId(), me.objectId(), now);
+        final boolean leaving = leavingSocial(ctx);
+        final boolean can = canInvitePlayer(w, me, from, leaving);
+        final Map<String, String> vars = Map.of("player", from.name());
+        if (can && (LfpParse.isPartyYes(wh.text()) || LfpParse.isPartyAsk(wh.text()))) {
+            speak(ctx, "WHISPER", from.name(), "ASK_OK", vars, now + ctx.reactionDelay());
+            scheduleInvite(from.name(), Math.max(speechDue(), now + ctx.reactionDelay()) + 400 + ctx.rnd().nextInt(900));
+        } else {
+            speak(ctx, "WHISPER", from.name(), "ASK_NO", vars, now + ctx.reactionDelay());
+        }
+    }
+
+    /** Phase 6d: player's LFP/LFM in shout/trade/all — a fitting bot may whisper back. */
+    private void onLfpChat(BrainContext ctx, WorldView w, SelfView me, BotEvent.Chat c, long now) {
+        final LfpParse.Call call = LfpParse.parse(c.text());
+        if (call == null) {
+            return;
+        }
+        if ((ptMateId != 0) || leavingSocial(ctx) || me.dead()) {
+            return;
+        }
+        if (!LfpParse.fits(call.role(), me.classId()) || !LfpParse.levelOk(me.level(), call.level())) {
+            return;
+        }
+        if (!ctx.social().tryReply(c.fromId(), now, lfpReplies)) {
+            return;
+        }
+        ctx.social().noteAgreed(c.fromId(), me.objectId(), now);
+        speak(ctx, "WHISPER", c.from(), "LFP_REPLY", Map.of("player", c.from(), "level", Integer.toString(me.level()), "role", roleWord(me.classId(), ctx.info().lang())),
+            now + ctx.reactionDelay());
+    }
+
+    /** Phase 6d: player invited a bot that is already in a bot-only party. */
+    private void onPartyRedirect(BrainContext ctx, BotEvent.PartyRedirect pr, long now) {
+        if (pr.whisper()) {
+            speak(ctx, "WHISPER", pr.from(), "PAIR_REDIRECT", Map.of("player", pr.from()), now + ctx.reactionDelay());
+        }
+        if (pr.invite()) {
+            final long base = pr.whisper() ? Math.max(speechDue(), now + ctx.reactionDelay()) : now + ctx.reactionDelay();
+            scheduleInvite(pr.from(), base + 400 + ctx.rnd().nextInt(1200));
+        }
+    }
+
+    private long speechDue() {
+        return speech.isEmpty() ? 0 : speech.get(speech.size() - 1).due();
+    }
+
+    private void scheduleInvite(String name, long at) {
+        askInviteTo = name;
+        askInviteAt = at;
+    }
+
+    private void flushInvite(BrainContext ctx, long now) {
+        if ((askInviteTo == null) || (now < askInviteAt)) {
+            return;
+        }
+        final String to = askInviteTo;
+        askInviteTo = null;
+        askInviteAt = 0;
+        final ActionResult r = ctx.act().inviteParty(to);
+        if (!r.ok()) {
+            ctx.note("did not invite " + to + " (" + r + ")");
+        }
+    }
+
+    /** Phase 6d: in town near a live player, occasionally shout LFP/LFM. */
+    private void maybeShoutLfp(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!social || (ptMateId != 0) || me.dead() || leavingSocial(ctx)) {
+            return;
+        }
+        if (!inTownForLfp(ctx, me)) {
+            return;
+        }
+        if (!hasLivePlayer(w)) {
+            return;
+        }
+        if (now < lfpNextTry) {
+            return;
+        }
+        final double noise = Math.max(0.25, socialNoise);
+        lfpNextTry = now + (long) ((180_000 + ctx.rnd().nextInt(300_000)) / noise); // 3..8 min / noise
+        final double p = Math.min(0.95, 0.15 * ctx.info().sociability() * noise);
+        if (ctx.rnd().nextDouble() >= p) {
+            return;
+        }
+        if ((lfpShoutAt > 0) && ((now - lfpShoutAt) < SocialBoard.BOT_SHOUT_COOLDOWN_MS)) {
+            return;
+        }
+        if (!ctx.social().tryShout(now)) {
+            return;
+        }
+        final boolean botParty = !w.party().isEmpty() && allBots(w.party());
+        final String intent = botParty && (w.partyLeader() || (w.party().size() <= 1)) ? "LFM" : "LFP";
+        final Assignment order = ctx.assignment();
+        final String spot = (order == null) || (order.place() == null) ? "" : order.place();
+        final String channel = (me.level() >= 20) && ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
+        speak(ctx, channel, null, intent,
+            Map.of("level", Integer.toString(me.level()), "role", roleWord(me.classId(), ctx.info().lang()), "spot", spot, "player", ""), now);
+        lfpShoutAt = now;
+        ctx.note("lfp " + intent + " via " + channel);
+    }
+
+    private boolean inTownForLfp(BrainContext ctx, SelfView me) {
+        if (me.inPeaceZone() || (phase == Phase.TOWN_IDLE)) {
+            return true;
+        }
+        final Assignment a = ctx.assignment();
+        return (a != null) && (a.kind() == Assignment.Kind.TOWN);
+    }
+
+    private static boolean hasLivePlayer(WorldView w) {
+        for (PlayerView p : w.players()) {
+            if (!p.bot()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean allBots(List<PartyMember> party) {
+        for (PartyMember m : party) {
+            if (!m.bot()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean leavingSocial(BrainContext ctx) {
+        final Assignment a = ctx.assignment();
+        return (a != null) && a.passing();
+    }
+
+    /** May invite a live player into its party (alone or as leader of a bot-only party). */
+    private boolean canInvitePlayer(WorldView w, SelfView me, PlayerView from, boolean leaving) {
+        if ((ptMateId != 0) || leaving || me.dead() || (from == null)) {
+            return false;
+        }
+        if (!LfpParse.levelOk(me.level(), from.level())) {
+            return false;
+        }
+        final List<PartyMember> pm = w.party();
+        if (pm.isEmpty()) {
+            return true;
+        }
+        if (!w.partyLeader() || (pm.size() >= 9) || !allBots(pm)) {
+            return false;
+        }
+        return true;
+    }
+
+    private static PlayerView playerByName(WorldView w, String name) {
+        if (name == null) {
+            return null;
+        }
+        for (PlayerView p : w.players()) {
+            if (name.equalsIgnoreCase(p.name())) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /** Role word for LFP phrases: RU хил/баф/дд, EN heal/buff/dd. */
+    static String roleWord(int classId, String lang) {
+        final boolean ru = (lang != null) && lang.toUpperCase(java.util.Locale.ROOT).startsWith("RU");
+        return switch (LfpParse.roleOf(classId)) {
+            case HEAL -> ru ? "хил" : "heal";
+            case BUFF -> ru ? "баф" : "buff";
+            default -> ru ? "дд" : "dd";
+        };
     }
 
     private void onInvite(BrainContext ctx, WorldView w, SelfView me, BotEvent.PartyInvite inv, long now) {
@@ -2009,7 +2214,8 @@ public final class BasicBrain implements Brain {
             : ((order == null) && (phase == Phase.TOWN_IDLE)) || ((order != null) && (order.kind() == Assignment.Kind.TOWN)) ? PartyDecision.Doing.TOWN
             : PartyDecision.Doing.HUNTING;
         final long[] dec = ptDeclined.getOrDefault(inv.fromId(), new long[] { 0, 0 });
-        ptAnswer = PartyDecision.decide(ctx.info(), me.level(), inv, doing, ctx.memory().of(inv.fromId()), (int) dec[0], now - dec[1], support(me.classId()), ctx.rnd());
+        ptAnswer = PartyDecision.decide(ctx.info(), me.level(), inv, doing, ctx.memory().of(inv.fromId()), (int) dec[0], now - dec[1], support(me.classId()),
+            ctx.social().isAgreed(inv.fromId(), me.objectId(), now), ctx.rnd());
         ptInvite = inv;
         // a person reads the dialog and clicks: 2-8 s by reaction (the stock invitation waits 15 s)
         ptAnswerAt = now + Math.min(9000, 1500 + ctx.info().reactionMs() * 2L + ctx.rnd().nextInt(5000));
@@ -2072,7 +2278,12 @@ public final class BasicBrain implements Brain {
     private void flushSpeech(BrainContext ctx, long now) {
         while (!speech.isEmpty() && (speech.get(0).due() <= now)) {
             final Speech s = speech.remove(0);
-            final ActionResult r = "WHISPER".equals(s.channel()) ? ctx.act().whisper(s.to(), s.text()) : ctx.act().sayParty(s.text());
+            final ActionResult r = switch (s.channel()) {
+                case "WHISPER" -> ctx.act().whisper(s.to(), s.text());
+                case "SHOUT" -> ctx.act().sayShout(s.text());
+                case "TRADE" -> ctx.act().sayTrade(s.text());
+                default -> ctx.act().sayParty(s.text());
+            };
             if (!r.ok()) {
                 ctx.note("did not say '" + s.text() + "' (" + r + ")");
             }
@@ -2087,6 +2298,12 @@ public final class BasicBrain implements Brain {
         }
         if (ptLeaveAt > 0) {
             due = due == 0 ? ptLeaveAt : Math.min(due, ptLeaveAt);
+        }
+        if ((askInviteTo != null) && (askInviteAt > 0)) {
+            due = due == 0 ? askInviteAt : Math.min(due, askInviteAt);
+        }
+        if (social && (ptMateId == 0) && (lfpNextTry > 0)) {
+            due = due == 0 ? lfpNextTry : Math.min(due, lfpNextTry);
         }
         return due;
     }

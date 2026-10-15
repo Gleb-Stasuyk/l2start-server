@@ -43,9 +43,10 @@ public final class PartyDecision {
     /**
      * @param declinedBefore refusals of this player in a row (0 = none), {@code lastDeclinedAgo} ms ago
      * @param supportWanted the bot is a healer/buffer and the inviter's party has none
+     * @param partyAgreed they just agreed in chat (phase 6d window): almost always yes
      */
     public static Answer decide(BotInfo me, int myLevel, BotEvent.PartyInvite inv, Doing doing, Memory.Of mem, int declinedBefore, long lastDeclinedAgo,
-        boolean supportWanted, Random rnd) {
+        boolean supportWanted, boolean partyAgreed, Random rnd) {
         if (inv.botLimit() || (inv.partyMembers() >= 9)) {
             return Answer.DECLINE_FULL;
         }
@@ -63,7 +64,13 @@ public final class PartyDecision {
             return Answer.DECLINE_LEVEL;
         }
         if ((doing == Doing.LEAVING) || (doing == Doing.BUSY)) {
+            if (partyAgreed) {
+                return Answer.ACCEPT; // they asked in chat: still join even if "leaving" mood
+            }
             return rnd.nextDouble() < 0.3 ? Answer.IGNORE : Answer.DECLINE_LEAVING;
+        }
+        if (partyAgreed) {
+            return Answer.ACCEPT; // Living Worlds isPartyAgreed: they talked about party within 3 min
         }
         final boolean friend = (mem.affinity() > 30) || mem.has(Memory.Tag.PARTY);
         double p = 0.2 + (me.sociability() * 0.45);
@@ -92,5 +99,11 @@ public final class PartyDecision {
             return Answer.DECLINE_LEVEL;
         }
         return rnd.nextDouble() < 0.15 ? Answer.IGNORE : Answer.DECLINE_SOLO;
+    }
+
+    /** Phase 6b callers without a chat agreement window. */
+    public static Answer decide(BotInfo me, int myLevel, BotEvent.PartyInvite inv, Doing doing, Memory.Of mem, int declinedBefore, long lastDeclinedAgo,
+        boolean supportWanted, Random rnd) {
+        return decide(me, myLevel, inv, doing, mem, declinedBefore, lastDeclinedAgo, supportWanted, false, rnd);
     }
 }

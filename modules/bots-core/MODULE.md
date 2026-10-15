@@ -162,4 +162,4 @@
 Удалять ботов в 3a нечем специально: персонажей не трогаем, при выключении модуля боты остаются обычными
 (забаненными) персонажами в БД.
 
-**Фаза 6 (6a):** хук `P6-BOT-PARTY` (API 1.5, `onBotPartyRequest`), события `PartyInvite`/`Chat`, действия пати и чата, фразы `data/chat/phrases.xml`, память `mod_bots_core_memory`, настройка `PartyBotsMax` (3). Бот в пати с живым игроком закреплён: режиссёр его не уводит. Подробно — `docs/BOTS_RUNTIME.md`, раздел «Фаза 6».
+**Фаза 6 (6a–6d):** хук `P6-BOT-PARTY` (API 1.5 `onBotPartyRequest`, с 1.8 ещё `onPartyBusy` / `CoreHooks.botPartyBusy` — инвайт бота уже в пати пар ботов), события `PartyInvite`/`Chat`/`PartyRedirect`/`Whisper`, действия пати и чата (`sayShout`/`sayTrade`/`inviteParty`), `SocialBoard` + `LfpParse`, фразы LFP/LFM/LFP_REPLY/ASK_*/PAIR_REDIRECT в `data/chat/phrases.xml`, память `mod_bots_core_memory`, настройка `PartyBotsMax` (3). Бот в пати с живым игроком закреплён: режиссёр его не уводит. Подробно — `docs/BOTS_RUNTIME.md`, раздел «Фаза 6».
