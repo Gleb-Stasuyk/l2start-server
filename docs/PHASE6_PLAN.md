@@ -4,7 +4,7 @@
 
 > **Ответы Глеба на вопросы — 12.10.2026 (≈ 17:05 МСК), учтены ниже (раздел 6).** Друзья-боты, хук `P6-BOT-FRIEND`, ответ на /socials (`P6-SOCIAL`), подарки вещей и любая инициатива ботов в личку игроку убраны (бэклог, раздел 7). Пати ищут в городах через шаут/трейд-чат.
 
-> **Ход работ (ветка `phase6` / `extras`, PR #6, draft):** 6a, 6b, 6c сделаны 12.10.2026 → **КТ12** принят 15.10.2026 с замечаниями (раздел «Доработки по КТ12», F1–F6). **6d сделан** (15.10.2026): LFP/LFM в городах (`Social`/`LfpReplies`/`SocialNoise`), ответы на шёпот и на шаут игрока, redirect пары ботов (`botPartyBusy`, API 1.8). **6e сделан** (15.10.2026): ответы на шёпот (`WhisperParse` EQUALS/STARTS_WITH/CONTAINS, фразы RU/EN, задержка Humanizer, defer в бою, память диалога, `ANNOYED` на оскорбления); эмоции только фразами в пати-чате (GRATS / THANKS_BUFF / SORRY_KS), без `SocialAction`. 6f–6g — дальше. Отступления от плана: движок чата — пакет `org.l2start.bots.chat` внутри `bots-core`, а не отдельный модуль `bots-chat`; события `ReviveOffer` и `PartyChanged` не понадобились; догон через ГК — в F1 (раньше откладывался в 6g); эмоции 6e — пати-чат вместо `/social` (как в согласованном плане 6e).
+> **Ход работ (ветка `phase6` / `extras`, PR #6, draft):** 6a, 6b, 6c сделаны 12.10.2026 → **КТ12** принят 15.10.2026 с замечаниями (раздел «Доработки по КТ12», F1–F6). **6d сделан** (15.10.2026): LFP/LFM в городах (`Social`/`LfpReplies`/`SocialNoise`), ответы на шёпот и на шаут игрока, redirect пары ботов (`botPartyBusy`, API 1.8). **6e сделан** (15.10.2026): ответы на шёпот (`WhisperParse` EQUALS/STARTS_WITH/CONTAINS, фразы RU/EN, задержка Humanizer, defer в бою, память диалога, `ANNOYED` на оскорбления); эмоции только фразами в пати-чате (GRATS / THANKS_BUFF / SORRY_KS), без `SocialAction`. **6f сделан** (15.10.2026): остывание affinity (−1/неделя), вес `partyMinutes` в `PartyDecision` и LFP, шёпот `MEMORY_PARTY`; трейд в пати через `P6-BOT-TRADE` (`PartyTrades`: только сосы/банки, бот ничего не отдаёт). 6g — дальше. Отступления от плана: движок чата — пакет `org.l2start.bots.chat` внутри `bots-core`, а не отдельный модуль `bots-chat`; события `ReviveOffer` и `PartyChanged` не понадобились; догон через ГК — в F1 (раньше откладывался в 6g); эмоции 6e — пати-чат вместо `/social` (как в согласованном плане 6e).
 
 *11.10.2026, черновик для Глеба. Основа: `ARCHITECTURE.md` §8.7 (чат), §8.8 (реализм), §8.9 (взаимодействие с живыми), §8.10 (`bot_memory`), §14 (фаза 6 «Социалка и чат-шаблоны», размер L). Учтены `PHASE4_PLAN.md` (4g «пары ботов»), утверждённый `PHASE5_PLAN.md` (вопрос 4: окно трейда перенесено сюда), код `phase4` (`bots-core`: `BotEvent.Whisper`, черты `sociability`/`chattiness`, `Chronotype`; хук `P3-BOT-WHISPER`), сток Mobius CT0 (`RequestJoinParty`, `RequestAnswerJoinParty`, `TradeRequest`, `RequestFriendInvite`, `RequestSocialAction`, `Party`), твой `virtualplayer` (`E:\L2J_Mobius_CT_0_Interlude\java\org\l2jmobius\gameserver\virtualplayer`) и Living Worlds (`managers/PhantomParty*`, `FakePlayerChat*`, `TownFakeInviteRules`, `PhantomManager.befriendPhantom`).*
 
@@ -171,7 +171,7 @@
 | 6c Охота в пати с игроком | ~5 | **КТ12** |
 | 6d Поиск пати в городах (шаут/трейд) | ~3 | **сделано** 15.10.2026 |
 | 6e Ответы на шёпот, эмоции бота | ~3 | **сделано** 15.10.2026 |
-| 6f Память и трейд в пати | ~2,5 | — |
+| 6f Память и трейд в пати | ~2,5 | **сделано** 15.10.2026 |
 | 6g Лимиты, документация, PR | ~2 | **КТ13** (мёрж) |
 | **Всего** | **≈ 21** (+ 3 на правки по КТ) | |
 
