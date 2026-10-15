@@ -75,6 +75,14 @@ public interface Actuators {
         return ActionResult.INVALID;
     }
 
+    /**
+     * Phase 7b: answer a pending duel ask like the stock {@code RequestDuelAnswerStart} (hook P7-BOT-DUEL).
+     * INVALID when nothing is pending.
+     */
+    default ActionResult answerDuel(boolean accept) {
+        return ActionResult.INVALID;
+    }
+
     /** Leave its party (stock {@code RequestWithDrawalParty}). */
     default ActionResult leaveParty() {
         return ActionResult.INVALID;

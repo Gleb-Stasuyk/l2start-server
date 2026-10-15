@@ -165,4 +165,4 @@
 
 **Фаза 6 (6b–6g):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect`); ответы на шёпот (`WhisperParse`) и реакции в пати-чате (GRATS / THANKS_BUFF / SORRY_KS — без `SocialAction`); 6g — молчание при busy/BlockList/«отстань», `SocialNoise` на болтовню. Простым языком — `docs/BOTS_SOCIAL.md`.
 
-**Фаза 7a (основа PvP):** `PlayerView.inPvpZone` / `karma` / `pvpFlag`, `SelfView.inPvpZone()`; обиды `ATTACKED_ME`/`KILLED_ME` с таймаутом; `PvpDecision` (fight/flee/call-help) с учётом `PvpAggression` (off = только без инициативы), кулдауна, защиты пати/клана и мести. Решение видно в `//bots info`; первое нападение — в 7b.
+**Фаза 7a/7b (PvP):** зоны/`pvpFlag`/`karma`, обиды `ATTACKED_ME`/`KILLED_ME` (месть не мгновенно, таймаут `PvpRevengeTimeout`); `PvpDecision` → бой/бег/зов пати; инициатива только в PvP-зоне при перевесе, не на &lt;20, `PvpAggression≠off` для живых, кулдаун `PvpPlayerCooldown`; защита пати (`PvpProtectParty`); дуэли через хук `P7-BOT-DUEL` (`DuelDecision`); счётчики `//bots pvp`.

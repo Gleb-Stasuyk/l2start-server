@@ -87,6 +87,32 @@ class PvpDecisionTest {
         assertFalse(PvpDecision.grudgeActive(Memory.Of.none(7), now, 30 * 60_000L));
     }
 
+    @Test
+    void revengeNotInstantThenReadyThenTimeout() {
+        final long now = 100L * 60_000;
+        final long delay = 2 * 60_000L;
+        final long timeout = 30 * 60_000L;
+        final Memory.Of just = new Memory.Of(7, -20, 1, 0, now - 30_000, Set.of(Memory.Tag.KILLED_ME));
+        assertTrue(PvpDecision.grudgeActive(just, now, timeout));
+        assertFalse(PvpDecision.revengeReady(just, now, delay, timeout));
+        final Memory.Of ready = new Memory.Of(7, -20, 1, 0, now - (3 * 60_000L), Set.of(Memory.Tag.ATTACKED_ME));
+        assertTrue(PvpDecision.revengeReady(ready, now, delay, timeout));
+        final Memory.Of expired = new Memory.Of(7, -20, 1, 0, now - (40L * 60_000), Set.of(Memory.Tag.KILLED_ME));
+        assertFalse(PvpDecision.revengeReady(expired, now, delay, timeout));
+        // no lastSeen: not instant when a delay is set
+        final Memory.Of undated = new Memory.Of(7, -20, 1, 0, 0, Set.of(Memory.Tag.KILLED_ME));
+        assertFalse(PvpDecision.revengeReady(undated, now, delay, timeout));
+        assertTrue(PvpDecision.revengeReady(undated, now, 0, timeout));
+    }
+
+    @Test
+    void noEdgeBlocksInitiative() {
+        final PvpDecision.Situation weak = new PvpDecision.Situation(true, true, true, false, false, false, true, true, true, true,
+            PvpDecision.Mode.NORMAL, 30, 40, false, false, 1, 3, 90, 80, 0.5, false, false);
+        assertEquals(PvpDecision.Intent.NONE, PvpDecision.decide(weak).intent());
+        assertEquals("no edge", PvpDecision.decide(weak).why());
+    }
+
     /** Tiny helper: same situation but attacked. */
     private static PvpDecision.Situation withAttacked(PvpDecision.Situation s) {
         return new PvpDecision.Situation(s.inPvpZone(), s.targetInPvpZone(), false, true, s.revengeActive(), s.allyUnderAttack(), s.targetLive(),

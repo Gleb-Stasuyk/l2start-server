@@ -79,4 +79,15 @@ public sealed interface BotEvent {
             return "partyRedirect:" + fromId;
         }
     }
+
+    /**
+     * Phase 7b: a real player challenged the bot to a duel (hook P7-BOT-DUEL). Answer with
+     * {@link Actuators#answerDuel} within the stock request window.
+     */
+    record DuelInvite(int fromId, String from, int fromLevel, boolean partyDuel) implements BotEvent {
+        @Override
+        public String key() {
+            return "duelInvite";
+        }
+    }
 }

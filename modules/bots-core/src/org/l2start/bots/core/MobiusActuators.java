@@ -301,6 +301,33 @@ final class MobiusActuators implements Actuators {
     }
 
     @Override
+    public ActionResult answerDuel(boolean accept) {
+        final Player p = r.player();
+        final Player requestor = p == null ? null : p.getActiveRequester();
+        if ((p == null) || (requestor == null)) {
+            return done("answerDuel", accept, ActionResult.INVALID);
+        }
+        // stock RequestDuelAnswerStart (1v1 / party from the pending ask)
+        if (accept) {
+            if (requestor.isInDuel() || p.isInDuel()) {
+                p.setActiveRequester(null);
+                requestor.onTransactionResponse();
+                return done("answerDuel", accept, ActionResult.INVALID);
+            }
+            final boolean party = requestor.isInParty() && p.isInParty() && (requestor.getParty() != p.getParty());
+            org.l2jmobius.gameserver.managers.DuelManager.getInstance().addDuel(requestor, p, party ? 1 : 0);
+        } else {
+            final org.l2jmobius.gameserver.network.serverpackets.SystemMessage msg = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+                org.l2jmobius.gameserver.network.SystemMessageId.S1_HAS_DECLINED_YOUR_CHALLENGE_TO_A_DUEL);
+            msg.addPcName(p);
+            requestor.sendPacket(msg);
+        }
+        p.setActiveRequester(null);
+        requestor.onTransactionResponse();
+        return done("answerDuel", accept, ActionResult.OK);
+    }
+
+    @Override
     public ActionResult leaveParty() {
         final Player p = r.player();
         final org.l2jmobius.gameserver.entity.groups.Party party = p == null ? null : p.getParty();

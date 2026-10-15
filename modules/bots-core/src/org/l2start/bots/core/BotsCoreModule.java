@@ -150,6 +150,7 @@ public final class BotsCoreModule implements GameModule {
                 return BotsCoreModule.this.onPartyBusy(requester, bot);
             }
         });
+        ctx.onBotDuelRequest(this::onDuelRequest); // phase 7b, hook P7-BOT-DUEL
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
@@ -513,6 +514,16 @@ public final class BotsCoreModule implements GameModule {
                 brains.post(r, ev);
             }
         }
+    }
+
+    /** Phase 7b, hook P7-BOT-DUEL: a real player challenged a bot; its brain answers. */
+    private boolean onDuelRequest(Player requester, Player bot, boolean partyDuel) {
+        final BotRecord r = registry.byCharId(bot.getObjectId());
+        if ((r == null) || !r.inWorld() || registry.isBot(requester)) {
+            return false;
+        }
+        brains.post(r, new BotEvent.DuelInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), partyDuel));
+        return true;
     }
 
     /** Phase 6a, hook P6-BOT-PARTY: a real player invited a bot; its brain answers (or lets it expire). */

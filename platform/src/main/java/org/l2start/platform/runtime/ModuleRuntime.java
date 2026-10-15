@@ -190,6 +190,18 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onBotDuelRequest(org.l2start.platform.api.BotDuelListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotDuelListener guarded = (r, b, party) -> {
+            final boolean[] out = { false };
+            guard.run("bot duel request", () -> out[0] = listener.onDuelRequest(r, b, party));
+            return out[0];
+        };
+        org.l2start.platform.hooks.DuelHooks.add(entry.id(), guarded);
+        ownership.add("botDuel", entry.id(), () -> org.l2start.platform.hooks.DuelHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
     public void cleanup(String name, Runnable action) {
         java.util.Objects.requireNonNull(action, "action");
         ownership.add("cleanup", name, action);

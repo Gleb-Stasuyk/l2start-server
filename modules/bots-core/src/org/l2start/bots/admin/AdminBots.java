@@ -110,6 +110,9 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "social":
                     showSocial(gm);
                     return true;
+                case "pvp":
+                    showPvp(gm);
+                    return true;
                 case "pause":
                 case "resume":
                     core.brains().setPaused("pause".equals(sub));
@@ -144,7 +147,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -348,6 +351,30 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("<td><button value=\"").append(paused ? "Resume" : "Pause").append("\" action=\"bypass -h admin_bots ").append(paused ? "resume" : "pause").append("\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
         sb.append("<td><button value=\"List\" action=\"bypass -h admin_bots list\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table>");
         sb.append("</body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7b: hourly PvP counters. */
+    private void showPvp(Player gm) {
+        final org.l2start.bots.chat.PvpBoard board = core.brains().pvp();
+        final long now = System.currentTimeMillis();
+        final java.util.Map<org.l2start.bots.chat.PvpBoard.Stat, Integer> c = board.hourCounts(now);
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: PvP</title><body>");
+        sb.append("<font color=\"LEVEL\">PvP (last hour)</font><br>");
+        sb.append("First attacks: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.ATTACK, 0)).append("<br>");
+        sb.append("Defence: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DEFEND, 0)).append("<br>");
+        sb.append("Revenge: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.REVENGE, 0)).append("<br>");
+        sb.append("Flees: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.FLEE, 0)).append("<br>");
+        sb.append("Call help: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, 0)).append("<br>");
+        sb.append("Duels accepted: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DUEL_OK, 0)).append(", declined: ")
+            .append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DUEL_NO, 0)).append("<br>");
+        sb.append("Blocked by cooldown: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.LIMIT, 0)).append("<br>");
+        sb.append("Blocked by peace zone: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.ZONE, 0)).append("<br>");
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "pvp");
+        button(sb, "Social", "social");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 

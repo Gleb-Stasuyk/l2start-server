@@ -55,6 +55,7 @@ public final class BrainHarness {
         @Override public org.l2start.bots.api.Memory memory() { return memory; }
         @Override public org.l2start.bots.api.Chat chat() { if (chat == null) { chat = defaultChat(); } return chat; }
         @Override public org.l2start.bots.chat.SocialBoard social() { return social; }
+        @Override public org.l2start.bots.chat.PvpBoard pvp() { return pvp; }
     };
 
     /** Phase 6: the real phrase banks of bots-core when the test runs in the repository, else silent. */
@@ -75,11 +76,14 @@ public final class BrainHarness {
     public void setChat(org.l2start.bots.api.Chat c) { chat = c; }
 
     private org.l2start.bots.chat.SocialBoard social = new org.l2start.bots.chat.SocialBoard(60);
+    private org.l2start.bots.chat.PvpBoard pvp = new org.l2start.bots.chat.PvpBoard();
 
     /** Phase 6d: shared LFP shout/reply board (tests get a generous limit by default). */
     public void setSocial(org.l2start.bots.chat.SocialBoard board) { social = board == null ? org.l2start.bots.chat.SocialBoard.NONE : board; }
 
     public org.l2start.bots.chat.SocialBoard social() { return social; }
+
+    public org.l2start.bots.chat.PvpBoard pvpBoard() { return pvp; }
 
     private final org.l2start.bots.api.Memory.MapMemory memory = new org.l2start.bots.api.Memory.MapMemory(this::now);
 

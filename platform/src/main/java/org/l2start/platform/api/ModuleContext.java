@@ -63,6 +63,14 @@ public interface ModuleContext {
     }
 
     /**
+     * Since API 1.9. A real player challenged a bot to a duel (hook P7-BOT-DUEL): the listener answers for the bot.
+     * Guarded like every listener; removed when the module is disabled.
+     */
+    default void onBotDuelRequest(BotDuelListener listener) {
+        throw new UnsupportedOperationException("onBotDuelRequest needs platform API 1.9");
+    }
+
+    /**
      * Since API 1.6. The drop and spoil of dead monsters (hook P7-DROP-FLOAT): the listener may calculate them out of
      * stock rolls. Guarded like every listener; removed when the module is disabled.
      */

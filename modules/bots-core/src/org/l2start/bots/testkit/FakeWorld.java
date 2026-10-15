@@ -223,6 +223,8 @@ public final class FakeWorld {
     public final List<String> chat = new ArrayList<>();
     /** Phase 6: the pending party invitation (the inviter joins {@link #party} on yes). */
     public PartyMember invite;
+    /** Phase 7b: pending duel ask from a live player. */
+    public boolean duelPending;
 
     /** Phase 6: a real player invites the bot; the event arrives on the next tick. */
     public void invite(PartyMember from, int partyMembers) {
@@ -232,6 +234,12 @@ public final class FakeWorld {
     public void invite(PartyMember from, int partyMembers, boolean botLimit) {
         invite = from;
         event(new BotEvent.PartyInvite(from.objectId(), from.name(), from.level(), from.classId(), partyMembers, botLimit));
+    }
+
+    /** Phase 7b: a real player challenges this bot to a duel. */
+    public void duelInvite(int fromId, String from, int fromLevel, boolean partyDuel) {
+        duelPending = true;
+        event(new BotEvent.DuelInvite(fromId, from, fromLevel, partyDuel));
     }
 
     /** Phase 6d: a player whispered to the bot (name only; resolve id via {@link #players}). */
@@ -956,6 +964,16 @@ public final class FakeWorld {
                 party.add(from);
                 partyLeader = false;
             }
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult answerDuel(boolean accept) {
+            if (!duelPending) {
+                return ActionResult.INVALID;
+            }
+            duelPending = false;
+            chat.add("answerDuel:" + accept);
             return ActionResult.OK;
         }
 

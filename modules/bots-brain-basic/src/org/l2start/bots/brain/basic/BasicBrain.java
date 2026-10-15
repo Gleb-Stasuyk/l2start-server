@@ -135,7 +135,8 @@ public final class BasicBrain implements Brain {
         flushSpeech(ctx, now);
         flushInvite(ctx, now);
         maybeShoutLfp(ctx, w, me, now);
-        evaluatePvp(ctx, w, me, now); // phase 7a: decide only (no first attack until 7b)
+        evaluatePvp(ctx, w, me, now); // phase 7b: decide and enact (fight / flee / call-help)
+        answerDuel(ctx, me, now);
         final long d = tickMain(ctx, w, me, now);
         final long due = socialDue();
         return due > 0 ? Math.max(100, Math.min(d, due - now)) : d;
@@ -190,11 +191,16 @@ public final class BasicBrain implements Brain {
                 return fl;
             }
         }
+        if (me.teleporting()) {
+            return 500;
+        }
+        // phase 7b: PvP before companion / director so protect of a live party mate still runs
+        final long pv = pvp(ctx, w, me, now);
+        if (pv > 0) {
+            return pv;
+        }
         if ((ptMateId != 0) || (mate(w) != null)) {
             // phase 6c: in a real player's party it plays with him (the director leaves it be meanwhile)
-            if (me.teleporting()) {
-                return 500;
-            }
             final long c = companion(ctx, w, me, now, attacker(w, me));
             if (c > 0) {
                 return c;
@@ -203,9 +209,6 @@ public final class BasicBrain implements Brain {
         if (order != null) {
             if (phase == Phase.DEAD) {
                 enter(ctx, Phase.TOWN_IDLE, "revived"); // in town now: the director sends it away
-            }
-            if (me.teleporting()) {
-                return 500;
             }
             return presence(ctx, w, me, now, order, attacker(w, me));
         }
@@ -216,13 +219,6 @@ public final class BasicBrain implements Brain {
             nextIdleAction = now + ctx.reactionDelay();
             zone = null;
             enter(ctx, Phase.TOWN_IDLE, "revived");
-        }
-        if (me.teleporting()) {
-            return 500;
-        }
-        final long pv = pvp(ctx, w, me, now);
-        if (pv > 0) {
-            return pv;
         }
         final NpcView attacker = attacker(w, me);
         return switch (phase) {
@@ -279,11 +275,17 @@ public final class BasicBrain implements Brain {
     static volatile boolean pvpProtectClan = true;
     static volatile boolean pvpRevenge = true;
     static volatile long pvpRevengeTimeoutMs = 30 * 60_000L;
-    /** Last phase-7a verdict (shown in //bots info; no first attack until 7b). */
+    /** Last phase-7 PvP verdict (shown in //bots info; 7b enacts it). */
     private PvpDecision.Verdict lastPvpVerdict;
     private String lastPvpTarget = "";
+    private String lastPvpWhy = "";
     /** Live player id → last time we decided FIGHT as initiative (cooldown). */
     private final Map<Integer, Long> pvpInitiativeAt = new HashMap<>();
+    /** Live player id → last time we counted a cooldown/zone block for //bots pvp. */
+    private final Map<Integer, Long> pvpBlockNoted = new HashMap<>();
+    /** Phase 7b: wait this long after the offence before revenge (not instant). */
+    static volatile long pvpRevengeDelayMs = 2 * 60_000L;
+    private long pvpHelpAt;
     /** How far a bot follows its attacker: no chasing across the map. */
     static final int PVP_LEASH = 900;
     private int pvpId;
@@ -337,8 +339,8 @@ public final class BasicBrain implements Brain {
     }
 
     /**
-     * Phase 7a: pick a nearby candidate, decide fight/flee/help/none, show in details. Does not start an attack
-     * (7b). Expires old grudges. Records initiative cooldown when the verdict would be a first FIGHT on a live player.
+     * Phase 7b: pick a nearby candidate, decide fight/flee/help/none, show in details, and start the action. Expires
+     * old grudges. Records initiative cooldown when the first FIGHT on a live player is taken.
      */
     private void evaluatePvp(BrainContext ctx, WorldView w, SelfView me, long now) {
         expireGrudges(ctx, now);
@@ -354,11 +356,10 @@ public final class BasicBrain implements Brain {
             }
             final boolean hit = hitByRecently(p.objectId(), now, PVP_HIT_MEMORY);
             final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(p.objectId());
-            final boolean revenge = PvpDecision.grudgeActive(mem, now, pvpRevengeTimeoutMs);
+            final boolean revenge = PvpDecision.revengeReady(mem, now, pvpRevengeDelayMs, pvpRevengeTimeoutMs);
             final boolean allyHit = allyUnderAttackBy(w, me, p);
             final boolean initiative = !hit && !revenge && !allyHit;
-            final boolean cd = p.bot() ? false
-                : (now - pvpInitiativeAt.getOrDefault(p.objectId(), 0L)) < pvpPlayerCooldownMs;
+            final boolean cd = !p.bot() && ((now - pvpInitiativeAt.getOrDefault(p.objectId(), 0L)) < pvpPlayerCooldownMs);
             final int enemies = countHostilesNear(w, me, p, 700);
             final int allies = countAlliesNear(w, me, 700);
             final PvpDecision.Situation sit = new PvpDecision.Situation(me.inPvpZone(), p.inPvpZone(), initiative, hit, revenge, allyHit, !p.bot(),
@@ -366,6 +367,7 @@ public final class BasicBrain implements Brain {
                 me.hpPct(), me.mpPct(), ctx.info().aggression(), cd, p.level() < PvpDecision.MIN_TARGET_LEVEL);
             final PvpDecision.Verdict v = PvpDecision.decide(sit);
             if (v.intent() == PvpDecision.Intent.NONE) {
+                notePvpBlock(ctx, p, initiative, v.why(), now);
                 continue;
             }
             if ((bestV == null) || rank(v.intent()) > rank(bestV.intent())) {
@@ -377,13 +379,105 @@ public final class BasicBrain implements Brain {
         if (bestV != null) {
             lastPvpVerdict = bestV;
             lastPvpTarget = best.name();
+            lastPvpWhy = bestV.why();
             if (bestInit) {
                 pvpInitiativeAt.put(best.objectId(), now);
             }
+            enactPvp(ctx, w, me, best, bestV, now);
         } else if ((lastPvpVerdict != null) && (lastPvpVerdict.intent() != PvpDecision.Intent.NONE)) {
             lastPvpVerdict = PvpDecision.Verdict.none("idle");
             lastPvpTarget = "";
+            lastPvpWhy = "";
         }
+    }
+
+    /** Count cooldown / peace-zone initiative blocks once per player per cooldown window. */
+    private void notePvpBlock(BrainContext ctx, PlayerView p, boolean initiative, String why, long now) {
+        if (!initiative || p.bot()) {
+            return;
+        }
+        final org.l2start.bots.chat.PvpBoard.Stat s = switch (why) {
+            case "cooldown" -> org.l2start.bots.chat.PvpBoard.Stat.LIMIT;
+            case "peace" -> org.l2start.bots.chat.PvpBoard.Stat.ZONE;
+            default -> null;
+        };
+        if (s == null) {
+            return;
+        }
+        final long gap = Math.max(60_000L, pvpPlayerCooldownMs);
+        if ((now - pvpBlockNoted.getOrDefault(p.objectId(), 0L)) < gap) {
+            return;
+        }
+        pvpBlockNoted.put(p.objectId(), now);
+        ctx.pvp().note(s, now);
+    }
+
+    /** Phase 7b: turn a verdict into attack / flee / party call (uses the existing PvP FSM). */
+    private void enactPvp(BrainContext ctx, WorldView w, SelfView me, PlayerView p, PvpDecision.Verdict v, long now) {
+        switch (v.intent()) {
+            case FIGHT -> beginPvpEngage(ctx, me, p, now, true, v.why());
+            case FLEE -> beginPvpEngage(ctx, me, p, now, false, v.why());
+            case CALL_HELP -> {
+                if ((now - pvpHelpAt) > 15_000L) {
+                    pvpHelpAt = now;
+                    final String lang = ctx.info().lang();
+                    final boolean ru = (lang != null) && lang.toUpperCase(java.util.Locale.ROOT).startsWith("RU");
+                    ctx.act().sayParty(ru ? ("На помощь! " + p.name()) : ("Help! " + p.name()));
+                    ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, now);
+                    ctx.note("calls help vs " + p.name());
+                }
+                if (me.hpPct() >= fleeHp) {
+                    beginPvpEngage(ctx, me, p, now, true, v.why());
+                }
+            }
+            default -> {
+            }
+        }
+        // revenge sometimes with party: shout once when starting revenge
+        if ("revenge".equals(v.why()) && (v.intent() == PvpDecision.Intent.FIGHT) && !w.party().isEmpty()
+            && (ctx.rnd().nextDouble() < 0.35) && ((now - pvpHelpAt) > 15_000L)) {
+            pvpHelpAt = now;
+            ctx.act().sayParty(p.name());
+            ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, now);
+        }
+    }
+
+    private void beginPvpEngage(BrainContext ctx, SelfView me, PlayerView p, long now, boolean fight, String why) {
+        if ((pvpId == p.objectId()) && (pvpFight == fight)) {
+            return; // already in that mood toward them
+        }
+        if ((pvpId != 0) && (pvpId != p.objectId()) && pvpFight && !"protect".equals(why) && !"revenge".equals(why)) {
+            return; // finish the current fight unless protect/revenge overrides
+        }
+        final boolean fresh = pvpId != p.objectId();
+        pvpId = p.objectId();
+        pvpFight = fight;
+        pvpDecision.put(p.objectId(), fight);
+        pvpStart = me.pos();
+        pvpSince = now;
+        pvpRefused = 0;
+        endFight();
+        standIfSitting(ctx, me);
+        if (fresh) {
+            notePvpStat(ctx, why, fight, now);
+            ctx.note((fight ? "PvP " : "flees PvP ") + why + " → " + p.name() + " lv " + p.level());
+        }
+        if (!fight) {
+            startFlee(ctx, me, p, now);
+        }
+    }
+
+    private void notePvpStat(BrainContext ctx, String why, boolean fight, long now) {
+        if (!fight) {
+            ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.FLEE, now);
+            return;
+        }
+        final org.l2start.bots.chat.PvpBoard.Stat s = switch (why) {
+            case "protect", "attacked" -> org.l2start.bots.chat.PvpBoard.Stat.DEFEND;
+            case "revenge" -> org.l2start.bots.chat.PvpBoard.Stat.REVENGE;
+            default -> org.l2start.bots.chat.PvpBoard.Stat.ATTACK;
+        };
+        ctx.pvp().note(s, now);
     }
 
     private void expireGrudges(BrainContext ctx, long now) {
@@ -453,7 +547,7 @@ public final class BasicBrain implements Brain {
     }
 
     private static int countAlliesNear(WorldView w, SelfView me, int radius) {
-        int n = 0;
+        int n = 1; // self counts: 1v1 is even numbers, not "outnumbered by the target"
         for (org.l2start.bots.api.PartyMember m : w.party()) {
             if (m.objectId() != me.objectId() && m.pos().distance2d(me.pos()) <= radius && !m.dead()) {
                 n++;
@@ -546,13 +640,13 @@ public final class BasicBrain implements Brain {
         if (!pvpFight) {
             // a few seconds of running, then a scroll of escape (logs out later in town, the director sends it away)
             detail = "runs from a player";
-            if (((now - pvpSince) > pvpFleeMs) || (p == null) || (pvpFlee.distance2d(me.pos()) < 150)) {
+            if (((now - pvpSince) > pvpFleeMs) || (p == null) || (pvpFlee != null && pvpFlee.distance2d(me.pos()) < 150)) {
                 ctx.note("scroll of escape");
                 ctx.act().returnToTown();
-                pvpOver(now);
+                pvpOver(ctx, now);
                 return 3000;
             }
-            if (!me.moving()) {
+            if (!me.moving() && (pvpFlee != null)) {
                 ctx.act().moveTo(pvpFlee);
             }
             return 600;
@@ -561,9 +655,15 @@ public final class BasicBrain implements Brain {
             ctx.note("hurt badly in the fight with " + p.name() + ": runs");
             pvpFight = false;
             pvpDecision.put(p.objectId(), false);
+            ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.FLEE, now);
             return startFlee(ctx, me, p, now);
         }
-        final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY) || ((p.targetId() == me.objectId()) && p.inCombat()));
+        // initiative / revenge / protect: stay engaged while the foe is near (not only when they hit us)
+        final boolean planned = "initiative".equals(lastPvpWhy) || "revenge".equals(lastPvpWhy) || "protect".equals(lastPvpWhy)
+            || "need help".equals(lastPvpWhy) || "outnumbered".equals(lastPvpWhy);
+        final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY)
+            || ((p.targetId() == me.objectId()) && p.inCombat())
+            || (planned && (p.pos().distance2d(me.pos()) < 1200)));
         final String over;
         if (p == null) {
             over = "the player is gone";
@@ -573,7 +673,7 @@ public final class BasicBrain implements Brain {
             over = "the player ran away";
         } else if (!engaged) {
             over = "the player left it alone";
-        } else if ((me.pos().distance2d(pvpStart) > PVP_LEASH) && !hitByRecently(p.objectId(), now, 4000)) {
+        } else if ((me.pos().distance2d(pvpStart) > PVP_LEASH) && !hitByRecently(p.objectId(), now, 4000) && !planned) {
             over = "no chasing";
         } else {
             over = null;
@@ -581,7 +681,7 @@ public final class BasicBrain implements Brain {
         if (over != null) {
             ctx.note("the fight with a player is over: " + over);
             ctx.act().stop();
-            pvpOver(now);
+            pvpOver(ctx, now);
             return 1000;
         }
         detail = "fights " + p.name();
@@ -626,13 +726,18 @@ public final class BasicBrain implements Brain {
         return 600;
     }
 
-    private void pvpOver(long now) {
+    private void pvpOver(BrainContext ctx, long now) {
+        if ((pvpId != 0) && "revenge".equals(lastPvpWhy)) {
+            ctx.memory().forget(pvpId, org.l2start.bots.api.Memory.Tag.KILLED_ME);
+            ctx.memory().forget(pvpId, org.l2start.bots.api.Memory.Tag.ATTACKED_ME);
+        }
         pvpDone.put(pvpId, now + PVP_IGNORE_MS);
         pvpDone.values().removeIf(t -> t < now);
         if (pvpDecision.size() > 50) {
             pvpDecision.clear();
         }
         pvpId = 0;
+        lastPvpWhy = "";
     }
 
     /** A living monster that is fighting this bot (self-defence comes before anything else). */
@@ -2212,6 +2317,7 @@ public final class BasicBrain implements Brain {
                     }
                 }
                 case BotEvent.PartyRedirect pr -> onPartyRedirect(ctx, pr, now);
+                case BotEvent.DuelInvite di -> onDuelInvite(ctx, me, di, now);
                 case BotEvent.Died d -> {
                     if (ptMateId != 0) {
                         ptDeaths++;
@@ -2222,6 +2328,39 @@ public final class BasicBrain implements Brain {
                 }
             }
         }
+    }
+
+    private BotEvent.DuelInvite duelInvite;
+    private DuelDecision.Answer duelAnswer;
+    private long duelAnswerAt;
+
+    /** Phase 7b: a live player challenged us — decide accept/decline, answer after a short reaction delay. */
+    private void onDuelInvite(BrainContext ctx, SelfView me, BotEvent.DuelInvite di, long now) {
+        if (duelInvite != null) {
+            return;
+        }
+        duelAnswer = DuelDecision.decide(ctx.info(), ctx.memory().of(di.fromId()), me.level(), di.fromLevel(), ctx.rnd());
+        duelInvite = di;
+        duelAnswerAt = now + Math.min(6000, 800 + ctx.info().reactionMs() + ctx.rnd().nextInt(2500));
+        ctx.note("duel from " + di.from() + ": " + duelAnswer + " in " + ((duelAnswerAt - now) / 1000) + " s");
+    }
+
+    private void answerDuel(BrainContext ctx, SelfView me, long now) {
+        if ((duelInvite == null) || (now < duelAnswerAt) || me.dead()) {
+            return;
+        }
+        final BotEvent.DuelInvite di = duelInvite;
+        final DuelDecision.Answer a = duelAnswer;
+        duelInvite = null;
+        duelAnswer = null;
+        final boolean yes = a == DuelDecision.Answer.ACCEPT;
+        final ActionResult r = ctx.act().answerDuel(yes);
+        if (!r.ok()) {
+            ctx.note("duel of " + di.from() + " gone (" + r + ")");
+            return;
+        }
+        ctx.pvp().note(yes ? org.l2start.bots.chat.PvpBoard.Stat.DUEL_OK : org.l2start.bots.chat.PvpBoard.Stat.DUEL_NO, now);
+        ctx.note((yes ? "accepted" : "declined") + " duel from " + di.from());
     }
 
     private static boolean isLfpChannel(String channel) {

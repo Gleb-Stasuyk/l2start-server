@@ -3,8 +3,8 @@ package org.l2start.bots.brain.basic;
 import org.l2start.bots.api.Memory;
 
 /**
- * Phase 7a: should the bot fight, flee, call help, or do nothing? Pure rules (no stock calls). Actual attacking is
- * phase 7b — here the brain only evaluates and shows the verdict in {@code //bots info}.
+ * Phase 7a/7b: should the bot fight, flee, call help, or do nothing? Pure rules (no stock calls). Phase 7b enacts the
+ * verdict (attack / flee / call-help); {@code //bots info} still shows it.
  */
 public final class PvpDecision {
     /** Live players below this level are never chosen for first attack. */
@@ -68,6 +68,22 @@ public final class PvpDecision {
             return true;
         }
         return (now - mem.lastSeen()) < timeoutMs;
+    }
+
+    /**
+     * Phase 7b: revenge is ready only after {@code delayMs} since {@code lastSeen} (not instant) and while the grudge
+     * is still within {@code timeoutMs}.
+     */
+    public static boolean revengeReady(Memory.Of mem, long now, long delayMs, long timeoutMs) {
+        if (!grudgeActive(mem, now, timeoutMs)) {
+            return false;
+        }
+        if (delayMs <= 0) {
+            return true;
+        }
+        // no timestamp yet: treat as "just now" so revenge is not instant
+        final long seen = mem.lastSeen() <= 0 ? now : mem.lastSeen();
+        return (now - seen) >= delayMs;
     }
 
     public static Verdict decide(Situation s) {

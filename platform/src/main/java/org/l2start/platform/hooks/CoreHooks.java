@@ -160,6 +160,21 @@ public final class CoreHooks {
     }
 
     /**
+     * [HOOK:P7-BOT-DUEL] RequestDuelStart, after the stock duel ask went to the target: a bot has no client to answer,
+     * so the bot module answers for it later. Only when the target is a bot; inert without listeners.
+     */
+    public static void botDuelRequest(org.l2jmobius.gameserver.entity.actor.Player requester, org.l2jmobius.gameserver.entity.actor.Player target, boolean partyDuel) {
+        try {
+            if ((DuelHooks.size() == 0) || (requester == null) || (target == null) || !isBot(target)) {
+                return;
+            }
+            DuelHooks.request(requester, target, partyDuel);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot duel listener failed", t);
+        }
+    }
+
+    /**
      * [HOOK:P5-STORE-ADENA] TradeList.privateStoreBuy, after the buyer paid: guard of the stock
      * {@code playerIU.addItem(adenaItem)}. A buyer who paid with all his adena has no adena item any more and the stock
      * line threw a NullPointerException after the adena was taken and before the goods moved (adena lost, nothing

@@ -114,6 +114,11 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             final org.l2start.bots.chat.SocialBoard b = social;
             return b == null ? org.l2start.bots.chat.SocialBoard.NONE : b;
         }
+
+        @Override
+        public org.l2start.bots.chat.PvpBoard pvp() {
+            return BrainHost.this.pvp();
+        }
     }
 
     /** Phase 6a: memories of real players (null = no database: nothing is remembered). */
@@ -144,6 +149,13 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     /** Phase 6g: world social board for {@code //bots social} (null before start). */
     public org.l2start.bots.chat.SocialBoard social() {
         return social;
+    }
+
+    /** Phase 7b: hourly PvP counters for {@code //bots pvp}. */
+    private volatile org.l2start.bots.chat.PvpBoard pvp = new org.l2start.bots.chat.PvpBoard();
+
+    public org.l2start.bots.chat.PvpBoard pvp() {
+        return pvp == null ? org.l2start.bots.chat.PvpBoard.NONE : pvp;
     }
 
     private final ModuleContext ctx;

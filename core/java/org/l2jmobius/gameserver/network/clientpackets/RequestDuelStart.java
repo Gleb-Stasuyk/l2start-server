@@ -143,6 +143,7 @@ public class RequestDuelStart extends ClientPacket
 					msg = new SystemMessage(SystemMessageId.S1_S_PARTY_HAS_CHALLENGED_YOUR_PARTY_TO_A_DUEL);
 					msg.addString(player.getName());
 					targetChar.sendPacket(msg);
+					org.l2start.platform.hooks.CoreHooks.botDuelRequest(player, partyLeader, true); // [HOOK:P7-BOT-DUEL]
 				}
 				else
 				{
@@ -166,6 +167,7 @@ public class RequestDuelStart extends ClientPacket
 				msg = new SystemMessage(SystemMessageId.S1_HAS_CHALLENGED_YOU_TO_A_DUEL);
 				msg.addString(player.getName());
 				targetChar.sendPacket(msg);
+				org.l2start.platform.hooks.CoreHooks.botDuelRequest(player, targetChar, false); // [HOOK:P7-BOT-DUEL]
 			}
 			else
 			{

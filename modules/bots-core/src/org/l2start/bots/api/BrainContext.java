@@ -49,6 +49,11 @@ public interface BrainContext {
         return org.l2start.bots.chat.SocialBoard.NONE;
     }
 
+    /** Phase 7b: hourly PvP counters for {@code //bots pvp}. */
+    default org.l2start.bots.chat.PvpBoard pvp() {
+        return org.l2start.bots.chat.PvpBoard.NONE;
+    }
+
     /** Forgets everything right away (no memory at all). */
     Memory NO_MEMORY = new Memory() {
         @Override

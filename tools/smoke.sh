@@ -208,7 +208,7 @@ real_modules() { # real_modules LOG N
   check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
   check "$2: rates-floating RUNNING (hooks P7-DROP-FLOAT, P7-QUEST-REWARD)" state_is rates-floating RUNNING "$1"
   check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, champion x2.0 \(adena x3.0\), adena x5.0' "$1"
-  check "$2: platform API 1.7.0" grep -qE 'Platform: API 1\.7\.0,' "$1"
+  check "$2: platform API 1.9.0" grep -qE 'Platform: API 1\.9\.0,' "$1"
   check "$2: world-info RUNNING (hook P8-TELEPORT-NAME)" state_is world-info RUNNING "$1"
   check "$2: town-buffer RUNNING (5 buffers)" state_is town-buffer RUNNING "$1"
   check "$2: rates override XP x10 applied" has "override game/Rates.ini: RateXp = 10" "$1"
@@ -241,7 +241,7 @@ check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%
 # phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
 check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify + busy)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" -ge 3
 check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
-check "platform API 1.7.0 (phase 6 + rates + extras)" grep -qE 'Platform: API 1\.7\.0' "$OUT/6-solo.log"
+check "platform API 1.9.0 (phase 7b duel hook)" grep -qE 'Platform: API 1\.9\.0' "$OUT/6-solo.log"
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"
