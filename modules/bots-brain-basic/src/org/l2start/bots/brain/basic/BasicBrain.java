@@ -135,6 +135,7 @@ public final class BasicBrain implements Brain {
         flushSpeech(ctx, now);
         flushInvite(ctx, now);
         maybeShoutLfp(ctx, w, me, now);
+        evaluatePvp(ctx, w, me, now); // phase 7a: decide only (no first attack until 7b)
         final long d = tickMain(ctx, w, me, now);
         final long due = socialDue();
         return due > 0 ? Math.max(100, Math.min(d, due - now)) : d;
@@ -154,11 +155,13 @@ public final class BasicBrain implements Brain {
                     if (me.hasPet()) {
                         ctx.act().unsummon(); // nobody to command it: it never stays behind alone
                     }
+                    notePvpKiller(ctx, w, d.killerId()); // phase 7a grudge
                 }
                 case BotEvent.Teleported t -> revived = true;
                 case BotEvent.Attacked at -> {
                     if (at.byPlayer()) {
                         playerHits.put(at.attackerId(), now);
+                        notePvpAttacker(ctx, w, at.attackerId()); // phase 7a ATTACKED_ME
                     }
                 }
                 case BotEvent.LevelUp l -> {
@@ -269,6 +272,18 @@ public final class BasicBrain implements Brain {
 
     /** Base chance to fight back a real player who attacks (config PvpFightBack of bots-brain-basic); else it flees. */
     static volatile double fightBackBase = 0.5;
+    /** Phase 7a: initiative aggressiveness toward live players. */
+    static volatile PvpDecision.Mode pvpMode = PvpDecision.Mode.NORMAL;
+    static volatile long pvpPlayerCooldownMs = 12 * 60_000L;
+    static volatile boolean pvpProtectParty = true;
+    static volatile boolean pvpProtectClan = true;
+    static volatile boolean pvpRevenge = true;
+    static volatile long pvpRevengeTimeoutMs = 30 * 60_000L;
+    /** Last phase-7a verdict (shown in //bots info; no first attack until 7b). */
+    private PvpDecision.Verdict lastPvpVerdict;
+    private String lastPvpTarget = "";
+    /** Live player id → last time we decided FIGHT as initiative (cooldown). */
+    private final Map<Integer, Long> pvpInitiativeAt = new HashMap<>();
     /** How far a bot follows its attacker: no chasing across the map. */
     static final int PVP_LEASH = 900;
     private int pvpId;
@@ -290,6 +305,169 @@ public final class BasicBrain implements Brain {
     static final long PVP_IGNORE_MS = 60_000;
     /** Below this HP a fight with a player turns into running away (and a scroll of escape). */
     static final double PVP_FLEE_HP = 25;
+
+    /** Phase 7a: record who hit us (stock {@code byPlayer} = live player). */
+    private void notePvpAttacker(BrainContext ctx, WorldView w, int attackerId) {
+        final PlayerView p = playerById(w, attackerId);
+        if ((p != null) && p.bot()) {
+            return;
+        }
+        ctx.memory().note(attackerId, -8, org.l2start.bots.api.Memory.Tag.ATTACKED_ME, true);
+    }
+
+    /** Phase 7a: record who killed us (skip bot killers). */
+    private void notePvpKiller(BrainContext ctx, WorldView w, int killerId) {
+        if (killerId == 0) {
+            return;
+        }
+        final PlayerView p = playerById(w, killerId);
+        if ((p != null) && p.bot()) {
+            return;
+        }
+        ctx.memory().note(killerId, -25, org.l2start.bots.api.Memory.Tag.KILLED_ME, true);
+    }
+
+    private static PlayerView playerById(WorldView w, int id) {
+        for (PlayerView p : w.players()) {
+            if (p.objectId() == id) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Phase 7a: pick a nearby candidate, decide fight/flee/help/none, show in details. Does not start an attack
+     * (7b). Expires old grudges. Records initiative cooldown when the verdict would be a first FIGHT on a live player.
+     */
+    private void evaluatePvp(BrainContext ctx, WorldView w, SelfView me, long now) {
+        expireGrudges(ctx, now);
+        if (me.dead() || me.teleporting()) {
+            return;
+        }
+        PlayerView best = null;
+        PvpDecision.Verdict bestV = null;
+        boolean bestInit = false;
+        for (PlayerView p : w.players()) {
+            if (p.objectId() == me.objectId() || p.distance() > 1200) {
+                continue;
+            }
+            final boolean hit = hitByRecently(p.objectId(), now, PVP_HIT_MEMORY);
+            final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(p.objectId());
+            final boolean revenge = PvpDecision.grudgeActive(mem, now, pvpRevengeTimeoutMs);
+            final boolean allyHit = allyUnderAttackBy(w, me, p);
+            final boolean initiative = !hit && !revenge && !allyHit;
+            final boolean cd = p.bot() ? false
+                : (now - pvpInitiativeAt.getOrDefault(p.objectId(), 0L)) < pvpPlayerCooldownMs;
+            final int enemies = countHostilesNear(w, me, p, 700);
+            final int allies = countAlliesNear(w, me, 700);
+            final PvpDecision.Situation sit = new PvpDecision.Situation(me.inPvpZone(), p.inPvpZone(), initiative, hit, revenge, allyHit, !p.bot(),
+                pvpProtectParty, pvpProtectClan, pvpRevenge, pvpMode, me.level(), p.level(), me.mage(), isMageClass(p.classId()), enemies, allies,
+                me.hpPct(), me.mpPct(), ctx.info().aggression(), cd, p.level() < PvpDecision.MIN_TARGET_LEVEL);
+            final PvpDecision.Verdict v = PvpDecision.decide(sit);
+            if (v.intent() == PvpDecision.Intent.NONE) {
+                continue;
+            }
+            if ((bestV == null) || rank(v.intent()) > rank(bestV.intent())) {
+                best = p;
+                bestV = v;
+                bestInit = initiative && (v.intent() == PvpDecision.Intent.FIGHT) && !p.bot();
+            }
+        }
+        if (bestV != null) {
+            lastPvpVerdict = bestV;
+            lastPvpTarget = best.name();
+            if (bestInit) {
+                pvpInitiativeAt.put(best.objectId(), now);
+            }
+        } else if ((lastPvpVerdict != null) && (lastPvpVerdict.intent() != PvpDecision.Intent.NONE)) {
+            lastPvpVerdict = PvpDecision.Verdict.none("idle");
+            lastPvpTarget = "";
+        }
+    }
+
+    private void expireGrudges(BrainContext ctx, long now) {
+        if (pvpRevengeTimeoutMs <= 0) {
+            return;
+        }
+        // MapMemory exposes all() only on the concrete type; ask about known hitters
+        for (Integer id : new java.util.ArrayList<>(playerHits.keySet())) {
+            final org.l2start.bots.api.Memory.Of o = ctx.memory().of(id);
+            if ((o.has(org.l2start.bots.api.Memory.Tag.KILLED_ME) || o.has(org.l2start.bots.api.Memory.Tag.ATTACKED_ME))
+                && !PvpDecision.grudgeActive(o, now, pvpRevengeTimeoutMs)) {
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.KILLED_ME);
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.ATTACKED_ME);
+            }
+        }
+        for (Integer id : new java.util.ArrayList<>(pvpInitiativeAt.keySet())) {
+            final org.l2start.bots.api.Memory.Of o = ctx.memory().of(id);
+            if ((o.has(org.l2start.bots.api.Memory.Tag.KILLED_ME) || o.has(org.l2start.bots.api.Memory.Tag.ATTACKED_ME))
+                && !PvpDecision.grudgeActive(o, now, pvpRevengeTimeoutMs)) {
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.KILLED_ME);
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.ATTACKED_ME);
+            }
+        }
+    }
+
+    private static int rank(PvpDecision.Intent i) {
+        return switch (i) {
+            case FLEE -> 3;
+            case CALL_HELP -> 2;
+            case FIGHT -> 1;
+            default -> 0;
+        };
+    }
+
+    private boolean allyUnderAttackBy(WorldView w, SelfView me, PlayerView foe) {
+        if (!pvpProtectParty && !pvpProtectClan) {
+            return false;
+        }
+        if (pvpProtectParty) {
+            for (org.l2start.bots.api.PartyMember m : w.party()) {
+                if (m.objectId() == me.objectId()) {
+                    continue;
+                }
+                if (foe.targetId() == m.objectId() && foe.inCombat()) {
+                    return true;
+                }
+            }
+        }
+        // clan mates: phase 7d — no clan view yet
+        return false;
+    }
+
+    private static int countHostilesNear(WorldView w, SelfView me, PlayerView focus, int radius) {
+        int n = 0;
+        for (PlayerView p : w.players()) {
+            if (p.objectId() == me.objectId()) {
+                continue;
+            }
+            if (p.pos().distance2d(me.pos()) > radius) {
+                continue;
+            }
+            if (p.objectId() == focus.objectId() || (p.inCombat() && (p.targetId() == me.objectId() || p.pvpMarked()))) {
+                n++;
+            }
+        }
+        return Math.max(1, n);
+    }
+
+    private static int countAlliesNear(WorldView w, SelfView me, int radius) {
+        int n = 0;
+        for (org.l2start.bots.api.PartyMember m : w.party()) {
+            if (m.objectId() != me.objectId() && m.pos().distance2d(me.pos()) <= radius && !m.dead()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static boolean isMageClass(int classId) {
+        // Interlude magic lines (human/elf/de mystic starts and evolved): rough for 7a weights
+        return classId == 10 || classId == 11 || classId == 12 || classId == 13 || classId == 14 || classId == 15 || classId == 16 || classId == 17
+            || classId == 25 || classId == 26 || classId == 27 || classId == 28 || classId == 29 || classId == 30
+            || classId == 38 || classId == 39 || classId == 40 || classId == 41 || classId == 42 || classId == 43;
+    }
 
     /** A real player (not a bot) who attacks this bot: hit it lately, or has it targeted in a fight while flagged or with karma. */
     PlayerView playerAttacker(WorldView w, SelfView me, long now) {
@@ -1528,6 +1706,13 @@ public final class BasicBrain implements Brain {
         sb.append("\nSkills cast ").append(playstyleCasts).append(", buffs ").append(buffs).append(", heals ").append(heals).append(", summoned ").append(summoned)
             .append(", swept ").append(sweeps).append(", round to the back ").append(sneaks);
         sb.append(companionDetails(ctxNow));
+        if (lastPvpVerdict != null) {
+            sb.append("\nPvP: ").append(lastPvpVerdict.intent()).append(" (").append(lastPvpVerdict.why()).append(")");
+            if (lastPvpTarget != null && !lastPvpTarget.isEmpty()) {
+                sb.append(" → ").append(lastPvpTarget);
+            }
+            sb.append(", mode ").append(pvpMode.name().toLowerCase(java.util.Locale.ROOT));
+        }
         return sb.toString();
     }
 

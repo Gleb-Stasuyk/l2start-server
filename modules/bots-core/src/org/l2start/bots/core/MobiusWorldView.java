@@ -157,8 +157,9 @@ final class MobiusWorldView implements WorldView {
             for (Player o : World.getVisibleObjectsInRange(p, Player.class, radius)) {
                 final Pos at = pos(o);
                 final WorldObject t = o.getTarget();
+                final boolean theirPeace = o.isInsideZone(ZoneId.PEACE) || o.isInsideZone(ZoneId.TOWN);
                 l.add(new PlayerView(o.getObjectId(), o.getName(), o.getLevel(), o.getPlayerClass().getId(), at, at.distance(self.pos()), o.getKarma(), o.getPvpFlag() != 0, o.isInCombat(),
-                    t == null ? 0 : t.getObjectId(), registry.isBot(o), o.isInStoreMode(), o.getLastFolkNPC() != null));
+                    t == null ? 0 : t.getObjectId(), registry.isBot(o), o.isInStoreMode(), o.getLastFolkNPC() != null, !theirPeace));
             }
             l.sort(Comparator.comparingDouble(PlayerView::distance));
             players = l.size() > MAX_OBJECTS ? List.copyOf(l.subList(0, MAX_OBJECTS)) : l;

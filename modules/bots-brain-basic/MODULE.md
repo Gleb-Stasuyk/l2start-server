@@ -66,6 +66,11 @@
 | `Social` | `true` | этап 6d: поиск пати в городах (LFP/LFM шаут/трейд), ответы на шёпот и на LFP игрока; `false` = как до 6d (инвайты 6b/6c остаются) |
 | `LfpReplies` | `2` | этап 6d: сколько ботов максимум отвечают шёпотом на одно LFP/LFM игрока (0–5) |
 | `SocialNoise` | `lively` | этап 6d/6g: `quiet` / `normal` / `lively` — как часто боты пишут LFP/LFM и болтают в пати |
+| `PvpAggression` | `normal` | этап 7a: `off` / `low` / `normal` / `high` — инициатива к живым (`off` = не нападать первым; защита и месть отдельно) |
+| `PvpPlayerCooldown` | `12m` | этап 7a: пауза между решениями «напасть первым» на одного и того же живого |
+| `PvpProtectParty` / `PvpProtectClan` | `on` | этап 7a: защита пати/клана (клан — с 7d); не гасятся `off` |
+| `PvpRevenge` | `on` | этап 7a: месть по `KILLED_ME`/`ATTACKED_ME`; не гасится `off` |
+| `PvpRevengeTimeout` | `30m` | этап 7a: сколько держится обида (`0` = всегда) |
 
 ## Выживание и кайт (этап 4a)
 - **Банки:** только в бою, ниже личного порога; лучшая из имеющихся (Greater → обычная → Lesser), не чаще отката (10 с).
@@ -159,3 +164,5 @@
 Остальное поведение — константы мозга; выключение — `//module disable bots-brain-basic` или `Brain=` в `bots-core`.
 
 **Фаза 6 (6b–6g):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect`); ответы на шёпот (`WhisperParse`) и реакции в пати-чате (GRATS / THANKS_BUFF / SORRY_KS — без `SocialAction`); 6g — молчание при busy/BlockList/«отстань», `SocialNoise` на болтовню. Простым языком — `docs/BOTS_SOCIAL.md`.
+
+**Фаза 7a (основа PvP):** `PlayerView.inPvpZone` / `karma` / `pvpFlag`, `SelfView.inPvpZone()`; обиды `ATTACKED_ME`/`KILLED_ME` с таймаутом; `PvpDecision` (fight/flee/call-help) с учётом `PvpAggression` (off = только без инициативы), кулдауна, защиты пати/клана и мести. Решение видно в `//bots info`; первое нападение — в 7b.

@@ -51,4 +51,12 @@ public record SelfView(int objectId, String name, int classId, boolean mage, int
     public boolean hasPet() {
         return petId != 0;
     }
+
+    /**
+     * Phase 7a: PvP is allowed here (not peace / town). Siege flags are ignored until phase 8.
+     */
+    public boolean inPvpZone() {
+        return !inPeaceZone;
+    }
 }
+

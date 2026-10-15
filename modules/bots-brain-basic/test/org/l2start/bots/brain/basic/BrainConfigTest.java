@@ -45,4 +45,13 @@ class BrainConfigTest {
         assertEquals(1.0, BotsBrainBasicModule.socialNoiseOf("weird"), 1e-9);
         assertEquals(2.0, BotsBrainBasicModule.socialNoiseOf("LIVELY"), 1e-9);
     }
+
+    @Test
+    void pvpAggressionModes() {
+        assertEquals(PvpDecision.Mode.OFF, PvpDecision.Mode.of("off"));
+        assertEquals(PvpDecision.Mode.LOW, PvpDecision.Mode.of("low"));
+        assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of("normal"));
+        assertEquals(PvpDecision.Mode.HIGH, PvpDecision.Mode.of("HIGH"));
+        assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of(""));
+    }
 }

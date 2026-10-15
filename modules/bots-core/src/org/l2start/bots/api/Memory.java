@@ -12,7 +12,7 @@ public interface Memory {
 
     /** Tags a memory can carry. */
     enum Tag {
-        PARTY, REZZED_ME, I_REZZED, BUFFED_ME, TRADED, DECLINED, ANNOYED, KILLED_ME
+        PARTY, REZZED_ME, I_REZZED, BUFFED_ME, TRADED, DECLINED, ANNOYED, KILLED_ME, ATTACKED_ME
     }
 
     /**

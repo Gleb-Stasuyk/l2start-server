@@ -36,6 +36,12 @@ public final class BotsBrainBasicModule implements GameModule {
         BasicBrain.social = ctx.config().getBoolean("Social");
         BasicBrain.lfpReplies = Math.max(0, Math.min(5, ctx.config().getInt("LfpReplies")));
         BasicBrain.socialNoise = socialNoiseOf(ctx.config().getString("SocialNoise"));
+        BasicBrain.pvpMode = PvpDecision.Mode.of(ctx.config().getString("PvpAggression"));
+        BasicBrain.pvpPlayerCooldownMs = Math.max(0, ctx.config().getDuration("PvpPlayerCooldown").toMillis());
+        BasicBrain.pvpProtectParty = ctx.config().getBoolean("PvpProtectParty");
+        BasicBrain.pvpProtectClan = ctx.config().getBoolean("PvpProtectClan");
+        BasicBrain.pvpRevenge = ctx.config().getBoolean("PvpRevenge");
+        BasicBrain.pvpRevengeTimeoutMs = Math.max(0, ctx.config().getDuration("PvpRevengeTimeout").toMillis());
     }
 
     /** Phase 6g: quiet / normal / lively multipliers for LFP and party chatter. */
@@ -67,7 +73,7 @@ public final class BotsBrainBasicModule implements GameModule {
             + (BasicBrain.usePlaystyles ? BasicBrain.playstyles.all().size() : "off") + ", summons " + (BasicBrain.summons ? "on" : "off") + ", party play "
             + (BasicBrain.partyPlay ? "on" : "off") + ", social " + (BasicBrain.social
                 ? ("on noise=" + (BasicBrain.socialNoise <= 0.6 ? "quiet" : BasicBrain.socialNoise >= 1.5 ? "lively" : "normal") + " lfpReplies=" + BasicBrain.lfpReplies)
-                : "off");
+                : "off") + ", pvp=" + BasicBrain.pvpMode.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static double num(String s, double def) {
