@@ -26,8 +26,23 @@ final class Materializer {
     private static final int[] ARROWS = { 17, 1341, 1342, 1343, 1344, 1345 };
 
     /** Soulshots and blessed spiritshots by grade (NONE, D, C, B, A, S). */
-    private static final int[] SOULSHOTS = { 1835, 1463, 1464, 1465, 1466, 1467 };
-    private static final int[] SPIRITSHOTS = { 3947, 3948, 3949, 3950, 3951, 3952 };
+    static final int[] SOULSHOTS = { 1835, 1463, 1464, 1465, 1466, 1467 };
+    static final int[] SPIRITSHOTS = { 3947, 3948, 3949, 3950, 3951, 3952 };
+
+    /** Phase 6f: item ids a party mate may gift through the trade window (any shot grade + HP potions). */
+    static java.util.Set<Integer> partyGiftIds() {
+        final java.util.HashSet<Integer> s = new java.util.HashSet<>();
+        for (int id : SOULSHOTS) {
+            s.add(id);
+        }
+        for (int id : SPIRITSHOTS) {
+            s.add(id);
+        }
+        s.add(1060);
+        s.add(1061);
+        s.add(1539);
+        return java.util.Set.copyOf(s);
+    }
 
     private final GearTable gear;
 

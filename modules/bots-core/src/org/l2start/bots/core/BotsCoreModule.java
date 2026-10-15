@@ -131,6 +131,11 @@ public final class BotsCoreModule implements GameModule {
         // phase 5: store traders for economy-market (personas kept for a store place, no brain)
         ctx.services().provide(org.l2start.bots.trade.TraderPool.class, new TraderService(this, factory, repo, GearTable.load(ctx.resources().path("data/gear.xml"))));
 
+        // phase 6f: party mate gifts shots/potions via P6-BOT-TRADE (bot puts nothing, confirms last)
+        final PartyTrades partyTrades = new PartyTrades(ctx, registry, memories);
+        ctx.onBotTradeRequest(partyTrades::onTradeRequest);
+        ctx.scheduler().fixedRate("party trades", Duration.ofMillis(400), Duration.ofMillis(400), partyTrades::tick);
+
         ctx.botPresence(registry::isBot);
         ctx.events().<OnPlayerChat> onGlobal(EventType.ON_PLAYER_CHAT, this::onChat);
         ctx.onBotPartyRequest(new org.l2start.platform.api.BotPartyListener() { // phase 6a/6d, hook P6-BOT-PARTY
