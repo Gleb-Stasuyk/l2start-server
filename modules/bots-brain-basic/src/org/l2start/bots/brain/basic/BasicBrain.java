@@ -2110,9 +2110,15 @@ public final class BasicBrain implements Brain {
             return; // annoyed: usually ignore further chat (6g will harden "отстань")
         }
         final String lang = WhisperParse.langOf(text);
-        final String phrase = whisperPhrase(intent);
+        String phrase = whisperPhrase(intent);
         if (phrase == null) {
             return;
+        }
+        final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(from.objectId());
+        // phase 6f: acquaintances sometimes recall shared party time (never whisper first)
+        if (((intent == WhisperParse.Intent.GREET) || (intent == WhisperParse.Intent.HOW_ARE_YOU)) && (mem.partyMinutes() >= 10)
+            && ((mem.affinity() > 20) || mem.has(org.l2start.bots.api.Memory.Tag.PARTY)) && (ctx.rnd().nextDouble() < 0.4)) {
+            phrase = "MEMORY_PARTY";
         }
         // buff/res asks while in party with this player: act like a party command
         if ((from.objectId() == ptMateId) && (ptMateId != 0)) {
@@ -2184,12 +2190,14 @@ public final class BasicBrain implements Brain {
             spot = (lang != null && lang.toUpperCase(java.util.Locale.ROOT).startsWith("EN")) ? "around here" : "тут рядом";
         }
         final String useLang = lang == null ? ctx.info().lang() : lang;
+        final int mins = ctx.memory().of(from.objectId()).partyMinutes();
         return Map.of(
             "player", from.name(),
             "level", Integer.toString(me.level()),
             "class", ClassLabels.name(me.classId(), useLang),
             "role", roleWord(me.classId(), useLang),
-            "spot", spot);
+            "spot", spot,
+            "minutes", Integer.toString(Math.max(0, mins)));
     }
 
     private void rememberWhisper(int charId, WhisperParse.Intent intent, String text, long now) {
@@ -2224,6 +2232,12 @@ public final class BasicBrain implements Brain {
             return;
         }
         if (!LfpParse.fits(call.role(), me.classId()) || !LfpParse.levelOk(me.level(), call.level())) {
+            return;
+        }
+        // phase 6f: acquaintances reply more readily; strangers often stay quiet
+        final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(c.fromId());
+        final boolean known = (mem.affinity() > 30) || mem.has(org.l2start.bots.api.Memory.Tag.PARTY) || (mem.partyMinutes() >= 60);
+        if (!known && (ctx.rnd().nextDouble() > (0.35 + (ctx.info().sociability() * 0.4)))) {
             return;
         }
         if (!ctx.social().tryReply(c.fromId(), now, lfpReplies)) {

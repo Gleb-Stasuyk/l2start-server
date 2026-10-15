@@ -75,4 +75,19 @@ class PartyDecisionTest {
         assertTrue(friend > 1750, "someone it played with: " + friend);
     }
 
+    @Test
+    void partyMinutesMakeUnsociableBotAcceptMoreOften() {
+        final Random r = new Random(11);
+        final BotInfo loner = info(false, 0.15, 0.5);
+        final Memory.Of stranger = Memory.Of.none(GLEB);
+        final Memory.Of longParty = new Memory.Of(GLEB, 5, 2, 120, 0, java.util.Set.of()); // 120 min → +0.2
+        int cold = 0;
+        int warm = 0;
+        for (int i = 0; i < 2000; i++) {
+            cold += PartyDecision.decide(loner, 40, inv(40, 0, false), PartyDecision.Doing.TOWN, stranger, 0, 0, false, r).yes() ? 1 : 0;
+            warm += PartyDecision.decide(loner, 40, inv(40, 0, false), PartyDecision.Doing.TOWN, longParty, 0, 0, false, r).yes() ? 1 : 0;
+        }
+        assertTrue(warm > cold + 200, "party minutes should help: cold=" + cold + " warm=" + warm);
+    }
+
 }

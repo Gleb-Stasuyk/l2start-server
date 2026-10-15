@@ -88,6 +88,10 @@ public final class PartyDecision {
         if (mem.has(Memory.Tag.REZZED_ME)) {
             p += 0.2;
         }
+        // phase 6f: minutes played together — +0.05 per 30 min, cap +0.2
+        if (mem.partyMinutes() > 0) {
+            p += Math.min(0.2, (mem.partyMinutes() / 30) * 0.05);
+        }
         if (friend) {
             p = Math.max(p, 0.92);
         }

@@ -197,4 +197,9 @@
 		<ru>сорри за моба|ой, сорри|не хотел|сорри)</ru>
 		<en>sorry for the mob|oops sorry|my bad|sorry)</en>
 	</intent>
+	<!-- phase 6f: whisper when the bot remembers party time with the player ({minutes} {spot}) -->
+	<intent id="MEMORY_PARTY">
+		<ru>о, ку)|норм тогда фармили|{minutes} мин вместе норм было|да, помню, на {spot} норм|ку, давно не виделись</ru>
+		<en>hey)|we farmed ok then|{minutes} min together was fine|yeah, {spot} was ok|hey, long time</en>
+	</intent>
 </phrases>

@@ -7,6 +7,9 @@ import java.util.Set;
  * minute and when the bot leaves). Only the bot's own shard thread uses it.
  */
 public interface Memory {
+    /** Phase 6f: affinity cools by 1 per full week without a meeting ({@link Of#lastSeen()}). */
+    long WEEK_MS = 7L * 24 * 60 * 60 * 1000;
+
     /** Tags a memory can carry. */
     enum Tag {
         PARTY, REZZED_ME, I_REZZED, BUFFED_ME, TRADED, DECLINED, ANNOYED, KILLED_ME
@@ -25,6 +28,22 @@ public interface Memory {
 
         public boolean has(Tag t) {
             return tags.contains(t);
+        }
+
+        /**
+         * Phase 6f: −1 affinity per full week since {@code lastSeen}; advances lastSeen by those weeks so decay is not
+         * applied twice. No-op for strangers ({@code lastSeen == 0}) or when affinity is already 0.
+         */
+        public Of cooled(long now) {
+            if ((lastSeen <= 0) || (affinity == 0) || (now <= lastSeen)) {
+                return this;
+            }
+            final long weeks = (now - lastSeen) / WEEK_MS;
+            if (weeks <= 0) {
+                return this;
+            }
+            final int next = Math.max(-100, Math.min(100, affinity - (int) weeks));
+            return new Of(charId, next, met, partyMinutes, lastSeen + (weeks * WEEK_MS), tags);
         }
     }
 
@@ -60,7 +79,15 @@ public interface Memory {
 
         @Override
         public Of of(int charId) {
-            return m.getOrDefault(charId, Of.none(charId));
+            final Of raw = m.get(charId);
+            if (raw == null) {
+                return Of.none(charId);
+            }
+            final Of cooled = raw.cooled(clock.getAsLong());
+            if (cooled != raw) {
+                put(cooled); // persist decay (dirty for MemoryStore)
+            }
+            return cooled;
         }
 
         @Override
