@@ -541,7 +541,14 @@ public final class BasicBrain implements Brain {
                 }
             }
         }
-        // clan mates: phase 7d — no clan view yet
+        // phase 7d: defend clan mates under attack
+        if (pvpProtectClan && (me.clanId() != 0) && foe.inCombat()) {
+            for (PlayerView ally : w.players()) {
+                if ((ally.objectId() != me.objectId()) && (ally.clanId() == me.clanId()) && (foe.targetId() == ally.objectId())) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
@@ -566,6 +573,13 @@ public final class BasicBrain implements Brain {
         for (org.l2start.bots.api.PartyMember m : w.party()) {
             if (m.objectId() != me.objectId() && m.pos().distance2d(me.pos()) <= radius && !m.dead()) {
                 n++;
+            }
+        }
+        if (me.clanId() != 0) {
+            for (PlayerView p : w.players()) {
+                if ((p.objectId() != me.objectId()) && (p.clanId() == me.clanId()) && (p.pos().distance2d(me.pos()) <= radius)) {
+                    n++;
+                }
             }
         }
         return n;

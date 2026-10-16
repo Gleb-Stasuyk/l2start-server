@@ -67,6 +67,10 @@
     "LfpShoutPerHour": { "type": "int", "default": 4, "min": 0, "max": 60, "reloadable": true, "description": "Phase 6d: how many LFP/LFM shout or trade lines bots may post per hour in the whole world (0 = never). One bot still waits 15 min between its own shouts." },
     "WhisperPerHour": { "type": "int", "default": 30, "min": 0, "max": 200, "reloadable": true, "description": "Phase 6g: how many whisper answers one bot may send per hour (0 = never). Answers to the player's whisper only — bots never write first." },
     "PkBotShare": { "type": "string", "default": "0.02", "reloadable": true, "description": "Phase 7c: share of new personas that are PK bots (0..0.03, default 2%). Existing personas keep their flag." },
+    "BotClans": { "type": "int", "default": 12, "min": 0, "max": 20, "reloadable": true, "description": "Phase 7d: how many bot clans to keep (XML templates + director fill)." },
+    "ClanMembersMin": { "type": "int", "default": 8, "min": 1, "max": 40, "reloadable": true, "description": "Phase 7d: minimum members per bot clan (target size rolled per clan)." },
+    "ClanMembersMax": { "type": "int", "default": 20, "min": 1, "max": 40, "reloadable": true, "description": "Phase 7d: maximum members per bot clan." },
+    "ClanMixedPartyChance": { "type": "string", "default": "0.25", "reloadable": true, "description": "Phase 7d: chance a clan hunter parties with clanless / other-clan bots (else clanmates only)." },
     "StatsLogInterval": { "type": "duration", "default": "60s", "min": "0s", "description": "Runtime line 'BOTS world=... p99=... overrun=...' in the log this often while bots are in the world (0 = never)." }
   }
 }

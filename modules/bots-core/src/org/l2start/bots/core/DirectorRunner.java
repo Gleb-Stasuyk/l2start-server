@@ -212,7 +212,8 @@ public final class DirectorRunner {
             }
             final int lvl = r.paperLevel(now);
             if ((lvl >= minLevel) && (lvl <= maxLevel)) {
-                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()), activity(r.persona(), now)));
+                final int clanId = module.clans() == null ? 0 : module.clans().clanIdOf(r.botId());
+                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()), activity(r.persona(), now), clanId));
             }
         }
         return l;

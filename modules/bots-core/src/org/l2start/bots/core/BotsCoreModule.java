@@ -50,12 +50,14 @@ public final class BotsCoreModule implements GameModule {
     private volatile PersonaGenerator personas;
     private DirectorRunner director;
     private PkLedger pkLedger;
+    private org.l2start.bots.clan.ClanService clans;
 
     @Override
     public void onEnable(ModuleContext context) throws Exception {
         ctx = context;
         repo = new BotRepository(ctx.db());
         pkLedger = new PkLedger(ctx.db());
+        clans = new org.l2start.bots.clan.ClanService(ctx, registry, ctx.resources().path("data/clans/BotClans.xml"));
         final long seed = ctx.config().getLong("Seed");
         seeds = seed == 0 ? new Random() : new Random(seed);
         personas = buildPersonas(); // bad dictionary or weights: the module fails to enable with a clear message
@@ -67,6 +69,9 @@ public final class BotsCoreModule implements GameModule {
             public void entered(BotRecord r) {
                 if (r.status() == BotRecord.Status.TRADER) {
                     return; // a trader sits in its store: no brain (phase 5)
+                }
+                if ((clans != null) && (r.player() != null)) {
+                    clans.attachPlayer(r, r.player()); // phase 7d
                 }
                 brains.entered(r);
             }
@@ -187,6 +192,10 @@ public final class BotsCoreModule implements GameModule {
         return pkLedger;
     }
 
+    public org.l2start.bots.clan.ClanService clans() {
+        return clans;
+    }
+
     /**
      * Phase 7c, hook P7-ATTACKABLE: a PK-persona bot may open on a white player/bot outside mutual PvP (stock would
      * refuse). Peace and under-20 stay blocked here too.
@@ -244,6 +253,17 @@ public final class BotsCoreModule implements GameModule {
             }
         });
         brains.start();
+        if (clans != null) {
+            clans.load();
+            clans.ensureFilled();
+            ctx.scheduler().fixedRate("bot clans", Duration.ofMinutes(2), Duration.ofMinutes(2), () -> {
+                try {
+                    clans.ensureFilled();
+                } catch (Exception e) {
+                    ctx.log().warn("bot clans refill: " + e.getMessage());
+                }
+            });
+        }
         if (director != null) {
             int cleared = 0;
             try {
@@ -406,10 +426,27 @@ public final class BotsCoreModule implements GameModule {
             } catch (NumberFormatException e) {
                 ctx.log().warn("bad PartyShare: " + ctx.config().getString("PartyShare"));
             }
+            try {
+                director.director().setClanMixedPartyChance(Double.parseDouble(ctx.config().getString("ClanMixedPartyChance").trim()));
+            } catch (NumberFormatException e) {
+                ctx.log().warn("bad ClanMixedPartyChance: " + ctx.config().getString("ClanMixedPartyChance"));
+            }
             director.setAnchors(anchors(ctx.config().getList("Anchors")));
         }
         if (personas != null) {
             personas.setPkShare(pkShareOf(ctx.config().getString("PkBotShare")));
+        }
+        if (clans != null) {
+            clans.configure(ctx.config().getInt("BotClans"), ctx.config().getInt("ClanMembersMin"), ctx.config().getInt("ClanMembersMax"),
+                parseChance(ctx.config().getString("ClanMixedPartyChance"), 0.25));
+        }
+    }
+
+    static double parseChance(String raw, double def) {
+        try {
+            return Math.max(0, Math.min(1, Double.parseDouble(raw == null ? "" : raw.trim())));
+        } catch (RuntimeException e) {
+            return def;
         }
     }
 

@@ -23,6 +23,7 @@ class PvpBrainTest {
         BasicBrain.pvpMode = PvpDecision.Mode.NORMAL;
         BasicBrain.pvpPlayerCooldownMs = 12 * 60_000L;
         BasicBrain.pvpProtectParty = true;
+        BasicBrain.pvpProtectClan = true;
         BasicBrain.pvpRevenge = true;
         BasicBrain.pvpRevengeTimeoutMs = 30 * 60_000L;
         BasicBrain.pvpRevengeDelayMs = 2 * 60_000L;
@@ -97,6 +98,25 @@ class PvpBrainTest {
         h.run(3000);
         assertTrue(h.act().calls().stream().anyMatch(c -> c.action().equals("attack") && c.arg().equals("804")),
             "no protect: " + h.notes());
+        assertTrue(h.pvpBoard().hourCounts(h.clock().now()).getOrDefault(PvpBoard.Stat.DEFEND, 0) >= 1);
+    }
+
+    @Test
+    void protectClanMate() {
+        final FakeWorld w = BasicBrainTest.world(78, false);
+        final BrainHarness h = onSpot(w, 78);
+        BasicBrain.pvpProtectParty = false;
+        BasicBrain.pvpMode = PvpDecision.Mode.OFF; // no initiative on live players; protect still on
+        w.setClanId(555);
+        final Pos mateAt = new Pos(w.pos().x() + 120, w.pos().y(), 0);
+        // live clan mate (bot=false) so Mode.OFF does not open initiative on them
+        w.addPlayer(new PlayerView(910, "ClanMate", 40, 0, mateAt, 120, 0, false, false, 0, false, false, false, true, 555));
+        final PlayerView foe = new PlayerView(808, "Raider", 38, 0, new Pos(w.pos().x() + 200, w.pos().y(), 0), 200, 0, true, true, 910, false, false,
+            false, true, 0);
+        w.addPlayer(foe);
+        h.run(3000);
+        assertTrue(h.act().calls().stream().anyMatch(c -> c.action().equals("attack") && c.arg().equals("808")),
+            "no clan protect: " + h.notes() + " " + h.act().calls());
         assertTrue(h.pvpBoard().hourCounts(h.clock().now()).getOrDefault(PvpBoard.Stat.DEFEND, 0) >= 1);
     }
 

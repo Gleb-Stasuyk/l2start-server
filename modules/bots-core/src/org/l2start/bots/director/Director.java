@@ -38,13 +38,18 @@ public final class Director {
     /** A persona that could enter: not in the world, its level now (paper or real, the higher). */
     /** @param race 0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf, -1 unknown */
     /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
-    public record Candidate(int botId, int level, long lastLogout, int race, double activity) {
+    /** @param clanId phase 7d bot clan (0 = none; provisional or stock) */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId) {
+        public Candidate(int botId, int level, long lastLogout, int race, double activity) {
+            this(botId, level, lastLogout, race, activity, 0);
+        }
+
         public Candidate(int botId, int level, long lastLogout, int race) {
-            this(botId, level, lastLogout, race, 1);
+            this(botId, level, lastLogout, race, 1, 0);
         }
 
         public Candidate(int botId, int level, long lastLogout) {
-            this(botId, level, lastLogout, -1, 1);
+            this(botId, level, lastLogout, -1, 1, 0);
         }
     }
 
@@ -186,6 +191,8 @@ public final class Director {
 
     /** Phase 4g: share of hunters that come as a pair or trio (bots-core PartyShare). */
     private volatile double partyShare = 0.12;
+    /** Phase 7d: clan hunters take mixed (other clan / clanless) mates with this chance. */
+    private volatile double clanMixedPartyChance = 0.25;
     private int groupSeq;
     private long parties;
     private long partyLeaves;
@@ -200,6 +207,14 @@ public final class Director {
 
     public double partyShare() {
         return partyShare;
+    }
+
+    public void setClanMixedPartyChance(double chance) {
+        clanMixedPartyChance = Math.max(0, Math.min(1, chance));
+    }
+
+    public double clanMixedPartyChance() {
+        return clanMixedPartyChance;
     }
 
     public Life life() {
@@ -604,6 +619,7 @@ public final class Director {
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         int botId = 0;
         int level;
+        Candidate chosen = back;
         if (back != null) {
             comebacks.remove(back.botId());
             comebacksDone++;
@@ -611,6 +627,7 @@ public final class Director {
             level = back.level();
         } else if (!cands.isEmpty()) {
             final Candidate pick = weighted(cands, now);
+            chosen = pick;
             botId = pick.botId();
             level = pick.level();
         } else {
@@ -638,8 +655,20 @@ public final class Director {
             // a pair or a trio: personas of about the same level come in together from the same edge
             final int lvl = level;
             final int self = botId;
-            final List<Candidate> mates = new ArrayList<>(cands);
+            final int anchorClan = chosen == null ? 0 : chosen.clanId();
+            // phase 7d: clan bots usually party with clanmates; mixed with ClanMixedPartyChance
+            final boolean mixed = (anchorClan != 0) && (rnd.nextDouble() < clanMixedPartyChance);
+            List<Candidate> mates = new ArrayList<>(cands);
             mates.removeIf(x -> (x.botId() == self) || (Math.abs(x.level() - lvl) > 5));
+            if ((anchorClan != 0) && !mixed) {
+                final List<Candidate> same = new ArrayList<>();
+                for (Candidate x : mates) {
+                    if (x.clanId() == anchorClan) {
+                        same.add(x);
+                    }
+                }
+                mates = same;
+            }
             final int want = Math.min(mates.size(), ((spawnRoom >= 3) && (rnd.nextDouble() < 0.35)) ? 2 : 1);
             if (want > 0) {
                 final int group = ++groupSeq;
@@ -654,7 +683,8 @@ public final class Director {
                     partners.add(new Command.Materialize(mate.botId(), mate.level(), mat == null ? at : mat, ma, -1, group));
                     names.append(' ').append(mate.botId());
                 }
-                note(now, "bot " + botId + " comes with" + names + " as a party (" + (want + 1) + ")");
+                note(now, "bot " + botId + " comes with" + names + " as a party (" + (want + 1) + ")"
+                    + (anchorClan != 0 ? (mixed ? " mixed-clan" : " clan") : ""));
                 return new Command.Materialize(botId, level, at, a, race, group);
             }
         }

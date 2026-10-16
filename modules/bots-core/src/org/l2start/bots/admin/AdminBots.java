@@ -116,6 +116,12 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "pk":
                     makePk(gm, st.hasMoreTokens() ? st.nextToken() : "");
                     return true;
+                case "clans":
+                    showClans(gm);
+                    return true;
+                case "clan":
+                    showClan(gm, st.hasMoreTokens() ? st.nextToken() : "");
+                    return true;
                 case "pause":
                 case "resume":
                     core.brains().setPaused("pause".equals(sub));
@@ -150,7 +156,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | clans | clan <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -397,6 +403,82 @@ public final class AdminBots implements IAdminCommandHandler {
         button(sb, "List", "list");
         sb.append("</tr></table></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7d: list bot clans. */
+    private void showClans(Player gm) {
+        final org.l2start.bots.clan.ClanService svc = core.clans();
+        if (svc == null) {
+            gm.sendMessage("Bot clans are not ready.");
+            return;
+        }
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: clans</title><body>");
+        sb.append("<font color=\"LEVEL\">Bot clans (").append(svc.clans().size()).append('/').append(svc.wantClans()).append(")</font><br>");
+        for (org.l2start.bots.clan.ClanStore.Row r : svc.clans()) {
+            final BotRecord leader = byBotId(r.leaderBotId());
+            int online = 0;
+            int total = 0;
+            for (org.l2start.bots.clan.ClanStore.Member m : svc.members(r.clanId())) {
+                total++;
+                final BotRecord b = byBotId(m.botId());
+                if ((b != null) && b.inWorld()) {
+                    online++;
+                }
+            }
+            sb.append("<a action=\"bypass -h admin_bots clan ").append(r.name()).append("\">").append(r.name()).append("</a>");
+            sb.append(" lv ").append(r.level()).append(" leader ").append(leader == null ? "?" : leader.name());
+            sb.append(" ").append(online).append('/').append(total).append("<br>");
+        }
+        if (svc.clans().isEmpty()) {
+            sb.append("(none yet)<br>");
+        }
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "clans");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7d: roster of one bot clan. */
+    private void showClan(Player gm, String name) {
+        final org.l2start.bots.clan.ClanService svc = core.clans();
+        if (svc == null) {
+            gm.sendMessage("Bot clans are not ready.");
+            return;
+        }
+        if (name == null || name.isBlank()) {
+            gm.sendMessage("Usage: //bots clan <name>");
+            return;
+        }
+        final var row = svc.byName(name);
+        if (row.isEmpty()) {
+            gm.sendMessage("No bot clan named " + name);
+            return;
+        }
+        final org.l2start.bots.clan.ClanStore.Row r = row.get();
+        final StringBuilder sb = new StringBuilder("<html><title>Clan ").append(r.name()).append("</title><body>");
+        sb.append("<font color=\"LEVEL\">").append(r.name()).append("</font> lv ").append(r.level());
+        sb.append(" target ").append(r.targetSize()).append(" id ").append(r.clanId()).append("<br>");
+        for (org.l2start.bots.clan.ClanStore.Member m : svc.members(r.clanId())) {
+            final BotRecord b = byBotId(m.botId());
+            sb.append(m.role()).append(' ').append(b == null ? ("#" + m.botId()) : b.name());
+            if (b != null) {
+                sb.append(" lv ").append(b.paperLevel(System.currentTimeMillis()));
+                sb.append(b.inWorld() ? " online" : " offline");
+            }
+            sb.append("<br>");
+        }
+        sb.append("<br><a action=\"bypass -h admin_bots clans\">Back</a></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    private BotRecord byBotId(int botId) {
+        for (BotRecord r : core.registry().all()) {
+            if (r.botId() == botId) {
+                return r;
+            }
+        }
+        return null;
     }
 
     /** Phase 7c: mark persona as PK and spawn next to the GM for testing. */

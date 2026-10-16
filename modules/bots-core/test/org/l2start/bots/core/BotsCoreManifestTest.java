@@ -20,6 +20,9 @@ class BotsCoreManifestTest {
         assertTrue(json.contains("\"defaultEnabled\": { \"solo\": true, \"online\": false }"));
         assertTrue(json.contains("\"platform\": \"^1.10\""));
         assertTrue(json.contains("PkBotShare"));
+        assertTrue(json.contains("BotClans"));
+        assertTrue(json.contains("ClanMembersMin"));
+        assertTrue(json.contains("ClanMixedPartyChance"));
     }
 
     @Test
@@ -32,6 +35,8 @@ class BotsCoreManifestTest {
         }
         assertTrue(all.toString().contains("mod_bots_core_persona") && all.toString().contains("mod_bots_core_state"));
         assertTrue(all.toString().contains("mod_bots_core_pk_ledger"));
+        assertTrue(all.toString().contains("mod_bots_core_clan"));
+        assertTrue(all.toString().contains("mod_bots_core_clan_member"));
         for (String line : all.toString().split("\n")) {
             if (line.toUpperCase().contains("CREATE TABLE")) {
                 assertTrue(line.contains("mod_bots_core_"), line);

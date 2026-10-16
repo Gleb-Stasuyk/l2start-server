@@ -176,6 +176,8 @@ public final class FakeWorld {
     public int petId;
     public double petHp;
     public int petTargetId;
+    /** Phase 7d: clan id of the bot under test (0 = none). */
+    public int selfClanId;
     private long petNextHitAt;
     public int unsummons;
     public int sweeps;
@@ -271,6 +273,11 @@ public final class FakeWorld {
 
     public void addPlayer(PlayerView p) {
         players.add(p);
+    }
+
+    /** Phase 7d tests: set the bot's clan id for SelfView. */
+    public void setClanId(int clanId) {
+        selfClanId = clanId;
     }
 
     /** Phase 6g tests: replace visible players (e.g. mark one as in combat / store). */
@@ -721,7 +728,7 @@ public final class FakeWorld {
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
             "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
-            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId);
+            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId);
     }
 
     /** The view of the next tick: events since the previous view are handed over (and cleared). */
