@@ -48,6 +48,11 @@ public final class ClanStore {
             r.clanId(), r.templateId(), r.name(), r.level(), r.leaderBotId(), r.targetSize(), r.status(), System.currentTimeMillis());
     }
 
+    public void updateClan(Row r) throws Exception {
+        db.update("UPDATE " + clans + " SET template_id=?, name=?, level=?, leader_bot_id=?, target_size=?, status=? WHERE clan_id=?",
+            r.templateId(), r.name(), r.level(), r.leaderBotId(), r.targetSize(), r.status(), r.clanId());
+    }
+
     public void insertMember(int botId, int clanId, String role) throws Exception {
         db.update("INSERT INTO " + members + " (bot_id, clan_id, role) VALUES (?,?,?) ON DUPLICATE KEY UPDATE clan_id=VALUES(clan_id), role=VALUES(role)", botId, clanId, role);
     }

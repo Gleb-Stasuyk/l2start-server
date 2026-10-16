@@ -120,6 +120,9 @@ public final class BotsCoreModule implements GameModule {
             final org.l2start.bots.director.GkGraph gk = org.l2start.bots.director.GkGraph.fromTeleporterData(catalog);
             brains.setGkGraph(gk);
             ctx.log().info("presence director: " + catalog.towns().size() + " towns, " + catalog.grounds().size() + " hunting grounds, " + gear.sets() + " armour sets, " + gear.weapons() + " weapons; gk graph " + gk.edges() + " hops");
+            if (clans != null) {
+                clans.setLeaderEnterHook(director::requestClanLeaderEnter);
+            }
         }
         applyConfig();
         ctx.services().provide(BrainRegistry.class, brains);

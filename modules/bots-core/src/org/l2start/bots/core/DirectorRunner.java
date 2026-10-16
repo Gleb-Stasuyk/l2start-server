@@ -3,7 +3,9 @@ package org.l2start.bots.core;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,6 +14,7 @@ import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
+import org.l2start.bots.api.Assignment;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.director.Director;
 import org.l2start.bots.director.DirectorConfig;
@@ -36,6 +39,11 @@ public final class DirectorRunner {
     private final java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
     private volatile List<Pos> anchors = List.of();
     private volatile long tickNanos;
+    /** Phase 7e: provisional clan leaders to pull in so stock Clan+crest appear. */
+    private final Map<Integer, ForceEnter> forceEnter = new ConcurrentHashMap<>();
+
+    private record ForceEnter(int x, int y, int z, int level, long untilMs) {
+    }
 
     DirectorRunner(BotsCoreModule module, WorldCatalog catalog, GearTable gear, DirectorConfig cfg) {
         this.module = module;
@@ -103,12 +111,26 @@ public final class DirectorRunner {
         return l;
     }
 
+    /** Phase 7e: clan member already visible — bring the paper leader nearby to create the stock clan. */
+    void requestClanLeaderEnter(int leaderBotId, int nearX, int nearY, int nearZ, int preferLevel) {
+        if ((leaderBotId <= 0) || stopping) {
+            return;
+        }
+        final BotRecord r = byId(leaderBotId);
+        if ((r == null) || r.inWorld() || (r.status() != BotRecord.Status.ACTIVE)) {
+            return;
+        }
+        final int lvl = Math.max(10, Math.max(preferLevel, r.paperLevel(System.currentTimeMillis())));
+        forceEnter.put(leaderBotId, new ForceEnter(nearX + 80, nearY + 60, nearZ, lvl, System.currentTimeMillis() + 180_000L));
+    }
+
     private void tick() {
         if (paused) {
             return;
         }
         final long start = System.nanoTime();
         final long now = System.currentTimeMillis();
+        flushForceEnter(now);
         final List<Director.Live> live = live();
         final List<Director.BotNow> bots = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
@@ -118,7 +140,7 @@ public final class DirectorRunner {
                 bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
             }
         }
-        if (live.isEmpty() && bots.isEmpty()) {
+        if (live.isEmpty() && bots.isEmpty() && forceEnter.isEmpty()) {
             tickNanos = System.nanoTime() - start;
             return; // nobody to show anything to: zero cost
         }
@@ -220,6 +242,35 @@ public final class DirectorRunner {
         };
     }
 
+    private void flushForceEnter(long now) {
+        if (forceEnter.isEmpty()) {
+            return;
+        }
+        final Iterator<Map.Entry<Integer, ForceEnter>> it = forceEnter.entrySet().iterator();
+        while (it.hasNext()) {
+            final Map.Entry<Integer, ForceEnter> e = it.next();
+            if (now > e.getValue().untilMs()) {
+                it.remove();
+                continue;
+            }
+            final BotRecord r = byId(e.getKey());
+            if ((r == null) || (r.status() != BotRecord.Status.ACTIVE)) {
+                it.remove();
+                continue;
+            }
+            if (r.inWorld() || busy.contains(r.botId())) {
+                it.remove();
+                continue;
+            }
+            final ForceEnter f = e.getValue();
+            it.remove();
+            final Pos at = new Pos(f.x(), f.y(), f.z());
+            final Assignment a = new Assignment(0, Assignment.Kind.HUNT, "clan-leader", at, 800, f.level(), f.level(), List.of(at), List.of(), null);
+            ctx.log().info("bot clans: pulling leader " + r.name() + " lv " + f.level() + " to create stock clan");
+            materialize(new Director.Command.Materialize(r.botId(), f.level(), at, a, -1));
+        }
+    }
+
     private List<Director.Candidate> available(int minLevel, int maxLevel, long now) {
         final List<Director.Candidate> l = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
@@ -229,7 +280,9 @@ public final class DirectorRunner {
             final int lvl = r.paperLevel(now);
             if ((lvl >= minLevel) && (lvl <= maxLevel)) {
                 final int clanId = module.clans() == null ? 0 : module.clans().clanIdOf(r.botId());
-                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()), activity(r.persona(), now), clanId));
+                final boolean stockPending = (module.clans() != null) && module.clans().needsStockPromotion(r.botId());
+                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()),
+                    activity(r.persona(), now), clanId, stockPending));
             }
         }
         return l;

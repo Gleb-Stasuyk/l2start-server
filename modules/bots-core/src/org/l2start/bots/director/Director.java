@@ -39,17 +39,22 @@ public final class Director {
     /** @param race 0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf, -1 unknown */
     /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
     /** @param clanId phase 7d bot clan (0 = none; provisional or stock) */
-    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId) {
+    /** @param clanStockPending phase 7e: provisional clan leader — prefer spawn so stock Clan+crest appear */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending) {
+        public Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId) {
+            this(botId, level, lastLogout, race, activity, clanId, false);
+        }
+
         public Candidate(int botId, int level, long lastLogout, int race, double activity) {
-            this(botId, level, lastLogout, race, activity, 0);
+            this(botId, level, lastLogout, race, activity, 0, false);
         }
 
         public Candidate(int botId, int level, long lastLogout, int race) {
-            this(botId, level, lastLogout, race, 1, 0);
+            this(botId, level, lastLogout, race, 1, 0, false);
         }
 
         public Candidate(int botId, int level, long lastLogout) {
-            this(botId, level, lastLogout, -1, 1, 0);
+            this(botId, level, lastLogout, -1, 1, 0, false);
         }
     }
 
@@ -801,6 +806,9 @@ public final class Director {
         for (int i = 0; i < w.length; i++) {
             w[i] = 1 + (Math.min(86_400_000L, Math.max(0, now - cands.get(i).lastLogout())) / 3_600_000.0); // long gone = more likely
             w[i] *= 0.1 + Math.max(0, Math.min(1, cands.get(i).activity())); // their hours (chronotype): far more likely
+            if (cands.get(i).clanStockPending()) {
+                w[i] *= 12; // phase 7e: get provisional leaders in so stock clans become visible
+            }
             sum += w[i];
         }
         double r = rnd.nextDouble() * sum;
