@@ -102,19 +102,31 @@ public final class StockClanFactory {
         syncOnlinePlayers(live);
     }
 
-    /** Ensure crest is set; returns crest id (0 = failed). */
+    /**
+     * Ensure crest is set and client-safe (16×16 / 256 bytes). Replaces a stored but rejected
+     * 16×12 payload. Returns crest id (0 = failed).
+     */
     public static int ensureCrest(Clan clan, byte[] crestDds) {
         if (clan == null) {
             return 0;
         }
-        if ((clan.getCrestId() != 0) && (CrestTable.getInstance().getCrest(clan.getCrestId()) != null)) {
+        if (hasClientSafeCrest(clan)) {
             return clan.getCrestId();
         }
         return applyCrest(clan, crestDds);
     }
 
     public static boolean hasCrest(Clan clan) {
-        return (clan != null) && (clan.getCrestId() != 0) && (CrestTable.getInstance().getCrest(clan.getCrestId()) != null);
+        return hasClientSafeCrest(clan);
+    }
+
+    /** True when clan has a CrestTable blob the Interlude client will accept. */
+    public static boolean hasClientSafeCrest(Clan clan) {
+        if ((clan == null) || (clan.getCrestId() == 0)) {
+            return false;
+        }
+        final Crest crest = CrestTable.getInstance().getCrest(clan.getCrestId());
+        return (crest != null) && ClanCrests.isClientSafeCrest(crest.getData());
     }
 
     public static Clan reload(int clanId) {

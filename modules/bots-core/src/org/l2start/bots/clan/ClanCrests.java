@@ -14,12 +14,22 @@ import java.util.List;
 import javax.imageio.ImageIO;
 
 /**
- * Loads 16×12 BMP clan emblems from {@code data/clans/crests/} and converts them to the DDS DXT1 payload
- * the Interlude client expects ({@code CrestTable.createCrest}, max 256 bytes).
+ * Loads 16×12 BMP clan emblems from {@code data/clans/crests/} and converts them to the DDS DXT1
+ * payload the Interlude client expects ({@code CrestTable.createCrest}, max 256 bytes).
+ * <p>
+ * Design size is 16×12 (visible crest). The client rejects non-power-of-two textures, so we pad to
+ * 16×16 (edge-replicate) before DXT1 — same as Living Worlds {@code crest_png_to_dds.py} and the
+ * stock client upload. The bottom 4 rows are padding only; ally crest is a separate texture.
  */
 public final class ClanCrests {
-    public static final int WIDTH = 16;
-    public static final int HEIGHT = 12;
+    /** Visible pledge crest area (Interlude design). */
+    public static final int DESIGN_W = 16;
+    public static final int DESIGN_H = 12;
+    /** DDS texture after power-of-two pad (client requirement). */
+    public static final int TEX_W = 16;
+    public static final int TEX_H = 16;
+    /** Exact wire size: 128-byte DDS header + 16×16 DXT1 (4×4 blocks × 8). */
+    public static final int DDS_SIZE = 256;
 
     private static volatile Path dir;
     private static volatile List<byte[]> cache = List.of();
@@ -90,23 +100,49 @@ public final class ClanCrests {
         return c.get(idx);
     }
 
+    /**
+     * Interlude accepts pledge DDS only when length is 256 and texture is 16×16 (power-of-two).
+     * Shorter 16×12 payloads are rejected by the client even if stored in {@code CrestTable}.
+     */
+    public static boolean isClientSafeCrest(byte[] data) {
+        if ((data == null) || (data.length != DDS_SIZE)) {
+            return false;
+        }
+        if ((data[0] != 'D') || (data[1] != 'D') || (data[2] != 'S') || (data[3] != ' ')) {
+            return false;
+        }
+        final ByteBuffer bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        bb.position(12);
+        final int height = bb.getInt();
+        final int width = bb.getInt();
+        return (width == TEX_W) && (height == TEX_H);
+    }
+
     static byte[] bmpToDds(Path bmp) throws IOException {
         final BufferedImage src = ImageIO.read(bmp.toFile());
         if (src == null) {
             throw new IOException("unreadable BMP");
         }
-        final BufferedImage img = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB);
-        img.getGraphics().drawImage(src, 0, 0, WIDTH, HEIGHT, null);
-        final int[] rgba = new int[WIDTH * HEIGHT];
-        for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < WIDTH; x++) {
-                rgba[y * WIDTH + x] = img.getRGB(x, y);
-            }
-        }
-        return encodeDxt1Dds(rgba, WIDTH, HEIGHT);
+        final BufferedImage design = new BufferedImage(DESIGN_W, DESIGN_H, BufferedImage.TYPE_INT_ARGB);
+        design.getGraphics().drawImage(src, 0, 0, DESIGN_W, DESIGN_H, null);
+        final int[] rgba = padToTexture(design);
+        return encodeDxt1Dds(rgba, TEX_W, TEX_H);
     }
 
-    /** Minimal DDS (DXT1) for 16×12 — same layout the Interlude client uploads. */
+    /** Edge-replicate 16×12 design into 16×16 (same idea as Living Worlds crest_png_to_dds.py). */
+    static int[] padToTexture(BufferedImage design) {
+        final int[] rgba = new int[TEX_W * TEX_H];
+        for (int y = 0; y < TEX_H; y++) {
+            final int sy = Math.min(y, DESIGN_H - 1);
+            for (int x = 0; x < TEX_W; x++) {
+                final int sx = Math.min(x, DESIGN_W - 1);
+                rgba[y * TEX_W + x] = design.getRGB(sx, sy);
+            }
+        }
+        return rgba;
+    }
+
+    /** Minimal DDS (DXT1) for power-of-two texture — same layout the Interlude client uploads. */
     static byte[] encodeDxt1Dds(int[] rgba, int w, int h) {
         if ((w % 4) != 0 || (h % 4) != 0) {
             throw new IllegalArgumentException("DXT1 needs multiple of 4: " + w + "x" + h);
@@ -147,7 +183,11 @@ public final class ClanCrests {
         bb.putInt(0);
         bb.putInt(0);
         bb.put(blocks);
-        return bb.array();
+        final byte[] out = bb.array();
+        if (out.length != DDS_SIZE) {
+            throw new IllegalStateException("pledge DDS must be " + DDS_SIZE + ", got " + out.length);
+        }
+        return out;
     }
 
     private static int writeDxt1Block(int[] rgba, int w, int x0, int y0, byte[] out, int o) {

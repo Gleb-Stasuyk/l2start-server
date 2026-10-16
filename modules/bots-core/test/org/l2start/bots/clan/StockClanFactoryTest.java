@@ -35,11 +35,11 @@ class StockClanFactoryTest {
     }
 
     @Test
-    void crestPayloadFitsClient() {
+    void crestPayloadIsClientSafeSixteenBySixteen() {
         ClanCrests.init(java.nio.file.Path.of("modules/bots-core/data/clans/crests"));
         assertTrue(ClanCrests.size() >= 1);
         final byte[] dds = ClanTemplates.crestBytes(1);
-        assertTrue(dds.length > 0 && dds.length <= 256);
-        assertEquals('D', dds[0]);
+        assertTrue(ClanCrests.isClientSafeCrest(dds));
+        assertEquals(ClanCrests.DDS_SIZE, dds.length);
     }
 }

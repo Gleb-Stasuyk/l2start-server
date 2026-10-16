@@ -54,17 +54,16 @@ public final class ClanTemplates {
 
     /** Deterministic fake DDS when no BMP crests are installed (tests / empty folder). */
     public static byte[] syntheticCrestBytes(long seed) {
-        final byte[] data = new byte[224];
         long s = seed == 0 ? 1 : seed;
-        for (int i = 0; i < data.length; i++) {
+        final int[] rgba = new int[ClanCrests.TEX_W * ClanCrests.TEX_H];
+        for (int i = 0; i < rgba.length; i++) {
             s = (s * 6364136223846793005L) + 1;
-            data[i] = (byte) (s >>> 56);
+            final int r = (int) ((s >>> 40) & 0xff);
+            final int g = (int) ((s >>> 24) & 0xff);
+            final int b = (int) ((s >>> 8) & 0xff);
+            rgba[i] = 0xff000000 | (r << 16) | (g << 8) | b;
         }
-        data[0] = 'D';
-        data[1] = 'D';
-        data[2] = 'S';
-        data[3] = ' ';
-        return data;
+        return ClanCrests.encodeDxt1Dds(rgba, ClanCrests.TEX_W, ClanCrests.TEX_H);
     }
 
     /** Level 2–7 for a small clan by target size (larger → higher). */
