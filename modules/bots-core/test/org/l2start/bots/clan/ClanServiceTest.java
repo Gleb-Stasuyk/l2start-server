@@ -23,8 +23,9 @@ class ClanServiceTest {
             assertFalse(c.name().isBlank());
             assertFalse(c.id().isBlank());
         }
-        final byte[] crest = ClanTemplates.crestBytes(101);
-        assertEquals(256, crest.length);
+        ClanCrests.init(Path.of("modules/bots-core/data/clans/crests"));
+        final byte[] crest = ClanTemplates.crestBytes(1);
+        assertTrue(crest.length <= 256 && crest.length >= 128);
         assertEquals('D', crest[0]);
         assertEquals('D', crest[1]);
         assertEquals('S', crest[2]);

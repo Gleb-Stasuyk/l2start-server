@@ -44,9 +44,17 @@ public final class ClanTemplates {
         return List.copyOf(out);
     }
 
-    /** Deterministic crest payload for {@code CrestTable.createCrest} (format not validated by stock). */
+    /**
+     * Crest payload for {@code CrestTable.createCrest}: real DDS from {@code data/clans/crests/*.bmp}
+     * ({@link ClanCrests}), or a synthetic DDS if that folder is empty.
+     */
     public static byte[] crestBytes(long seed) {
-        final byte[] data = new byte[256];
+        return ClanCrests.ddsForSeed(seed);
+    }
+
+    /** Deterministic fake DDS when no BMP crests are installed (tests / empty folder). */
+    public static byte[] syntheticCrestBytes(long seed) {
+        final byte[] data = new byte[224];
         long s = seed == 0 ? 1 : seed;
         for (int i = 0; i < data.length; i++) {
             s = (s * 6364136223846793005L) + 1;

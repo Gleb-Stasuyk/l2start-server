@@ -61,6 +61,14 @@ public final class ClanService {
         this.registry = registry;
         this.store = new ClanStore(ctx.db());
         this.templates = ClanTemplates.load(xml);
+        final Path crestsDir = xml.getParent() == null ? null : xml.getParent().resolve("crests");
+        ClanCrests.init(crestsDir);
+        if (ClanCrests.size() == 0) {
+            ctx.log().warn("bot clans: no BMP crests in " + crestsDir
+                + (ClanCrests.lastError() == null ? "" : " (" + ClanCrests.lastError() + ")"));
+        } else {
+            ctx.log().info("bot clans: " + ClanCrests.size() + " crest images loaded from " + crestsDir);
+        }
     }
 
     public void setLeaderEnterHook(LeaderEnterHook hook) {
