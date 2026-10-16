@@ -83,6 +83,27 @@ public interface Actuators {
         return ActionResult.INVALID;
     }
 
+    /**
+     * Phase 7e: answer a pending clan/academy invite like the stock {@code RequestAnswerJoinPledge}
+     * (hook P7-BOT-PLEDGE). INVALID when nothing is pending.
+     */
+    default ActionResult answerPledge(boolean accept) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Phase 7e: invite an online live player into this bot's clan (stock {@code RequestJoinPledge} sequence).
+     * Only the clan leader should call this. {@code pledgeType} 0 = main, -1 = academy.
+     */
+    default ActionResult inviteClan(String playerName, int pledgeType) {
+        return ActionResult.INVALID;
+    }
+
+    /** Phase 7e: write in clan chat (stock {@code ChatType.CLAN}). */
+    default ActionResult sayClan(String text) {
+        return ActionResult.INVALID;
+    }
+
     /** Leave its party (stock {@code RequestWithDrawalParty}). */
     default ActionResult leaveParty() {
         return ActionResult.INVALID;

@@ -51,6 +51,8 @@ public final class BotsCoreModule implements GameModule {
     private DirectorRunner director;
     private PkLedger pkLedger;
     private org.l2start.bots.clan.ClanService clans;
+    private volatile boolean clanInvitePlayers = true;
+    private volatile boolean clanJoinPlayers = true;
 
     @Override
     public void onEnable(ModuleContext context) throws Exception {
@@ -159,7 +161,13 @@ public final class BotsCoreModule implements GameModule {
             }
         });
         ctx.onBotDuelRequest(this::onDuelRequest); // phase 7b, hook P7-BOT-DUEL
+        ctx.onBotPledgeRequest(this::onPledgeRequest); // phase 7e, hook P7-BOT-PLEDGE
         ctx.onBotAttackable(this::forcePkAttackable); // phase 7c, hook P7-ATTACKABLE
+        brains.setOnJoinPlayerClan((r, p) -> {
+            if (clans != null) {
+                clans.leaveBotClanForPlayer(r, p);
+            }
+        });
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
@@ -437,9 +445,21 @@ public final class BotsCoreModule implements GameModule {
             personas.setPkShare(pkShareOf(ctx.config().getString("PkBotShare")));
         }
         if (clans != null) {
+            long adenaLimit = 50_000_000L;
+            try {
+                adenaLimit = Long.parseLong(ctx.config().getString("ClanAdenaSpendLimit").trim().replace("_", ""));
+            } catch (RuntimeException e) {
+                ctx.log().warn("bad ClanAdenaSpendLimit");
+            }
             clans.configure(ctx.config().getInt("BotClans"), ctx.config().getInt("ClanMembersMin"), ctx.config().getInt("ClanMembersMax"),
-                parseChance(ctx.config().getString("ClanMixedPartyChance"), 0.25));
+                parseChance(ctx.config().getString("ClanMixedPartyChance"), 0.25),
+                parseChance(ctx.config().getString("ClanBotShare"), 0.40),
+                ctx.config().getInt("BigBotClans"),
+                ctx.config().getDuration("ClanInviteCooldown").toMillis(),
+                adenaLimit);
         }
+        clanInvitePlayers = ctx.config().getBoolean("ClanInvitePlayers");
+        clanJoinPlayers = ctx.config().getBoolean("ClanJoinPlayers");
     }
 
     static double parseChance(String raw, double def) {
@@ -570,6 +590,10 @@ public final class BotsCoreModule implements GameModule {
             }
             return;
         }
+        if (type == ChatType.CLAN) {
+            onClanChat(from, e.getText());
+            return;
+        }
         final String channel = switch (type) {
             case PARTY -> "PARTY";
             case GENERAL -> "ALL";
@@ -608,6 +632,38 @@ public final class BotsCoreModule implements GameModule {
             return false;
         }
         brains.post(r, new BotEvent.DuelInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), partyDuel));
+        return true;
+    }
+
+    /** Phase 7e: clan chat from a clan leader — rally pulls non-trader clan bots. */
+    private void onClanChat(Player from, String text) {
+        if ((from.getClan() == null) || !from.isClanLeader() || !org.l2start.bots.clan.ClanRallyParse.isRally(text)) {
+            return;
+        }
+        final String kind = org.l2start.bots.clan.ClanRallyParse.kind(text);
+        final BotEvent.ClanRally rally = new BotEvent.ClanRally(from.getObjectId(), from.getName(), from.getX(), from.getY(), from.getZ(), kind);
+        for (var m : from.getClan().getMembers()) {
+            final Player o = m == null ? null : m.getPlayer();
+            final BotRecord r = o == null ? null : registry.byCharId(o.getObjectId());
+            if ((r == null) || !r.inWorld() || (r.status() == BotRecord.Status.TRADER) || (o == from)) {
+                continue;
+            }
+            brains.post(r, rally);
+        }
+    }
+
+    /** Phase 7e, hook P7-BOT-PLEDGE: a real player invited a bot into a clan / academy. */
+    private boolean onPledgeRequest(Player requester, Player bot, int pledgeType) {
+        final BotRecord r = registry.byCharId(bot.getObjectId());
+        if ((r == null) || !r.inWorld() || registry.isBot(requester)) {
+            return false;
+        }
+        if (org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(requester, bot)) {
+            return true;
+        }
+        final boolean canLeave = (r.status() != BotRecord.Status.TRADER) && ((clans == null) || !clans.isLeader(r.botId()));
+        brains.post(r, new BotEvent.PledgeInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), pledgeType, canLeave,
+            clanJoinPlayers));
         return true;
     }
 

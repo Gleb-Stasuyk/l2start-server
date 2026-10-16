@@ -472,6 +472,21 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     }
 
     @Override
+    public void prepareJoinPlayerClan(BotRecord r, Player p) {
+        final java.util.function.BiConsumer<BotRecord, Player> h = onJoinPlayerClan;
+        if (h != null) {
+            h.accept(r, p);
+        }
+    }
+
+    private volatile java.util.function.BiConsumer<BotRecord, Player> onJoinPlayerClan;
+
+    /** Phase 7e: leave bot-clan paper when accepting a live player's pledge. */
+    public void setOnJoinPlayerClan(java.util.function.BiConsumer<BotRecord, Player> h) {
+        onJoinPlayerClan = h;
+    }
+
+    @Override
     public long now() {
         return clock.now();
     }

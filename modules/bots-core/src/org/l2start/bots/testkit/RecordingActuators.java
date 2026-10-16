@@ -63,6 +63,9 @@ public final class RecordingActuators implements Actuators {
     @Override public ActionResult unsummon() { return rec("unsummon", "", next::unsummon); }
     @Override public ActionResult answerParty(boolean yes) { return rec("answerParty", yes, () -> next.answerParty(yes)); }
     @Override public ActionResult answerDuel(boolean yes) { return rec("answerDuel", yes, () -> next.answerDuel(yes)); }
+    @Override public ActionResult answerPledge(boolean yes) { return rec("answerPledge", yes, () -> next.answerPledge(yes)); }
+    @Override public ActionResult inviteClan(String name, int type) { return rec("inviteClan", name + ":" + type, () -> next.inviteClan(name, type)); }
+    @Override public ActionResult sayClan(String text) { return rec("sayClan", text, () -> next.sayClan(text)); }
     @Override public ActionResult leaveParty() { return rec("leaveParty", "", next::leaveParty); }
     @Override public ActionResult giveLeader(int id) { return rec("giveLeader", id, () -> next.giveLeader(id)); }
     @Override public ActionResult sayParty(String text) { return rec("sayParty", text, () -> next.sayParty(text)); }

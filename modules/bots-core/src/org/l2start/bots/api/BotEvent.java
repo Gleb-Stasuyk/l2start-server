@@ -90,4 +90,28 @@ public sealed interface BotEvent {
             return "duelInvite";
         }
     }
+
+    /**
+     * Phase 7e: a real player invited the bot into a clan / academy (hook P7-BOT-PLEDGE). Answer with
+     * {@link Actuators#answerPledge} within the stock request window. {@code pledgeType} is stock
+     * ({@code Clan.SUBUNIT_ACADEMY=-1} for academy, 0 for main). {@code canLeaveBotClan} false for traders and
+     * bot-clan leaders; {@code joinEnabled} is ClanJoinPlayers.
+     */
+    record PledgeInvite(int fromId, String from, int fromLevel, int pledgeType, boolean canLeaveBotClan, boolean joinEnabled)
+        implements BotEvent {
+        @Override
+        public String key() {
+            return "pledgeInvite";
+        }
+    }
+
+    /**
+     * Phase 7e: clan chat rally / gather from a live leader or bot leader. Non-traders move toward the point.
+     */
+    record ClanRally(int fromId, String from, int x, int y, int z, String kind) implements BotEvent {
+        @Override
+        public String key() {
+            return "clanRally:" + fromId;
+        }
+    }
 }

@@ -40,6 +40,7 @@ public final class BotsBrainBasicModule implements GameModule {
         BasicBrain.pvpPlayerCooldownMs = Math.max(0, ctx.config().getDuration("PvpPlayerCooldown").toMillis());
         BasicBrain.pvpProtectParty = ctx.config().getBoolean("PvpProtectParty");
         BasicBrain.pvpProtectClan = ctx.config().getBoolean("PvpProtectClan");
+        BasicBrain.clanInvitePlayers = ctx.config().getBoolean("ClanInvitePlayers");
         BasicBrain.pvpRevenge = ctx.config().getBoolean("PvpRevenge");
         BasicBrain.pvpRevengeTimeoutMs = Math.max(0, ctx.config().getDuration("PvpRevengeTimeout").toMillis());
     }

@@ -227,6 +227,7 @@ public final class FakeWorld {
     public PartyMember invite;
     /** Phase 7b: pending duel ask from a live player. */
     public boolean duelPending;
+    public boolean pledgePending;
 
     /** Phase 6: a real player invites the bot; the event arrives on the next tick. */
     public void invite(PartyMember from, int partyMembers) {
@@ -242,6 +243,16 @@ public final class FakeWorld {
     public void duelInvite(int fromId, String from, int fromLevel, boolean partyDuel) {
         duelPending = true;
         event(new BotEvent.DuelInvite(fromId, from, fromLevel, partyDuel));
+    }
+
+    /** Phase 7e: a real player invites this bot into a clan / academy. */
+    public void pledgeInvite(int fromId, String from, int fromLevel, int pledgeType) {
+        pledgeInvite(fromId, from, fromLevel, pledgeType, true, true);
+    }
+
+    public void pledgeInvite(int fromId, String from, int fromLevel, int pledgeType, boolean canLeave, boolean joinEnabled) {
+        pledgePending = true;
+        event(new BotEvent.PledgeInvite(fromId, from, fromLevel, pledgeType, canLeave, joinEnabled));
     }
 
     /** Phase 6d: a player whispered to the bot (name only; resolve id via {@link #players}). */
@@ -278,6 +289,13 @@ public final class FakeWorld {
     /** Phase 7d tests: set the bot's clan id for SelfView. */
     public void setClanId(int clanId) {
         selfClanId = clanId;
+    }
+
+    /** Phase 7e tests: mark SelfView as clan leader. */
+    public boolean selfClanLeader;
+
+    public void setClanLeader(boolean leader) {
+        selfClanLeader = leader;
     }
 
     /** Phase 6g tests: replace visible players (e.g. mark one as in combat / store). */
@@ -728,7 +746,7 @@ public final class FakeWorld {
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
             "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
-            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId);
+            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId, selfClanLeader);
     }
 
     /** The view of the next tick: events since the previous view are handed over (and cleared). */
@@ -981,6 +999,34 @@ public final class FakeWorld {
             }
             duelPending = false;
             chat.add("answerDuel:" + accept);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult answerPledge(boolean accept) {
+            if (!pledgePending) {
+                return ActionResult.INVALID;
+            }
+            pledgePending = false;
+            chat.add("answerPledge:" + accept);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult inviteClan(String playerName, int pledgeType) {
+            if (dead || (playerName == null) || playerName.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("inviteClan:" + playerName + ":" + pledgeType);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayClan(String text) {
+            if (dead || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("clan:" + text);
             return ActionResult.OK;
         }
 

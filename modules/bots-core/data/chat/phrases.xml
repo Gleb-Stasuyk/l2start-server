@@ -202,4 +202,13 @@
 		<ru>о, ку)|норм тогда фармили|{minutes} мин вместе норм было|да, помню, на {spot} норм|ку, давно не виделись</ru>
 		<en>hey)|we farmed ok then|{minutes} min together was fine|yeah, {spot} was ok|hey, long time</en>
 	</intent>
+	<!-- phase 7e: clan -->
+	<intent id="CLAN_DECLINE">
+		<ru>сорри, не сейчас|не, клан полный|спс, не надо|не в этот раз</ru>
+		<en>sorry, not now|clan is full sorry|no thx|not this time</en>
+	</intent>
+	<intent id="CLAN_RALLY">
+		<ru>сбор на спот|всем на рб|сбор, го|на спот все</ru>
+		<en>rally on spot|gather for rb|rally go|everyone to spot</en>
+	</intent>
 </phrases>

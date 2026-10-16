@@ -79,6 +79,14 @@ public interface ModuleContext {
     }
 
     /**
+     * Since API 1.11. A real player invited a bot into a clan / academy (hook P7-BOT-PLEDGE): the listener answers for
+     * the bot. Guarded; removed when the module is disabled.
+     */
+    default void onBotPledgeRequest(BotPledgeListener listener) {
+        throw new UnsupportedOperationException("onBotPledgeRequest needs platform API 1.11");
+    }
+
+    /**
      * Since API 1.6. The drop and spoil of dead monsters (hook P7-DROP-FLOAT): the listener may calculate them out of
      * stock rolls. Guarded like every listener; removed when the module is disabled.
      */

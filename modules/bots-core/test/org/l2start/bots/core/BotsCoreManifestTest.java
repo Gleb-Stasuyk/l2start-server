@@ -18,11 +18,14 @@ class BotsCoreManifestTest {
         assertEquals("bots-core", m.id());
         final String json = Files.readString(dir.resolve("module.json"));
         assertTrue(json.contains("\"defaultEnabled\": { \"solo\": true, \"online\": false }"));
-        assertTrue(json.contains("\"platform\": \"^1.10\""));
+        assertTrue(json.contains("\"platform\": \"^1.11\""));
         assertTrue(json.contains("PkBotShare"));
         assertTrue(json.contains("BotClans"));
         assertTrue(json.contains("ClanMembersMin"));
         assertTrue(json.contains("ClanMixedPartyChance"));
+        assertTrue(json.contains("ClanBotShare"));
+        assertTrue(json.contains("BigBotClans"));
+        assertTrue(json.contains("ClanInviteCooldown"));
     }
 
     @Test
@@ -37,6 +40,7 @@ class BotsCoreManifestTest {
         assertTrue(all.toString().contains("mod_bots_core_pk_ledger"));
         assertTrue(all.toString().contains("mod_bots_core_clan"));
         assertTrue(all.toString().contains("mod_bots_core_clan_member"));
+        assertTrue(all.toString().contains("mod_bots_core_player_clan"));
         for (String line : all.toString().split("\n")) {
             if (line.toUpperCase().contains("CREATE TABLE")) {
                 assertTrue(line.contains("mod_bots_core_"), line);

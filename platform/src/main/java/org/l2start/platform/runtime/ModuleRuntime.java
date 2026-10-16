@@ -214,6 +214,18 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onBotPledgeRequest(org.l2start.platform.api.BotPledgeListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotPledgeListener guarded = (r, b, type) -> {
+            final boolean[] out = { false };
+            guard.run("bot pledge request", () -> out[0] = listener.onPledgeRequest(r, b, type));
+            return out[0];
+        };
+        org.l2start.platform.hooks.PledgeHooks.add(entry.id(), guarded);
+        ownership.add("botPledge", entry.id(), () -> org.l2start.platform.hooks.PledgeHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
     public void cleanup(String name, Runnable action) {
         java.util.Objects.requireNonNull(action, "action");
         ownership.add("cleanup", name, action);

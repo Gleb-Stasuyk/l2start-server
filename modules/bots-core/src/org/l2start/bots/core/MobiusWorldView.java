@@ -107,7 +107,7 @@ final class MobiusWorldView implements WorldView {
             p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills),
             p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW),
             p.getCharges(), petUp ? pet.getObjectId() : 0, petUp && (pet.getMaxHp() > 0) ? (pet.getCurrentHp() * 100) / pet.getMaxHp() : 0, petTarget == null ? 0 : petTarget.getObjectId(),
-            p.getClanId());
+            p.getClanId(), p.isClanLeader());
     }
 
     @Override

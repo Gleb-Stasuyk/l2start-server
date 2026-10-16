@@ -14,7 +14,7 @@ public final class WhisperParse {
     /** What the whisper is about. */
     public enum Intent {
         GREET, BYE, THANKS, SORRY, HOW_ARE_YOU, ASK_LEVEL, ASK_CLASS, ASK_SPOT, WHERE_TO_HUNT, ASK_PARTY, ASK_RES,
-        ASK_BUFF, INSULT, UNKNOWN
+        ASK_BUFF, ASK_CLAN, INSULT, UNKNOWN
     }
 
     /** How a rule matches the normalized text (LW searchMethod). */
@@ -168,6 +168,9 @@ public final class WhisperParse {
         r.add(sw(Intent.ASK_RES, "can you res", "pls res", "res me", "rez me", "заресай", "ресани", "ресни", "подресай", "можно рес"));
         r.add(sw(Intent.ASK_BUFF, "buff me", "pls buff", "buff pls", "бафни", "бафни меня", "бафани", "можно баф", "кинь баф"));
         r.add(sw(Intent.ASK_PARTY, "can i join", "invite me", "party?", "можно к вам", "го пати", "кинь пати", "возьми в пати", "take me"));
+        r.add(sw(Intent.ASK_CLAN, "invite clan", "clan invite", "join clan", "can i join clan", "в клан", "инвайт в клан", "можно в клан", "возьми в клан",
+            "academy", "в академию", "можно в академию"));
+        r.add(ct(Intent.ASK_CLAN, "join;clan", "clan;please", "в;клан", "клан;инвайт"));
         r.add(sw(Intent.GREET, "hi ", "hey ", "hello ", "привет ", "прив ", "ку ", "здарова "));
         r.add(sw(Intent.BYE, "bye ", "bb ", "пока ", "бб "));
         r.add(sw(Intent.THANKS, "thanks ", "thank ", "ty ", "спс ", "спасибо "));

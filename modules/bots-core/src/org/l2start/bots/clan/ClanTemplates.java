@@ -35,7 +35,8 @@ public final class ClanTemplates {
             final String name = e.getAttribute("name");
             final int level = Integer.parseInt(e.getAttribute("level"));
             final long seed = e.hasAttribute("crestSeed") ? Long.parseLong(e.getAttribute("crestSeed")) : id.hashCode();
-            out.add(new ClanTemplate(id, name, level, seed));
+            final boolean large = e.hasAttribute("large") && Boolean.parseBoolean(e.getAttribute("large"));
+            out.add(new ClanTemplate(id, name, level, seed, large));
         }
         if (out.isEmpty()) {
             throw new IllegalArgumentException("BotClans.xml has no <clan> rows");
@@ -43,7 +44,7 @@ public final class ClanTemplates {
         return List.copyOf(out);
     }
 
-    /** Deterministic 16×12-ish crest payload for {@code CrestTable.createCrest} (format not validated by stock). */
+    /** Deterministic crest payload for {@code CrestTable.createCrest} (format not validated by stock). */
     public static byte[] crestBytes(long seed) {
         final byte[] data = new byte[256];
         long s = seed == 0 ? 1 : seed;
@@ -51,11 +52,19 @@ public final class ClanTemplates {
             s = (s * 6364136223846793005L) + 1;
             data[i] = (byte) (s >>> 56);
         }
-        // DDS magic so tools can recognise a crest blob
         data[0] = 'D';
         data[1] = 'D';
         data[2] = 'S';
         data[3] = ' ';
         return data;
+    }
+
+    /** Level 2–7 for a small clan by target size (larger → higher). */
+    public static int smallLevelForSize(int size, int min, int max) {
+        if (max <= min) {
+            return 4;
+        }
+        final double t = (size - min) / (double) (max - min);
+        return 2 + (int) Math.round(t * 5); // 2..7
     }
 }

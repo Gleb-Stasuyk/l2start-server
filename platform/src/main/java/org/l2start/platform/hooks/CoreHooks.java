@@ -175,6 +175,21 @@ public final class CoreHooks {
     }
 
     /**
+     * [HOOK:P7-BOT-PLEDGE] RequestJoinPledge, after the stock clan ask went to the target: a bot has no client to
+     * answer, so the bot module answers for it later. Only when the target is a bot; inert without listeners.
+     */
+    public static void botPledgeRequest(org.l2jmobius.gameserver.entity.actor.Player requester, org.l2jmobius.gameserver.entity.actor.Player target, int pledgeType) {
+        try {
+            if ((PledgeHooks.size() == 0) || (requester == null) || (target == null) || !isBot(target)) {
+                return;
+            }
+            PledgeHooks.request(requester, target, pledgeType);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: bot pledge listener failed", t);
+        }
+    }
+
+    /**
      * [HOOK:P7-ATTACKABLE] Player.isAutoAttackable, when stock would return false: a module may still allow the attack
      * (PK bot opening on a white outside mutual PvP). Inert without listeners.
      */

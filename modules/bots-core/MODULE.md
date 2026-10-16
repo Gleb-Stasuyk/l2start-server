@@ -94,8 +94,8 @@
 | `//bots social` | фаза 6g: счётчики за час (LFP, ответы, шёпот, инвайты ok/no, эмоции, срезы лимитами) и кто в `ANNOYED` |
 | `//bots pvp` | фаза 7b/7c: счётчики часа (нападения, защита, месть, дуэли, ПК-охоты, ПК kills/deaths) и список ПК-ботов онлайн с кармой и K/D |
 | `//bots pk <имя>` | фаза 7c: пометить персону как ПК и заспавнить / перенести рядом с GM (для проверки дропа) |
-| `//bots clans` | фаза 7d: список бот-кланов (имя, lvl, лидер, онлайн/всего) |
-| `//bots clan <имя>` | фаза 7d: состав клана (роль, имя, lvl, online) |
+| `//bots clans` | фаза 7d/7e: список бот-кланов + боты в кланах игроков |
+| `//bots clan <имя>` | фаза 7d/7e: состав бот-клана (боты + живые члены) |
 | `//bots pause` / `resume` | заморозить тикер (боты стоят, стоковый AI доделывает начатое) / продолжить |
 | `//bots sit\|stand\|gear\|return <имя\|all>` | сесть/встать, снять/надеть оружие, в деревню |
 | `//bots goto <имя>` | телепорт GM к боту |
@@ -143,9 +143,14 @@
 | `LfpShoutPerHour` | `4` | фаза 6d: LFP/LFM ботов в шаут/трейд на весь мир за час (`0` = никогда) |
 | `WhisperPerHour` | `30` | фаза 6g: ответов на шёпот на одного бота за час (`0` = никогда) |
 | `PkBotShare` | `0.02` | фаза 7c: доля новых персон-ПК (0…0.03) |
-| `BotClans` | `12` | фаза 7d: сколько бот-кланов держать (XML + добор) |
-| `ClanMembersMin` / `ClanMembersMax` | `8` / `20` | фаза 7d: целевой размер клана (случайно в диапазоне) |
+| `BotClans` | `12` | фаза 7d: потолок числа бот-кланов (XML + добор) |
+| `ClanBotShare` | `0.40` | фаза 7e: первичная доля пула ACTIVE+TRADER в бот-кланах |
+| `BigBotClans` | `1` | фаза 7e: больших кланов (lvl 8 × 40), заполняются первыми |
+| `ClanMembersMin` / `ClanMembersMax` | `8` / `20` | фаза 7d: потолок размера мелких кланов |
 | `ClanMixedPartyChance` | `0.25` | фаза 7d: шанс смешанной пати у кланового охотника |
+| `ClanInvitePlayers` / `ClanJoinPlayers` | `on` | фаза 7e: бот-кланы зовут живых / боты принимают инвайт игрока |
+| `ClanInviteCooldown` | `24h` | фаза 7e: не чаще раза в сутки инвайт одному живому |
+| `ClanAdenaSpendLimit` | `50000000` | фаза 7e: потолок трат склада бот-клана в сутки |
 | `PaperLevelPace` | `1.0` | 4e: темп роста уровня «на бумаге» (×); при 3 ч игры в день 40 ур. ≈ 3 недели, 61 ≈ 2,5 месяца, 76 — полгода и больше |
 | `GradeLag` | `0,5` | 4e: на сколько уровней позже грейда бот переходит на него (жадные дольше), но не больше чем на один грейд |
 | `EnchantMax` | `4` | 4e: максимум видимой заточки оружия (броня до +3); 55 % без заточки |
@@ -172,10 +177,11 @@
 `mod_bots_core_persona` (зерно + персона в JSON), `mod_bots_core_state` (в мире ли, дом, цель),
 `mod_bots_core_progress` (уровень «на бумаге»: база и с какого момента растёт),
 `mod_bots_core_pk_ledger` (фаза 7c: object_id экипа ПК-бота; стоковый дроп кармы; без повторной выдачи того же oid),
-`mod_bots_core_clan` / `mod_bots_core_clan_member` (фаза 7d: бот-кланы, связь со стоковым `clan_id`).
+`mod_bots_core_clan` / `mod_bots_core_clan_member` (фаза 7d: бот-кланы, связь со стоковым `clan_id`),
+`mod_bots_core_player_clan` (фаза 7e: бот закреплён в клане живого игрока).
 Удалять ботов в 3a нечем специально: персонажей не трогаем, при выключении модуля боты остаются обычными
 (забаненными) персонажами в БД.
 
-**Фаза 7d:** `data/clans/BotClans.xml` (шаблоны имён/уровня 2–8), `ClanService` создаёт стоковый `Clan` при входе лидера, режиссёр кластерит соклановцев и крутит `ClanMixedPartyChance`; мозг `PvpProtectClan` защищает соклановцев.
+**Фаза 7d/7e:** `data/clans/BotClans.xml` (один `large` lvl8×40 + мелкие 2–7), fill по `ClanBotShare` (герб обязателен), торговцы только тег. Хук `P7-BOT-PLEDGE` (API 1.11): инвайт бота в клан/academy игрока; лидер бот-клана зовёт живых (`ClanInviteCooldown`); сборы clan chat → pull режиссёра (не TRADER); выход из бот-клана в клан игрока (не лидер/не TRADER) + pin режиссёра; `ClanAdenaSpendLimit`. `PvpProtectClan` по `clanId`.
 
 **Фаза 6 (6a–6g):** хук `P6-BOT-PARTY` (API 1.5 `onBotPartyRequest`, с 1.8 ещё `onPartyBusy` / `CoreHooks.botPartyBusy` — инвайт бота уже в пати пар ботов; 6g — стоковый `BlockList`), события `PartyInvite`/`Chat`/`PartyRedirect`/`Whisper`, действия пати и чата (`sayShout`/`sayTrade`/`inviteParty`), `SocialBoard` (`LfpShoutPerHour`, `WhisperPerHour`, счётчики для `//bots social`) + `LfpParse`/`WhisperParse` («отстань» → ANNOYED 24 ч), фразы в `data/chat/phrases.xml`, память `mod_bots_core_memory` (остывание affinity −1/неделя, вес `partyMinutes`), трейд в пати `PartyTrades` через `P6-BOT-TRADE` (сосы/банки; бот ничего не отдаёт), настройка `PartyBotsMax` (3). Бот в пати с живым игроком закреплён: режиссёр его не уводит. Простым языком — `docs/BOTS_SOCIAL.md`; рантайм — `docs/BOTS_RUNTIME.md`.

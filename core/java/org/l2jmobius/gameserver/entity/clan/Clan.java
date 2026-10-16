@@ -2218,6 +2218,7 @@ public class Clan
 			return false;
 		}
 		
+		if (!org.l2start.platform.hooks.CoreHooks.isBot(target)) // [HOOK:P7-BOT-PLEDGE] bot may leave bot-clan on accept
 		if (target.getClanId() != 0)
 		{
 			final SystemMessage sm = new SystemMessage(SystemMessageId.S1_IS_WORKING_WITH_ANOTHER_CLAN);

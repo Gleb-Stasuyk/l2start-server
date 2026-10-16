@@ -17,11 +17,13 @@ public final class ClanStore {
     private final ModuleDatabase db;
     private final String clans;
     private final String members;
+    private final String playerClan;
 
     public ClanStore(ModuleDatabase db) {
         this.db = db;
         this.clans = db.table("clan");
         this.members = db.table("clan_member");
+        this.playerClan = db.table("player_clan");
     }
 
     public List<Row> loadClans() throws Exception {
@@ -76,6 +78,9 @@ public final class ClanStore {
     public List<Integer> freeBotIds(List<Integer> allActive) throws Exception {
         final List<Integer> taken = db.query("SELECT bot_id FROM " + members, rs -> rs.getInt(1));
         final java.util.HashSet<Integer> set = new java.util.HashSet<>(taken);
+        for (Integer id : loadPlayerClanBots()) {
+            set.add(id);
+        }
         final List<Integer> free = new ArrayList<>();
         for (Integer id : allActive) {
             if (!set.contains(id)) {
@@ -83,5 +88,22 @@ public final class ClanStore {
             }
         }
         return free;
+    }
+
+    public List<Integer> loadPlayerClanBots() throws Exception {
+        try {
+            return db.query("SELECT bot_id FROM " + playerClan, rs -> rs.getInt(1));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    public void markPlayerClan(int botId, boolean in) throws Exception {
+        if (in) {
+            db.update("INSERT INTO " + playerClan + " (bot_id, joined_at) VALUES (?,?) ON DUPLICATE KEY UPDATE joined_at=VALUES(joined_at)",
+                botId, System.currentTimeMillis());
+        } else {
+            db.update("DELETE FROM " + playerClan + " WHERE bot_id=?", botId);
+        }
     }
 }

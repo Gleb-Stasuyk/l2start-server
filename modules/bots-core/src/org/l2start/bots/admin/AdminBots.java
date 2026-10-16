@@ -432,6 +432,22 @@ public final class AdminBots implements IAdminCommandHandler {
         if (svc.clans().isEmpty()) {
             sb.append("(none yet)<br>");
         }
+        final var inPlayer = svc.playerClanBotIds();
+        if (!inPlayer.isEmpty()) {
+            sb.append("<br><font color=\"LEVEL\">Bots in player clans (").append(inPlayer.size()).append(")</font><br>");
+            for (Integer id : inPlayer) {
+                final BotRecord b = byBotId(id);
+                sb.append(b == null ? ("#" + id) : b.name());
+                if (b != null) {
+                    sb.append(b.inWorld() ? " online" : " offline");
+                    final Player p = b.player();
+                    if ((p != null) && (p.getClan() != null)) {
+                        sb.append(" @ ").append(p.getClan().getName());
+                    }
+                }
+                sb.append("<br>");
+            }
+        }
         sb.append("<br><table width=280><tr>");
         button(sb, "Refresh", "clans");
         button(sb, "List", "list");
@@ -439,7 +455,7 @@ public final class AdminBots implements IAdminCommandHandler {
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 
-    /** Phase 7d: roster of one bot clan. */
+    /** Phase 7d/7e: roster of one bot clan (bots + live members if stock clan exists). */
     private void showClan(Player gm, String name) {
         final org.l2start.bots.clan.ClanService svc = core.clans();
         if (svc == null) {
@@ -458,15 +474,38 @@ public final class AdminBots implements IAdminCommandHandler {
         final org.l2start.bots.clan.ClanStore.Row r = row.get();
         final StringBuilder sb = new StringBuilder("<html><title>Clan ").append(r.name()).append("</title><body>");
         sb.append("<font color=\"LEVEL\">").append(r.name()).append("</font> lv ").append(r.level());
-        sb.append(" target ").append(r.targetSize()).append(" id ").append(r.clanId()).append("<br>");
+        sb.append(" target ").append(r.targetSize()).append(" id ").append(r.clanId());
+        if (svc.isBig(r)) {
+            sb.append(" BIG");
+        }
+        sb.append("<br>");
         for (org.l2start.bots.clan.ClanStore.Member m : svc.members(r.clanId())) {
             final BotRecord b = byBotId(m.botId());
             sb.append(m.role()).append(' ').append(b == null ? ("#" + m.botId()) : b.name());
             if (b != null) {
                 sb.append(" lv ").append(b.paperLevel(System.currentTimeMillis()));
                 sb.append(b.inWorld() ? " online" : " offline");
+                if (b.status() == BotRecord.Status.TRADER) {
+                    sb.append(" trader");
+                }
             }
             sb.append("<br>");
+        }
+        final org.l2jmobius.gameserver.entity.clan.Clan stock = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(r.clanId());
+        if (stock != null) {
+            sb.append("<br><font color=\"LEVEL\">Live players</font><br>");
+            boolean any = false;
+            for (org.l2jmobius.gameserver.entity.clan.ClanMember m : stock.getMembers()) {
+                final Player p = m == null ? null : m.getPlayer();
+                if ((p == null) || core.registry().isBot(p)) {
+                    continue;
+                }
+                any = true;
+                sb.append(p.getName()).append(" lv ").append(p.getLevel()).append(p.isOnline() ? " online" : " offline").append("<br>");
+            }
+            if (!any) {
+                sb.append("(none online)<br>");
+            }
         }
         sb.append("<br><a action=\"bypass -h admin_bots clans\">Back</a></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));

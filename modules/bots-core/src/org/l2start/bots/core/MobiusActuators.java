@@ -46,6 +46,10 @@ final class MobiusActuators implements Actuators {
 
         void logout(BotRecord r);
 
+        /** Phase 7e: leave bot-clan paper before stock-joining a live player's clan. */
+        default void prepareJoinPlayerClan(BotRecord r, Player p) {
+        }
+
         /** Run off the bot's shard (database writes). */
         void async(String name, Runnable task);
 
@@ -325,6 +329,105 @@ final class MobiusActuators implements Actuators {
         p.setActiveRequester(null);
         requestor.onTransactionResponse();
         return done("answerDuel", accept, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult answerPledge(boolean accept) {
+        final Player p = r.player();
+        if ((p == null) || (p.getRequest() == null)) {
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        final Player requestor = p.getRequest().getPartner();
+        if (requestor == null) {
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        // stock RequestAnswerJoinPledge
+        if (!accept) {
+            final org.l2jmobius.gameserver.network.serverpackets.SystemMessage sm = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+                org.l2jmobius.gameserver.network.SystemMessageId.S1_DID_NOT_RESPOND_INVITATION_TO_THE_CLAN_HAS_BEEN_CANCELLED);
+            sm.addString(p.getName());
+            requestor.sendPacket(sm);
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.OK);
+        }
+        if (!(requestor.getRequest().getRequestPacket() instanceof org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge req)) {
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        final org.l2jmobius.gameserver.entity.clan.Clan clan = requestor.getClan();
+        if (clan == null) {
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        // leave bot-clan before stock join checks (traders/leaders already declined in brain)
+        sink.prepareJoinPlayerClan(r, p);
+        if (!clan.checkClanJoinCondition(requestor, p, req.getPledgeType())) {
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        p.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.JoinPledge(requestor.getClanId()));
+        p.setPledgeType(req.getPledgeType());
+        if (req.getPledgeType() == org.l2jmobius.gameserver.entity.clan.Clan.SUBUNIT_ACADEMY) {
+            p.setPowerGrade(9);
+            p.setLvlJoinedAcademy(p.getLevel());
+        } else {
+            p.setPowerGrade(5);
+        }
+        clan.addClanMember(p);
+        p.setClanPrivileges(p.getClan().getRankPrivs(p.getPowerGrade()));
+        p.sendPacket(org.l2jmobius.gameserver.network.SystemMessageId.ENTERED_THE_CLAN);
+        final org.l2jmobius.gameserver.network.serverpackets.SystemMessage joined = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+            org.l2jmobius.gameserver.network.SystemMessageId.S1_HAS_JOINED_THE_CLAN);
+        joined.addString(p.getName());
+        clan.broadcastToOnlineMembers(joined);
+        clan.broadcastToOtherOnlineMembers(new org.l2jmobius.gameserver.network.serverpackets.PledgeShowMemberListAdd(p), p);
+        clan.broadcastToOnlineMembers(new org.l2jmobius.gameserver.network.serverpackets.PledgeShowInfoUpdate(clan));
+        p.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.PledgeShowMemberListAll(clan, p));
+        p.setClanJoinExpiryTime(0);
+        p.broadcastUserInfo();
+        p.getRequest().onRequestResponse();
+        // phase 7e: leave bot-clan paper and pin as player-clan member (caller also marks via module)
+        return done("answerPledge", accept, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult inviteClan(String playerName, int pledgeType) {
+        final Player p = r.player();
+        final Player target = playerName == null ? null : World.getPlayer(playerName);
+        final org.l2jmobius.gameserver.entity.clan.Clan clan = p == null ? null : p.getClan();
+        if ((p == null) || (target == null) || (clan == null) || (clan.getLeaderId() != p.getObjectId())
+            || (target.getClient() == null) || target.getClient().isDetached() || (target.getClan() != null)
+            || !clan.checkClanJoinCondition(p, target, pledgeType)) {
+            return done("inviteClan", playerName, ActionResult.INVALID);
+        }
+        // Stock AnswerJoinPledge requires requestor packet instanceof RequestJoinPledge.
+        final org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge packet = newJoinPledgePacket(target.getObjectId(), pledgeType);
+        if ((packet == null) || !p.getRequest().setRequest(target, packet)) {
+            return done("inviteClan", playerName, ActionResult.INVALID);
+        }
+        final String sub = clan.getSubPledge(pledgeType) != null ? clan.getSubPledge(pledgeType).getName() : null;
+        target.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.AskJoinPledge(p.getObjectId(), sub, pledgeType, clan.getName()));
+        return done("inviteClan", target.getName() + ":" + pledgeType, ActionResult.OK);
+    }
+
+    private static org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge newJoinPledgePacket(int targetOid, int pledgeType) {
+        try {
+            final var p = org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge.class.getDeclaredConstructor().newInstance();
+            final var t = org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge.class.getDeclaredField("_target");
+            final var typ = org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge.class.getDeclaredField("_pledgeType");
+            t.setAccessible(true);
+            typ.setAccessible(true);
+            t.setInt(p, targetOid);
+            typ.setInt(p, pledgeType);
+            return p;
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public ActionResult sayClan(String text) {
+        return channelSay("sayClan", ChatType.CLAN, text);
     }
 
     @Override

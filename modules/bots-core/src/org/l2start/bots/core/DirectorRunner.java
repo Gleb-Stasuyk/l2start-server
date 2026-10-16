@@ -152,14 +152,30 @@ public final class DirectorRunner {
         tickNanos = System.nanoTime() - start;
     }
 
-    /** Phase 6b: the bot is in a party with a real player (pinned: never sent away or logged out by the director). */
+    /**
+     * Phase 6b/7e: pinned companion — in a party with a live player, or in a clan that has a live online member
+     * (never sent away or logged out by the director).
+     */
     boolean withPlayer(Player p) {
         final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
-        if (pt == null) {
-            return false;
+        if (pt != null) {
+            for (Player m : pt.getMembers()) {
+                if ((m != null) && (m != p) && !module.registry().isBot(m) && m.isOnline()) {
+                    return true;
+                }
+            }
         }
-        for (Player m : pt.getMembers()) {
-            if ((m != null) && (m != p) && !module.registry().isBot(m) && m.isOnline()) {
+        final org.l2jmobius.gameserver.entity.clan.Clan clan = p.getClan();
+        if (clan != null) {
+            for (org.l2jmobius.gameserver.entity.clan.ClanMember m : clan.getMembers()) {
+                final Player o = m == null ? null : m.getPlayer();
+                if ((o != null) && (o != p) && !module.registry().isBot(o) && o.isOnline()) {
+                    return true;
+                }
+            }
+            // also pin when marked in module player-clan table (offline live leader)
+            final BotRecord br = module.registry().byCharId(p.getObjectId());
+            if ((br != null) && (module.clans() != null) && module.clans().inPlayerClan(br.botId())) {
                 return true;
             }
         }

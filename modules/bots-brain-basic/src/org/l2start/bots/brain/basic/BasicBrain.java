@@ -137,6 +137,9 @@ public final class BasicBrain implements Brain {
         maybeShoutLfp(ctx, w, me, now);
         evaluatePvp(ctx, w, me, now); // phase 7b: decide and enact (fight / flee / call-help)
         answerDuel(ctx, me, now);
+        answerPledge(ctx, me, now);
+        maybeInvitePlayerToClan(ctx, w, me, now);
+        maybeClanRally(ctx, w, me, now);
         final long d = tickMain(ctx, w, me, now);
         final long due = socialDue();
         return due > 0 ? Math.max(100, Math.min(d, due - now)) : d;
@@ -2347,6 +2350,8 @@ public final class BasicBrain implements Brain {
                 }
                 case BotEvent.PartyRedirect pr -> onPartyRedirect(ctx, pr, now);
                 case BotEvent.DuelInvite di -> onDuelInvite(ctx, me, di, now);
+                case BotEvent.PledgeInvite pi -> onPledgeInvite(ctx, me, pi, now);
+                case BotEvent.ClanRally cr -> onClanRally(ctx, me, cr, now);
                 case BotEvent.Died d -> {
                     if (ptMateId != 0) {
                         ptDeaths++;
@@ -2362,6 +2367,17 @@ public final class BasicBrain implements Brain {
     private BotEvent.DuelInvite duelInvite;
     private DuelDecision.Answer duelAnswer;
     private long duelAnswerAt;
+
+    private BotEvent.PledgeInvite pledgeInvite;
+    private PledgeDecision.Answer pledgeAnswer;
+    private long pledgeAnswerAt;
+    private long nextClanInviteAt;
+    private long nextClanRallyAt;
+    private Pos clanRallyAt;
+    private long clanRallyUntil;
+
+    /** Phase 7e: ClanInvitePlayers (set from bots-core / module). */
+    static volatile boolean clanInvitePlayers = true;
 
     /** Phase 7b: a live player challenged us — decide accept/decline, answer after a short reaction delay. */
     private void onDuelInvite(BrainContext ctx, SelfView me, BotEvent.DuelInvite di, long now) {
@@ -2390,6 +2406,95 @@ public final class BasicBrain implements Brain {
         }
         ctx.pvp().note(yes ? org.l2start.bots.chat.PvpBoard.Stat.DUEL_OK : org.l2start.bots.chat.PvpBoard.Stat.DUEL_NO, now);
         ctx.note((yes ? "accepted" : "declined") + " duel from " + di.from());
+    }
+
+    private void onPledgeInvite(BrainContext ctx, SelfView me, BotEvent.PledgeInvite pi, long now) {
+        if (pledgeInvite != null) {
+            return;
+        }
+        final boolean academy = pi.pledgeType() == PledgeDecision.ACADEMY;
+        pledgeAnswer = PledgeDecision.decideJoin(ctx.info(), ctx.memory().of(pi.fromId()), pi.joinEnabled(), pi.canLeaveBotClan(), me.level(), academy,
+            ctx.rnd());
+        pledgeInvite = pi;
+        pledgeAnswerAt = now + Math.min(8000, 1000 + ctx.info().reactionMs() + ctx.rnd().nextInt(3000));
+        ctx.note("pledge from " + pi.from() + " type " + pi.pledgeType() + ": " + pledgeAnswer);
+    }
+
+    private void answerPledge(BrainContext ctx, SelfView me, long now) {
+        if ((pledgeInvite == null) || (now < pledgeAnswerAt) || me.dead()) {
+            return;
+        }
+        final BotEvent.PledgeInvite pi = pledgeInvite;
+        final PledgeDecision.Answer a = pledgeAnswer;
+        pledgeInvite = null;
+        pledgeAnswer = null;
+        final boolean yes = a == PledgeDecision.Answer.ACCEPT;
+        final ActionResult r = ctx.act().answerPledge(yes);
+        if (!r.ok()) {
+            ctx.note("pledge of " + pi.from() + " gone (" + r + ")");
+            return;
+        }
+        ctx.note((yes ? "accepted" : "declined") + " pledge from " + pi.from());
+        if (!yes && (ctx.rnd().nextDouble() < 0.15) && (ctx.social().tryWhisper(me.objectId(), now))) {
+            final var lines = ctx.chat().lines("CLAN_DECLINE", java.util.Map.of("player", pi.from()), "EN");
+            if (!lines.isEmpty()) {
+                ctx.act().whisper(pi.from(), lines.get(0));
+            }
+        }
+    }
+
+    private void maybeInvitePlayerToClan(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!clanInvitePlayers || !me.clanLeader() || me.dead() || me.inPeaceZone() || (now < nextClanInviteAt)) {
+            return;
+        }
+        nextClanInviteAt = now + 60_000L + ctx.rnd().nextInt(120_000);
+        for (PlayerView p : w.players()) {
+            if (p.bot() || (p.clanId() != 0) || (p.level() < 20) || (p.distance() > 600) || p.socialBusy()) {
+                continue;
+            }
+            final var mem = ctx.memory().of(p.objectId());
+            // cooldown checked in module when invite lands; here use memory lastSeen as soft gate
+            if (PledgeDecision.decideInviteOut(ctx.info(), mem, true, true, true, p.level(), ctx.rnd()) != PledgeDecision.Answer.ACCEPT) {
+                continue;
+            }
+            final ActionResult r = ctx.act().inviteClan(p.name(), 0);
+            if (r.ok()) {
+                ctx.note("invited " + p.name() + " to clan");
+                nextClanInviteAt = now + 10 * 60_000L;
+                return;
+            }
+        }
+    }
+
+    private void onClanRally(BrainContext ctx, SelfView me, BotEvent.ClanRally cr, long now) {
+        if (me.clanId() == 0) {
+            return;
+        }
+        clanRallyAt = new Pos(cr.x(), cr.y(), cr.z());
+        clanRallyUntil = now + 5 * 60_000L;
+        ctx.note("clan rally " + cr.kind() + " from " + cr.from());
+    }
+
+    private void maybeClanRally(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if ((clanRallyAt != null) && (now < clanRallyUntil) && !me.dead()) {
+            if (me.pos().distance2d(clanRallyAt) > 250) {
+                ctx.act().moveTo(clanRallyAt);
+            }
+            return;
+        }
+        clanRallyAt = null;
+        if (!me.clanLeader() || me.dead() || (now < nextClanRallyAt)) {
+            return;
+        }
+        nextClanRallyAt = now + 20 * 60_000L + ctx.rnd().nextInt(20 * 60_000);
+        if (ctx.rnd().nextDouble() > 0.2) {
+            return;
+        }
+        final var lines = ctx.chat().lines("CLAN_RALLY", java.util.Map.of(), "EN");
+        if (!lines.isEmpty()) {
+            ctx.act().sayClan(lines.get(0));
+            ctx.note("clan rally shout");
+        }
     }
 
     private static boolean isLfpChannel(String channel) {
@@ -2464,6 +2569,21 @@ public final class BasicBrain implements Brain {
         rememberWhisper(from.objectId(), intent, text, now);
         if (intent == WhisperParse.Intent.ASK_PARTY && social) {
             onPartyWhisper(ctx, w, me, from, new BotEvent.Whisper(from.name(), text), now);
+            return;
+        }
+        if ((intent == WhisperParse.Intent.ASK_CLAN) && me.clanLeader() && clanInvitePlayers && (from.clanId() == 0)) {
+            final var mem = ctx.memory().of(from.objectId());
+            final boolean academy = text.toLowerCase(java.util.Locale.ROOT).contains("academ") || text.toLowerCase(java.util.Locale.ROOT).contains("академ");
+            final PledgeDecision.Answer a = PledgeDecision.decideAskIn(ctx.info(), mem, true, true, from.level(), ctx.rnd());
+            if ((a == PledgeDecision.Answer.ACCEPT) && ctx.act().inviteClan(from.name(), academy ? PledgeDecision.ACADEMY : 0).ok()) {
+                ctx.note("clan invite after whisper from " + from.name());
+            } else if (ctx.social().tryWhisper(ctx.info().botId(), now)) {
+                final var lines = ctx.chat().lines("CLAN_DECLINE", java.util.Map.of("player", from.name()), WhisperParse.langOf(text));
+                if (!lines.isEmpty()) {
+                    ctx.act().whisper(from.name(), lines.get(0));
+                }
+            }
+            whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
             return;
         }
         if (intent == WhisperParse.Intent.INSULT) {
@@ -2556,7 +2676,7 @@ public final class BasicBrain implements Brain {
             case ASK_BUFF -> "ASK_BUFF";
             case INSULT -> "INSULT";
             case UNKNOWN -> "WHISPER_HUH";
-            case ASK_PARTY -> null;
+            case ASK_PARTY, ASK_CLAN -> null;
         };
     }
 

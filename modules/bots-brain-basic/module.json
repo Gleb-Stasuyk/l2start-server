@@ -15,6 +15,7 @@
     "PvpPlayerCooldown": { "type": "duration", "default": "12m", "min": "0s", "reloadable": true, "description": "Phase 7a: minimum time between first-attack decisions of one bot toward the same live player." },
     "PvpProtectParty": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7a: defend party mates under player attack (not disabled by PvpAggression=off)." },
     "PvpProtectClan": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7a: defend clan mates under player attack (not disabled by PvpAggression=off). Clan membership comes in 7d." },
+    "ClanInvitePlayers": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7e: bot-clan leaders may invite live players nearby." },
     "PvpRevenge": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7a: act on KILLED_ME / ATTACKED_ME grudges (not disabled by PvpAggression=off)." },
     "PvpRevengeTimeout": { "type": "duration", "default": "30m", "min": "0s", "reloadable": true, "description": "Phase 7a: how long KILLED_ME / ATTACKED_ME stay active for revenge (0 = never expire)." },
     "PvpFightBack": { "type": "string", "default": "0.5", "reloadable": true, "description": "When a real player attacks a bot: base chance that it fights back like a player in PvP (flag, karma rules), else it flees and leaves. Adjusted by level difference and persona aggression." },
