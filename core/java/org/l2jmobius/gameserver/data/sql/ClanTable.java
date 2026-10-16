@@ -580,6 +580,17 @@ public class ClanTable
 		return SingletonHolder.INSTANCE;
 	}
 	
+	// >>> [HOOK:P7-BOT-CLAN]
+	/** Register/replace a clan created offline (bots-core). */
+	public void registerClan(Clan clan)
+	{
+		if (clan == null)
+		{
+			return;
+		}
+		_clans.put(clan.getId(), clan);
+	}
+	// <<< [HOOK:P7-BOT-CLAN]
 	private static class SingletonHolder
 	{
 		protected static final ClanTable INSTANCE = new ClanTable();

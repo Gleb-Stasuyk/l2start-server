@@ -414,6 +414,7 @@ public final class AdminBots implements IAdminCommandHandler {
         }
         final StringBuilder sb = new StringBuilder("<html><title>Bots: clans</title><body>");
         sb.append("<font color=\"LEVEL\">Bot clans (").append(svc.clans().size()).append('/').append(svc.wantClans()).append(")</font><br>");
+        sb.append("сток/герб: ✓ = ClanTable+crest, ! = нет герба, — = нет стока<br>");
         for (org.l2start.bots.clan.ClanStore.Row r : svc.clans()) {
             final BotRecord leader = byBotId(r.leaderBotId());
             int online = 0;
@@ -427,7 +428,8 @@ public final class AdminBots implements IAdminCommandHandler {
             }
             sb.append("<a action=\"bypass -h admin_bots clan ").append(r.name()).append("\">").append(r.name()).append("</a>");
             sb.append(" lv ").append(r.level()).append(" leader ").append(leader == null ? "?" : leader.name());
-            sb.append(" ").append(online).append('/').append(total).append("<br>");
+            sb.append(" ").append(online).append('/').append(total);
+            sb.append(" [").append(svc.stockCrestMark(r)).append("]<br>");
         }
         if (svc.clans().isEmpty()) {
             sb.append("(none yet)<br>");

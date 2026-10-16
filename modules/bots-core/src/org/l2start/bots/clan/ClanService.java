@@ -11,25 +11,26 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.l2jmobius.gameserver.data.sql.ClanTable;
-import org.l2jmobius.gameserver.data.sql.CrestTable;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.clan.Clan;
-import org.l2jmobius.gameserver.entity.clan.Crest;
-import org.l2jmobius.gameserver.entity.clan.enums.CrestType;
 import org.l2start.bots.core.BotRecord;
 import org.l2start.bots.core.BotRegistry;
+import org.l2start.bots.core.BotRepository;
 import org.l2start.platform.api.ModuleContext;
 
 /**
- * Phase 7d/7e: bot clans — paper membership; stock {@link Clan} on leader enter; ClanBotShare fill; leave to join a
- * live player's clan.
+ * Phase 7d/7e: bot clans are always stock Mobius {@link Clan}s with crest (created offline). Module tables track
+ * membership; ClanBotShare fill; leave to join a live player's clan.
  */
 public final class ClanService {
     public static final int BIG_TARGET = 40;
     public static final int BIG_LEVEL = 8;
+    /** Bot-clan leaders must be at least this paper level (stock clan lvl 8 needs a serious persona). */
+    public static final int LEADER_MIN_LEVEL = 40;
 
     private final ModuleContext ctx;
     private final BotRegistry registry;
+    private final BotRepository repo;
     private final ClanStore store;
     private final List<ClanTemplate> templates;
     private final Map<Integer, Integer> botClan = new ConcurrentHashMap<>(); // botId -> bot-clan id (0 = none / player clan)
@@ -48,7 +49,7 @@ public final class ClanService {
     private volatile int bigClans = 1;
     private volatile long inviteCooldownMs = 24 * 60 * 60_000L;
     private volatile long adenaSpendLimit = 50_000_000L;
-    /** Director brings a provisional-clan leader near an already-visible member so stock Clan can be created. */
+    /** Optional: director pull (legacy; stock clans no longer wait for leader enter). */
     private volatile LeaderEnterHook leaderEnterHook;
 
     @FunctionalInterface
@@ -56,9 +57,10 @@ public final class ClanService {
         void request(int leaderBotId, int nearX, int nearY, int nearZ, int preferLevel);
     }
 
-    public ClanService(ModuleContext ctx, BotRegistry registry, Path xml) throws Exception {
+    public ClanService(ModuleContext ctx, BotRegistry registry, BotRepository repo, Path xml) throws Exception {
         this.ctx = ctx;
         this.registry = registry;
+        this.repo = repo;
         this.store = new ClanStore(ctx.db());
         this.templates = ClanTemplates.load(xml);
         final Path crestsDir = xml.getParent() == null ? null : xml.getParent().resolve("crests");
@@ -71,18 +73,36 @@ public final class ClanService {
         }
     }
 
+    /** @deprecated kept for older callers; prefer {@link #ClanService(ModuleContext, BotRegistry, BotRepository, Path)} */
+    @Deprecated
+    public ClanService(ModuleContext ctx, BotRegistry registry, Path xml) throws Exception {
+        this(ctx, registry, null, xml);
+    }
+
     public void setLeaderEnterHook(LeaderEnterHook hook) {
         leaderEnterHook = hook;
     }
 
-    /** True when this bot leads a paper clan that still needs stock {@link Clan}+crest. */
+    /** True when this bot leads a clan that is still provisional / missing from ClanTable (should be rare after migrate). */
     public boolean needsStockPromotion(int botId) {
         for (ClanStore.Row r : byClan.values()) {
-            if ((r.leaderBotId() == botId) && isProvisional(r.clanId())) {
+            if ((r.leaderBotId() == botId) && (isProvisional(r.clanId()) || (ClanTable.getInstance().getClan(r.clanId()) == null))) {
                 return true;
             }
         }
         return false;
+    }
+
+    /** Admin: "✓" if stock clan exists with crest, "!" if stock without crest, "—" if missing. */
+    public String stockCrestMark(ClanStore.Row r) {
+        if (r == null) {
+            return "—";
+        }
+        final Clan c = ClanTable.getInstance().getClan(r.clanId());
+        if (c == null) {
+            return "—";
+        }
+        return StockClanFactory.hasCrest(c) ? "✓" : "!";
     }
 
     public void configure(int botClans, int minMembers, int maxMembers, double mixedChance, double share, int big,
@@ -200,12 +220,14 @@ public final class ClanService {
 
     /**
      * Fill to {@link #clanBotShare} of the ACTIVE+TRADER pool. One big clan (lvl8×40) first, then small clans up to
-     * {@link #wantClans}.
+     * {@link #wantClans}. Every clan is created as stock Mobius + crest immediately.
      */
     public synchronized void ensureFilled() {
         try {
+            migratePaperToStock();
             ensureLeadersViable();
             normalizeBigTargets();
+            ensureCrestIntegrity();
             final int pool = poolSize();
             final int wantMembers = (int) Math.round(pool * clanBotShare);
             if (wantMembers < membersMin && bigClans <= 0) {
@@ -229,7 +251,7 @@ public final class ClanService {
                     ctx.log().warn("bot clans: no large template left");
                     break;
                 }
-                if (!createPaperClan(t, BIG_LEVEL, BIG_TARGET, free)) {
+                if (!createStockClan(t, BIG_LEVEL, BIG_TARGET, free)) {
                     break;
                 }
                 bigHave++;
@@ -260,7 +282,7 @@ public final class ClanService {
                 }
                 final int size = membersMin + (cap > membersMin ? rnd.nextInt(cap - membersMin + 1) : 0);
                 final int lvl = ClanTemplates.smallLevelForSize(size, membersMin, membersMax);
-                if (!createPaperClan(new ClanTemplate(t.id(), t.name(), lvl, t.crestSeed(), false), lvl, size, free)) {
+                if (!createStockClan(new ClanTemplate(t.id(), t.name(), lvl, t.crestSeed(), false), lvl, size, free)) {
                     break;
                 }
                 remaining -= size;
@@ -280,49 +302,101 @@ public final class ClanService {
                     remaining -= added;
                 }
             }
-            requestLeadersForOnlineMembers();
+            ensureCrestIntegrity();
         } catch (Exception e) {
             ctx.log().warn("bot clans ensureFilled: " + e.getMessage(), e);
         }
     }
 
-    /** If paper-clan members are already in the world, pull their leader so stock Clan can appear. */
-    private void requestLeadersForOnlineMembers() {
-        final LeaderEnterHook hook = leaderEnterHook;
-        if (hook == null) {
-            return;
-        }
-        for (ClanStore.Row row : byClan.values()) {
-            if (!isProvisional(row.clanId())) {
+    /** Turn every module row without a stock {@link Clan} into a real clan with crest. */
+    private void migratePaperToStock() throws Exception {
+        for (ClanStore.Row row : new ArrayList<>(byClan.values())) {
+            final Clan existing = ClanTable.getInstance().getClan(row.clanId());
+            if ((existing != null) && !isProvisional(row.clanId())) {
                 continue;
             }
             final BotRecord leader = byBot(row.leaderBotId());
-            if ((leader != null) && leader.inWorld()) {
+            if (leader == null) {
+                ctx.log().warn("bot clan migrate skip " + row.name() + ": no leader bot");
                 continue;
             }
-            try {
-                for (ClanStore.Member m : store.membersOf(row.clanId())) {
-                    final BotRecord br = byBot(m.botId());
-                    final Player p = br == null ? null : br.player();
-                    if ((p == null) || (br.botId() == row.leaderBotId())) {
-                        continue;
-                    }
-                    final int prefer = Math.max(20, Math.max(p.getLevel(), leader == null ? 0 : leader.paperLevel(System.currentTimeMillis())));
-                    hook.request(row.leaderBotId(), p.getX(), p.getY(), p.getZ(), prefer);
-                    break;
+            bumpLeaderLevel(leader);
+            final List<Integer> memberChars = new ArrayList<>();
+            final List<ClanStore.Member> memRows = store.membersOf(row.clanId());
+            for (ClanStore.Member m : memRows) {
+                final BotRecord br = byBot(m.botId());
+                if (br != null) {
+                    memberChars.add(br.charId());
                 }
+            }
+            if (!memberChars.contains(leader.charId())) {
+                memberChars.add(0, leader.charId());
+            }
+            final byte[] crest = ClanTemplates.crestBytes(templateSeed(row.templateId()));
+            final String name = uniqueStockName(row.name());
+            try {
+                final StockClanFactory.Created created = StockClanFactory.create(name, row.level(),
+                    StockClanFactory.membersOf(leader.charId(), memberChars), crest);
+                final ClanStore.Row stockRow = new ClanStore.Row(created.clanId(), row.templateId(), name, row.level(),
+                    row.leaderBotId(), row.targetSize(), "ACTIVE");
+                final List<ClanStore.Member> remem = new ArrayList<>();
+                for (ClanStore.Member m : memRows) {
+                    remem.add(new ClanStore.Member(m.botId(), created.clanId(), m.role()));
+                }
+                store.rematerialize(row.clanId(), stockRow, remem);
+                byClan.remove(row.clanId());
+                byClan.put(created.clanId(), stockRow);
+                for (ClanStore.Member m : remem) {
+                    botClan.put(m.botId(), created.clanId());
+                }
+                ctx.log().info("bot clan migrated to stock: " + name + " id=" + created.clanId() + " crest=" + created.crestId()
+                    + (isProvisional(row.clanId()) ? " (was paper " + row.clanId() + ")" : ""));
             } catch (Exception e) {
-                ctx.log().warn("bot clan leader pull " + row.name() + ": " + e.getMessage());
+                ctx.log().warn("bot clan migrate failed " + row.name() + ": " + e.getMessage(), e);
             }
         }
     }
 
-    private boolean createPaperClan(ClanTemplate t, int level, int size, List<Integer> free) throws Exception {
+    private void ensureCrestIntegrity() {
+        for (ClanStore.Row row : byClan.values()) {
+            final Clan c = ClanTable.getInstance().getClan(row.clanId());
+            if (c == null) {
+                ctx.log().warn("bot clan " + row.name() + " id=" + row.clanId() + ": missing stock Clan");
+                continue;
+            }
+            if (StockClanFactory.hasCrest(c)) {
+                continue;
+            }
+            ctx.log().warn("bot clan " + row.name() + " id=" + row.clanId() + ": no crest — reapplying");
+            final int id = StockClanFactory.ensureCrest(c, ClanTemplates.crestBytes(templateSeed(row.templateId())));
+            if (id == 0) {
+                ctx.log().warn("bot clan " + row.name() + ": crest reapply failed");
+            } else {
+                ctx.log().info("bot clan " + row.name() + ": crest restored id=" + id);
+            }
+        }
+    }
+
+    private String uniqueStockName(String base) {
+        if (ClanTable.getInstance().getClanByName(base) == null) {
+            return base;
+        }
+        for (int i = 2; i < 100; i++) {
+            final String n = base.length() > 14 ? base.substring(0, 14) + i : base + i;
+            if (ClanTable.getInstance().getClanByName(n) == null) {
+                return n;
+            }
+        }
+        return base + rnd.nextInt(1000);
+    }
+
+    private boolean createStockClan(ClanTemplate t, int level, int size, List<Integer> free) throws Exception {
         if (free.size() < Math.min(membersMin, size)) {
             return false;
         }
         final int leaderBot = pickLeader(free);
         if (leaderBot < 0) {
+            ctx.log().info("bot clans: no ACTIVE persona ≥" + LEADER_MIN_LEVEL + " for leader");
             return false;
         }
         free.remove(Integer.valueOf(leaderBot));
@@ -330,18 +404,45 @@ public final class ClanService {
         if (leader == null || leader.status() == BotRecord.Status.TRADER) {
             return false;
         }
-        final int paperId = provisionalClanId(leaderBot);
-        if (ClanTable.getInstance().getClan(paperId) != null) {
+        bumpLeaderLevel(leader);
+        final List<Integer> memberBots = new ArrayList<>();
+        memberBots.add(leaderBot);
+        final List<Integer> memberChars = new ArrayList<>();
+        memberChars.add(leader.charId());
+        while ((memberBots.size() < size) && !free.isEmpty()) {
+            final int botId = free.remove(rnd.nextInt(free.size()));
+            if (playerClanBots.contains(botId) || isLeader(botId)) {
+                continue;
+            }
+            final BotRecord br = byBot(botId);
+            if (br == null) {
+                continue;
+            }
+            memberBots.add(botId);
+            memberChars.add(br.charId());
+        }
+        if (memberBots.size() < Math.min(membersMin, size)) {
             return false;
         }
-        final ClanStore.Row row = new ClanStore.Row(paperId, t.id(), t.name(), level, leaderBot, size, "ACTIVE");
+        final byte[] crest = ClanTemplates.crestBytes(t.crestSeed());
+        final StockClanFactory.Created created;
+        try {
+            created = StockClanFactory.create(t.name(), level, StockClanFactory.membersOf(leader.charId(), memberChars), crest);
+        } catch (Exception e) {
+            ctx.log().warn("bot clan stock create failed " + t.name() + ": " + e.getMessage(), e);
+            return false;
+        }
+        final ClanStore.Row row = new ClanStore.Row(created.clanId(), t.id(), t.name(), level, leaderBot, size, "ACTIVE");
         store.insertClan(row);
-        store.insertMember(leaderBot, paperId, "LEADER");
-        botClan.put(leaderBot, paperId);
-        byClan.put(paperId, row);
-        fillMembers(paperId, size - 1, free);
-        ctx.log().info("bot clan paper: " + t.name() + " lvl " + level + " leader " + leader.name() + " target " + size
-            + (level >= BIG_LEVEL && size >= BIG_TARGET ? " BIG" : ""));
+        for (int i = 0; i < memberBots.size(); i++) {
+            final int botId = memberBots.get(i);
+            store.insertMember(botId, created.clanId(), botId == leaderBot ? "LEADER" : "MEMBER");
+            botClan.put(botId, created.clanId());
+        }
+        byClan.put(created.clanId(), row);
+        ctx.log().info("bot clan stock: " + t.name() + " id=" + created.clanId() + " lvl " + level + " leader "
+            + leader.name() + " lv" + leader.paperLevel(System.currentTimeMillis()) + " members " + memberBots.size()
+            + " crest=" + created.crestId() + (level >= BIG_LEVEL && size >= BIG_TARGET ? " BIG" : ""));
         return true;
     }
 
@@ -349,46 +450,67 @@ public final class ClanService {
         final long now = System.currentTimeMillis();
         int bestId = -1;
         int bestLvl = -1;
-        final List<Integer> eligible = new ArrayList<>();
         for (Integer id : free) {
             final BotRecord r = byBot(id);
             if ((r == null) || (r.status() != BotRecord.Status.ACTIVE) || playerClanBots.contains(id)) {
                 continue;
             }
-            eligible.add(id);
+            final int lvl = r.paperLevel(now);
+            if (lvl < LEADER_MIN_LEVEL) {
+                continue;
+            }
+            if (lvl > bestLvl) {
+                bestLvl = lvl;
+                bestId = id;
+            }
+        }
+        if (bestId >= 0) {
+            return bestId;
+        }
+        // no one ≥40 yet: take strongest ACTIVE and bump paper level
+        for (Integer id : free) {
+            final BotRecord r = byBot(id);
+            if ((r == null) || (r.status() != BotRecord.Status.ACTIVE) || playerClanBots.contains(id)) {
+                continue;
+            }
             final int lvl = r.paperLevel(now);
             if (lvl > bestLvl) {
                 bestLvl = lvl;
                 bestId = id;
             }
         }
-        if (eligible.isEmpty()) {
-            return -1;
-        }
-        // stock createClan needs level >= 10: prefer the strongest free ACTIVE
-        if (bestLvl >= 10) {
-            return bestId;
-        }
-        return eligible.get(rnd.nextInt(eligible.size()));
+        return bestId;
     }
 
-    /**
-     * Paper clans whose leader is still under level 10 never become visible (stock createClan). Reassign LEADER to the
-     * strongest ACTIVE member of the same paper clan.
-     */
+    private void bumpLeaderLevel(BotRecord leader) {
+        if (leader == null) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        if (leader.paperLevel(now) >= LEADER_MIN_LEVEL) {
+            return;
+        }
+        leader.ensureMinPaperLevel(LEADER_MIN_LEVEL, now);
+        if (repo != null) {
+            try {
+                repo.saveProgress(leader.botId(), leader.levelBase(), leader.baseAt());
+            } catch (Exception e) {
+                ctx.log().warn("bot clan leader progress " + leader.name() + ": " + e.getMessage());
+            }
+        }
+        ctx.log().info("bot clan: raised " + leader.name() + " paper level to ≥" + LEADER_MIN_LEVEL + " (leader)");
+    }
+
+    /** Leaders must be ≥ {@link #LEADER_MIN_LEVEL}; reassign / bump if needed. */
     private void ensureLeadersViable() throws Exception {
         final long now = System.currentTimeMillis();
         for (ClanStore.Row row : new ArrayList<>(byClan.values())) {
-            if (!isProvisional(row.clanId())) {
-                continue;
-            }
             final BotRecord cur = byBot(row.leaderBotId());
-            final int curLvl = cur == null ? 0 : cur.paperLevel(now);
-            if (curLvl >= 10) {
+            if (cur != null && cur.paperLevel(now) >= LEADER_MIN_LEVEL) {
                 continue;
             }
             int bestId = -1;
-            int bestLvl = 0;
+            int bestLvl = -1;
             BotRecord best = null;
             for (ClanStore.Member m : store.membersOf(row.clanId())) {
                 final BotRecord br = byBot(m.botId());
@@ -402,17 +524,28 @@ public final class ClanService {
                     best = br;
                 }
             }
-            if ((bestId < 0) || (bestLvl < 10) || (bestId == row.leaderBotId())) {
+            if (best == null) {
                 continue;
             }
-            store.insertMember(row.leaderBotId(), row.clanId(), "MEMBER");
-            store.insertMember(bestId, row.clanId(), "LEADER");
-            final ClanStore.Row updated = new ClanStore.Row(row.clanId(), row.templateId(), row.name(), row.level(), bestId,
-                row.targetSize(), row.status());
-            store.updateClan(updated);
-            byClan.put(row.clanId(), updated);
-            ctx.log().info("bot clan " + row.name() + ": leader -> " + best.name() + " lv " + bestLvl
-                + " (was lv " + curLvl + ", stock create needs >=10)");
+            bumpLeaderLevel(best);
+            if (bestId != row.leaderBotId()) {
+                store.insertMember(row.leaderBotId(), row.clanId(), "MEMBER");
+                store.insertMember(bestId, row.clanId(), "LEADER");
+                final ClanStore.Row updated = new ClanStore.Row(row.clanId(), row.templateId(), row.name(), row.level(), bestId,
+                    row.targetSize(), row.status());
+                store.updateClan(updated);
+                byClan.put(row.clanId(), updated);
+                final Clan stock = ClanTable.getInstance().getClan(row.clanId());
+                if (stock != null) {
+                    try {
+                        StockClanFactory.addMember(row.clanId(), best.charId(), true);
+                    } catch (Exception e) {
+                        ctx.log().warn("bot clan leader stock update " + row.name() + ": " + e.getMessage());
+                    }
+                }
+                ctx.log().info("bot clan " + row.name() + ": leader -> " + best.name() + " lv "
+                    + best.paperLevel(now));
+            }
         }
     }
 
@@ -437,13 +570,25 @@ public final class ClanService {
 
     private int fillMembers(int clanId, int need, List<Integer> free) throws Exception {
         int n = 0;
+        final boolean stock = ClanTable.getInstance().getClan(clanId) != null;
         while ((n < need) && !free.isEmpty()) {
             final int botId = free.remove(rnd.nextInt(free.size()));
             if (playerClanBots.contains(botId) || isLeader(botId)) {
                 continue;
             }
+            final BotRecord br = byBot(botId);
+            if (br == null) {
+                continue;
+            }
             store.insertMember(botId, clanId, "MEMBER");
             botClan.put(botId, clanId);
+            if (stock) {
+                try {
+                    StockClanFactory.addMember(clanId, br.charId(), false);
+                } catch (Exception e) {
+                    ctx.log().warn("bot clan add member stock " + br.name() + ": " + e.getMessage());
+                }
+            }
             n++;
         }
         return n;
@@ -518,126 +663,32 @@ public final class ClanService {
         return null;
     }
 
+    /**
+     * On enter: stock {@code characters.clanid} should already restore the clan. If the bot is in our table but not
+     * yet on the Player, join the stock clan.
+     */
     public void attachPlayer(BotRecord r, Player p) {
-        if ((r == null) || (p == null)) {
+        if ((r == null) || (p == null) || playerClanBots.contains(r.botId())) {
             return;
         }
-        if (playerClanBots.contains(r.botId())) {
-            // stock clanid should already restore; nothing to do for bot-clan
-            return;
-        }
-        final int paper = botClan.getOrDefault(r.botId(), 0);
-        if (paper == 0) {
+        final int cid = botClan.getOrDefault(r.botId(), 0);
+        if (cid == 0) {
             return;
         }
         try {
-            ClanStore.Row row = byClan.get(paper);
-            if (row == null) {
-                for (ClanStore.Row x : byClan.values()) {
-                    if (x.leaderBotId() == r.botId() || members(x.clanId()).stream().anyMatch(m -> m.botId() == r.botId())) {
-                        row = x;
-                        break;
-                    }
-                }
-            }
-            if (row == null) {
+            if (p.getClan() != null && p.getClanId() == cid) {
                 return;
             }
-            if (isProvisional(row.clanId())) {
-                if (row.leaderBotId() == r.botId()) {
-                    if (p.getLevel() >= 10) {
-                        promoteToStock(row, r, p);
-                    } else {
-                        ctx.log().info("bot clan " + row.name() + ": leader " + r.name() + " lv " + p.getLevel()
-                            + " in world but stock createClan needs >=10");
-                    }
-                    return;
-                }
-                // member entered first: promote via online leader, else pull leader nearby
-                final BotRecord leader = byBot(row.leaderBotId());
-                if ((leader != null) && leader.inWorld() && (leader.player() != null) && (leader.player().getLevel() >= 10)) {
-                    promoteToStock(row, leader, leader.player());
-                    row = byClan.get(botClan.getOrDefault(r.botId(), 0));
-                    if (row == null || isProvisional(row.clanId())) {
-                        return;
-                    }
-                } else {
-                    final LeaderEnterHook hook = leaderEnterHook;
-                    if (hook != null) {
-                        final int prefer = Math.max(20, Math.max(p.getLevel(), leader == null ? 0 : leader.paperLevel(System.currentTimeMillis())));
-                        hook.request(row.leaderBotId(), p.getX(), p.getY(), p.getZ(), prefer);
-                    }
-                    return;
-                }
-            }
-            final Clan clan = ClanTable.getInstance().getClan(row.clanId());
+            final Clan clan = ClanTable.getInstance().getClan(cid);
             if (clan == null) {
-                if (row.leaderBotId() == r.botId()) {
-                    promoteToStock(row, r, p);
-                }
+                ctx.log().warn("clan attach " + r.name() + ": module clan " + cid + " missing in ClanTable");
                 return;
             }
             if (p.getClan() == null) {
-                if (p.getLevel() < 1) {
-                    return;
-                }
                 clan.addClanMember(p);
             }
         } catch (Exception e) {
             ctx.log().warn("clan attach " + r.name() + ": " + e.getMessage(), e);
-        }
-    }
-
-    private synchronized void promoteToStock(ClanStore.Row paper, BotRecord leader, Player p) throws Exception {
-        if (p.getClan() != null) {
-            return;
-        }
-        if (p.getLevel() < 10) {
-            return;
-        }
-        if (ClanTable.getInstance().getClanByName(paper.name()) != null) {
-            ctx.log().warn("bot clan name taken in stock: " + paper.name());
-            return;
-        }
-        final Clan clan = ClanTable.getInstance().createClan(p, paper.name());
-        if (clan == null) {
-            ctx.log().warn("createClan failed for " + paper.name() + " / " + leader.name());
-            return;
-        }
-        final Crest crest = CrestTable.getInstance().createCrest(ClanTemplates.crestBytes(templateSeed(paper.templateId())), CrestType.PLEDGE);
-        if (crest == null) {
-            ctx.log().warn("bot clan crest failed for " + paper.name() + " — dissolving stock create");
-            ClanTable.getInstance().destroyClan(clan.getId());
-            return;
-        }
-        clan.changeClanCrest(crest.getId());
-        if (paper.level() > clan.getLevel()) {
-            clan.changeLevel(paper.level());
-        }
-        final int stockId = clan.getId();
-        final ClanStore.Row stockRow = new ClanStore.Row(stockId, paper.templateId(), paper.name(), paper.level(), paper.leaderBotId(), paper.targetSize(), "ACTIVE");
-        final List<ClanStore.Member> mem = new ArrayList<>();
-        for (Map.Entry<Integer, Integer> e : botClan.entrySet()) {
-            if (e.getValue() == paper.clanId()) {
-                mem.add(new ClanStore.Member(e.getKey(), stockId, e.getKey() == paper.leaderBotId() ? "LEADER" : "MEMBER"));
-            }
-        }
-        store.rematerialize(paper.clanId(), stockRow, mem);
-        for (ClanStore.Member m : mem) {
-            botClan.put(m.botId(), stockId);
-        }
-        byClan.remove(paper.clanId());
-        byClan.put(stockId, stockRow);
-        ctx.log().info("bot clan stock: " + paper.name() + " id=" + stockId + " lvl " + clan.getLevel() + " crest=" + crest.getId());
-        for (ClanStore.Member m : mem) {
-            if (m.botId() == leader.botId()) {
-                continue;
-            }
-            final BotRecord br = byBot(m.botId());
-            final Player q = br == null ? null : br.player();
-            if ((q != null) && (q.getClan() == null)) {
-                clan.addClanMember(q);
-            }
         }
     }
 
@@ -751,7 +802,7 @@ public final class ClanService {
         return 1_900_000_000 + leaderBotId;
     }
 
-    static boolean isProvisional(int clanId) {
+    public static boolean isProvisional(int clanId) {
         return clanId >= 1_900_000_000;
     }
 

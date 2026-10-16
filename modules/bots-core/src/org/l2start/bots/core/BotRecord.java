@@ -99,6 +99,16 @@ public final class BotRecord {
     void setProgress(int base, long at, int real) { levelBase = base; baseAt = at; realLevel = real; }
     void setRealLevel(int level) { realLevel = level; }
 
+    /** Phase 7e: bot-clan leaders must be high enough for stock clan level 8. */
+    public void ensureMinPaperLevel(int min, long now) {
+        if (paperLevel(now) >= min) {
+            return;
+        }
+        levelBase = min;
+        baseAt = now;
+        realLevel = Math.max(realLevel, min);
+    }
+
     void setSlot(org.l2start.bots.runtime.BotSlot s) { slot = s; }
     void setTrouble(String t) { trouble = t; }
 

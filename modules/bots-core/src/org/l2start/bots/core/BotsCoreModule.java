@@ -59,7 +59,7 @@ public final class BotsCoreModule implements GameModule {
         ctx = context;
         repo = new BotRepository(ctx.db());
         pkLedger = new PkLedger(ctx.db());
-        clans = new org.l2start.bots.clan.ClanService(ctx, registry, ctx.resources().path("data/clans/BotClans.xml"));
+        clans = new org.l2start.bots.clan.ClanService(ctx, registry, repo, ctx.resources().path("data/clans/BotClans.xml"));
         final long seed = ctx.config().getLong("Seed");
         seeds = seed == 0 ? new Random() : new Random(seed);
         personas = buildPersonas(); // bad dictionary or weights: the module fails to enable with a clear message
