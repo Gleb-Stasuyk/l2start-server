@@ -25,6 +25,8 @@ import org.l2start.platform.api.ModuleContext;
 public final class ClanService {
     public static final int BIG_TARGET = 40;
     public static final int BIG_LEVEL = 8;
+    /** Interlude shows pledge crest only at clan skill level ≥3 (RequestSetPledgeCrest). */
+    public static final int CREST_MIN_LEVEL = 3;
     /** Bot-clan leaders must be at least this paper level (stock clan lvl 8 needs a serious persona). */
     public static final int LEADER_MIN_LEVEL = 40;
 
@@ -364,11 +366,23 @@ public final class ClanService {
                 ctx.log().warn("bot clan " + row.name() + " id=" + row.clanId() + ": missing stock Clan");
                 continue;
             }
+            if (c.getLevel() < CREST_MIN_LEVEL) {
+                c.changeLevel(CREST_MIN_LEVEL);
+                final ClanStore.Row bumped = new ClanStore.Row(row.clanId(), row.templateId(), row.name(), CREST_MIN_LEVEL,
+                    row.leaderBotId(), row.targetSize(), row.status());
+                byClan.put(row.clanId(), bumped);
+                try {
+                    store.updateClan(bumped);
+                } catch (Exception e) {
+                    ctx.log().warn("bot clan " + row.name() + ": level bump persist failed: " + e.getMessage(), e);
+                }
+                ctx.log().info("bot clan " + row.name() + ": raised stock level to " + CREST_MIN_LEVEL + " (crest)");
+            }
             if (StockClanFactory.hasClientSafeCrest(c)) {
                 continue;
             }
             ctx.log().warn("bot clan " + row.name() + " id=" + row.clanId()
-                + ": crest missing or not client-safe (need 16x16/256) — reapplying");
+                + ": crest missing or not client-safe (need 16x16/256 + LINEARSIZE) — reapplying");
             final int id = StockClanFactory.ensureCrest(c, ClanTemplates.crestBytes(templateSeed(row.templateId())));
             if (id == 0) {
                 ctx.log().error("bot clan " + row.name() + ": crest reapply failed",
@@ -393,6 +407,7 @@ public final class ClanService {
     }
 
     private boolean createStockClan(ClanTemplate t, int level, int size, List<Integer> free) throws Exception {
+        level = Math.max(level, CREST_MIN_LEVEL);
         if (free.size() < Math.min(membersMin, size)) {
             return false;
         }

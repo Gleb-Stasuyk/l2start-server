@@ -100,9 +100,12 @@ public final class ClanCrests {
         return c.get(idx);
     }
 
+    /** DDSD_CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE — required by Interlude / Living Worlds DDS. */
+    public static final int DDS_FLAGS = 0x00081007;
+
     /**
-     * Interlude accepts pledge DDS only when length is 256 and texture is 16×16 (power-of-two).
-     * Shorter 16×12 payloads are rejected by the client even if stored in {@code CrestTable}.
+     * Interlude accepts pledge DDS only when length is 256, texture is 16×16 (power-of-two), and
+     * header flags match the client upload (incl. DDSD_LINEARSIZE). Wrong size/flags = blank crest.
      */
     public static boolean isClientSafeCrest(byte[] data) {
         if ((data == null) || (data.length != DDS_SIZE)) {
@@ -112,10 +115,11 @@ public final class ClanCrests {
             return false;
         }
         final ByteBuffer bb = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
-        bb.position(12);
+        bb.position(8);
+        final int flags = bb.getInt();
         final int height = bb.getInt();
         final int width = bb.getInt();
-        return (width == TEX_W) && (height == TEX_H);
+        return (flags == DDS_FLAGS) && (width == TEX_W) && (height == TEX_H);
     }
 
     static byte[] bmpToDds(Path bmp) throws IOException {
@@ -159,7 +163,8 @@ public final class ClanCrests {
         final ByteBuffer bb = ByteBuffer.allocate(128 + blocks.length).order(ByteOrder.LITTLE_ENDIAN);
         bb.put((byte) 'D').put((byte) 'D').put((byte) 'S').put((byte) ' ');
         bb.putInt(124); // header size
-        bb.putInt(0x00001007); // caps | height | width | pixelformat
+        // DDSD_CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE — same as Living Worlds / client upload
+        bb.putInt(0x00081007);
         bb.putInt(h);
         bb.putInt(w);
         bb.putInt(blocks.length); // pitch / linear size

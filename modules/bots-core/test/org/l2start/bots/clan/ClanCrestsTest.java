@@ -20,14 +20,15 @@ class ClanCrestsTest {
         assertTrue(ClanCrests.isClientSafeCrest(dds), "len=" + dds.length);
         assertEquals(ClanCrests.DDS_SIZE, dds.length);
         final ByteBuffer bb = ByteBuffer.wrap(dds).order(ByteOrder.LITTLE_ENDIAN);
-        bb.position(12);
+        bb.position(8);
+        assertEquals(ClanCrests.DDS_FLAGS, bb.getInt());
         assertEquals(ClanCrests.TEX_H, bb.getInt());
         assertEquals(ClanCrests.TEX_W, bb.getInt());
         assertEquals(dds.length, ClanTemplates.crestBytes(1).length);
     }
 
     @Test
-    void rejectsShortSixteenByTwelvePayload() {
+    void rejectsWrongFlagsOrShortPayload() {
         final byte[] bad = new byte[224];
         bad[0] = 'D';
         bad[1] = 'D';
@@ -36,6 +37,10 @@ class ClanCrestsTest {
         assertFalse(ClanCrests.isClientSafeCrest(bad));
         assertFalse(ClanCrests.isClientSafeCrest(null));
         assertFalse(ClanCrests.isClientSafeCrest(new byte[0]));
+        final byte[] noLinear = ClanTemplates.syntheticCrestBytes(1).clone();
+        final ByteBuffer bb = ByteBuffer.wrap(noLinear).order(ByteOrder.LITTLE_ENDIAN);
+        bb.putInt(8, 0x00001007); // missing DDSD_LINEARSIZE
+        assertFalse(ClanCrests.isClientSafeCrest(noLinear));
     }
 
     @Test

@@ -35,6 +35,13 @@ class StockClanFactoryTest {
     }
 
     @Test
+    void crestNeedsClanLevelThree() {
+        assertEquals(3, ClanService.CREST_MIN_LEVEL);
+        assertTrue(ClanTemplates.smallLevelForSize(8, 8, 20) >= ClanService.CREST_MIN_LEVEL);
+        assertTrue(ClanTemplates.smallLevelForSize(20, 8, 20) >= ClanService.CREST_MIN_LEVEL);
+    }
+
+    @Test
     void crestPayloadIsClientSafeSixteenBySixteen() {
         ClanCrests.init(java.nio.file.Path.of("modules/bots-core/data/clans/crests"));
         assertTrue(ClanCrests.size() >= 1);

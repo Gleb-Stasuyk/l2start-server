@@ -66,12 +66,15 @@ public final class ClanTemplates {
         return ClanCrests.encodeDxt1Dds(rgba, ClanCrests.TEX_W, ClanCrests.TEX_H);
     }
 
-    /** Level 2–7 for a small clan by target size (larger → higher). */
+    /**
+     * Level for a small clan by target size. Floor is 3 — Interlude only shows / accepts pledge crests
+     * at clan skill level ≥3 (same as {@code RequestSetPledgeCrest}).
+     */
     public static int smallLevelForSize(int size, int min, int max) {
         if (max <= min) {
             return 4;
         }
         final double t = (size - min) / (double) (max - min);
-        return 2 + (int) Math.round(t * 5); // 2..7
+        return Math.max(3, 2 + (int) Math.round(t * 5)); // 3..7
     }
 }
