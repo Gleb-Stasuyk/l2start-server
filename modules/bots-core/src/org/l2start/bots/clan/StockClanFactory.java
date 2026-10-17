@@ -103,14 +103,14 @@ public final class StockClanFactory {
     }
 
     /**
-     * Ensure crest is set and client-safe (16×16 / 256 bytes). Replaces a stored but rejected
-     * 16×12 payload. Returns crest id (0 = failed).
+     * Ensure crest matches {@code crestDds} and is client-safe. Replaces missing, rejected, or
+     * outdated blobs (e.g. after pad/encoder or BMP pack change). Returns crest id (0 = failed).
      */
     public static int ensureCrest(Clan clan, byte[] crestDds) {
         if (clan == null) {
             return 0;
         }
-        if (hasClientSafeCrest(clan)) {
+        if (hasMatchingCrest(clan, crestDds)) {
             return clan.getCrestId();
         }
         return applyCrest(clan, crestDds);
@@ -127,6 +127,15 @@ public final class StockClanFactory {
         }
         final Crest crest = CrestTable.getInstance().getCrest(clan.getCrestId());
         return (crest != null) && ClanCrests.isClientSafeCrest(crest.getData());
+    }
+
+    /** True when stored crest bytes equal the desired DDS (and are client-safe). */
+    public static boolean hasMatchingCrest(Clan clan, byte[] crestDds) {
+        if (!hasClientSafeCrest(clan) || (crestDds == null)) {
+            return false;
+        }
+        final Crest crest = CrestTable.getInstance().getCrest(clan.getCrestId());
+        return java.util.Arrays.equals(crest.getData(), crestDds);
     }
 
     public static Clan reload(int clanId) {

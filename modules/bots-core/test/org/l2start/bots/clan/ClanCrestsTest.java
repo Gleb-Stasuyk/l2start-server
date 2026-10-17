@@ -4,13 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.image.BufferedImage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
 
-/** Phase 7e: BMP emblems → client-safe 16×16 DDS (pad from 16×12). */
+/** Phase 7e: BMP emblems → client-safe 16×16 DDS (stretch from 16×12). */
 class ClanCrestsTest {
     @Test
     void loadsBmpCrestsAsClientSafeDds() {
@@ -24,7 +25,30 @@ class ClanCrestsTest {
         assertEquals(ClanCrests.DDS_FLAGS, bb.getInt());
         assertEquals(ClanCrests.TEX_H, bb.getInt());
         assertEquals(ClanCrests.TEX_W, bb.getInt());
+        bb.position(108);
+        assertEquals(ClanCrests.DDS_CAPS, bb.getInt());
         assertEquals(dds.length, ClanTemplates.crestBytes(1).length);
+    }
+
+    @Test
+    void stretchFillsBottomRowsUnlikeBlackPad() {
+        final BufferedImage design = new BufferedImage(ClanCrests.DESIGN_W, ClanCrests.DESIGN_H, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < ClanCrests.DESIGN_H; y++) {
+            for (int x = 0; x < ClanCrests.DESIGN_W; x++) {
+                design.setRGB(x, y, 0xff203040 + (y * 0x010101));
+            }
+        }
+        final int[] rgba = ClanCrests.stretchToTexture(design);
+        assertEquals(ClanCrests.TEX_W * ClanCrests.TEX_H, rgba.length);
+        // last row must come from design (not pure black pad)
+        boolean anyNonBlack = false;
+        for (int x = 0; x < ClanCrests.TEX_W; x++) {
+            if ((rgba[(ClanCrests.TEX_H - 1) * ClanCrests.TEX_W + x] & 0xffffff) != 0) {
+                anyNonBlack = true;
+                break;
+            }
+        }
+        assertTrue(anyNonBlack);
     }
 
     @Test

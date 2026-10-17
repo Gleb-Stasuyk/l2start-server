@@ -17,9 +17,8 @@ import javax.imageio.ImageIO;
  * Loads 16×12 BMP clan emblems from {@code data/clans/crests/} and converts them to the DDS DXT1
  * payload the Interlude client expects ({@code CrestTable.createCrest}, max 256 bytes).
  * <p>
- * Design size is 16×12 (visible crest). The client rejects non-power-of-two textures, so we pad to
- * 16×16 (edge-replicate) before DXT1 — same as Living Worlds {@code crest_png_to_dds.py} and the
- * stock client upload. The bottom 4 rows are padding only; ally crest is a separate texture.
+ * Design size is 16×12. The client upload stretches that into a 16×16 DXT1 texture (no black pad) —
+ * verified against a live clan crest in {@code crests}. Ally crest is a separate texture.
  */
 public final class ClanCrests {
     /** Visible pledge crest area (Interlude design). */
@@ -100,12 +99,14 @@ public final class ClanCrests {
         return c.get(idx);
     }
 
-    /** DDSD_CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE — required by Interlude / Living Worlds DDS. */
+    /** DDSD_CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE — same as a client-uploaded pledge crest. */
     public static final int DDS_FLAGS = 0x00081007;
+    /** Client upload writes dwCaps=0 (not DDSCAPS_TEXTURE). */
+    public static final int DDS_CAPS = 0;
 
     /**
      * Interlude accepts pledge DDS only when length is 256, texture is 16×16 (power-of-two), and
-     * header flags match the client upload (incl. DDSD_LINEARSIZE). Wrong size/flags = blank crest.
+     * header flags/caps match the client upload. Wrong size/flags = blank crest.
      */
     public static boolean isClientSafeCrest(byte[] data) {
         if ((data == null) || (data.length != DDS_SIZE)) {
@@ -119,7 +120,9 @@ public final class ClanCrests {
         final int flags = bb.getInt();
         final int height = bb.getInt();
         final int width = bb.getInt();
-        return (flags == DDS_FLAGS) && (width == TEX_W) && (height == TEX_H);
+        bb.position(108);
+        final int caps = bb.getInt();
+        return (flags == DDS_FLAGS) && (width == TEX_W) && (height == TEX_H) && (caps == DDS_CAPS);
     }
 
     static byte[] bmpToDds(Path bmp) throws IOException {
@@ -128,25 +131,30 @@ public final class ClanCrests {
             throw new IOException("unreadable BMP");
         }
         final BufferedImage design = new BufferedImage(DESIGN_W, DESIGN_H, BufferedImage.TYPE_INT_ARGB);
-        design.getGraphics().drawImage(src, 0, 0, DESIGN_W, DESIGN_H, null);
-        final int[] rgba = padToTexture(design);
+        final var g = design.getGraphics();
+        g.drawImage(src, 0, 0, DESIGN_W, DESIGN_H, null);
+        g.dispose();
+        final int[] rgba = stretchToTexture(design);
         return encodeDxt1Dds(rgba, TEX_W, TEX_H);
     }
 
-    /** Edge-replicate 16×12 design into 16×16 (same idea as Living Worlds crest_png_to_dds.py). */
-    static int[] padToTexture(BufferedImage design) {
+    /**
+     * Stretch 16×12 design into 16×16 (nearest-neighbour) — same idea as the Interlude client upload,
+     * which fills all 16 rows with image data (no black pad stripe).
+     */
+    static int[] stretchToTexture(BufferedImage design) {
         final int[] rgba = new int[TEX_W * TEX_H];
         for (int y = 0; y < TEX_H; y++) {
-            final int sy = Math.min(y, DESIGN_H - 1);
+            final int sy = Math.min(DESIGN_H - 1, (y * DESIGN_H) / TEX_H);
             for (int x = 0; x < TEX_W; x++) {
-                final int sx = Math.min(x, DESIGN_W - 1);
+                final int sx = Math.min(DESIGN_W - 1, (x * DESIGN_W) / TEX_W);
                 rgba[y * TEX_W + x] = design.getRGB(sx, sy);
             }
         }
         return rgba;
     }
 
-    /** Minimal DDS (DXT1) for power-of-two texture — same layout the Interlude client uploads. */
+    /** Minimal DDS (DXT1) for power-of-two texture — header layout matches a client upload. */
     static byte[] encodeDxt1Dds(int[] rgba, int w, int h) {
         if ((w % 4) != 0 || (h % 4) != 0) {
             throw new IllegalArgumentException("DXT1 needs multiple of 4: " + w + "x" + h);
@@ -163,8 +171,7 @@ public final class ClanCrests {
         final ByteBuffer bb = ByteBuffer.allocate(128 + blocks.length).order(ByteOrder.LITTLE_ENDIAN);
         bb.put((byte) 'D').put((byte) 'D').put((byte) 'S').put((byte) ' ');
         bb.putInt(124); // header size
-        // DDSD_CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE — same as Living Worlds / client upload
-        bb.putInt(0x00081007);
+        bb.putInt(DDS_FLAGS);
         bb.putInt(h);
         bb.putInt(w);
         bb.putInt(blocks.length); // pitch / linear size
@@ -182,7 +189,7 @@ public final class ClanCrests {
         bb.putInt(0);
         bb.putInt(0);
         bb.putInt(0);
-        bb.putInt(0x1000); // DDSCAPS_TEXTURE
+        bb.putInt(DDS_CAPS); // client upload uses 0
         bb.putInt(0);
         bb.putInt(0);
         bb.putInt(0);

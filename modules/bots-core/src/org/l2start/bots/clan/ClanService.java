@@ -378,12 +378,13 @@ public final class ClanService {
                 }
                 ctx.log().info("bot clan " + row.name() + ": raised stock level to " + CREST_MIN_LEVEL + " (crest)");
             }
-            if (StockClanFactory.hasClientSafeCrest(c)) {
+            final byte[] want = ClanTemplates.crestBytes(templateSeed(row.templateId()));
+            if (StockClanFactory.hasMatchingCrest(c, want)) {
                 continue;
             }
             ctx.log().warn("bot clan " + row.name() + " id=" + row.clanId()
-                + ": crest missing or not client-safe (need 16x16/256 + LINEARSIZE) — reapplying");
-            final int id = StockClanFactory.ensureCrest(c, ClanTemplates.crestBytes(templateSeed(row.templateId())));
+                + ": crest missing, outdated, or not client-safe — reapplying");
+            final int id = StockClanFactory.ensureCrest(c, want);
             if (id == 0) {
                 ctx.log().error("bot clan " + row.name() + ": crest reapply failed",
                     new IllegalStateException("crest reapply failed"));
