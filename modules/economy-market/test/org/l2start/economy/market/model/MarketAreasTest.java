@@ -74,12 +74,13 @@ class MarketAreasTest {
         };
         final SpotGenerator.Area g = a.area("giran");
         final MarketAreas.Service udo = a.services("Giran").get(0);
-        final List<SpotGenerator.Blocker> npcs = List.of(new SpotGenerator.Blocker(udo.spot().x(), udo.spot().y(), g.spacing()), new SpotGenerator.Blocker(c.x(), c.y(), g.npcGap()));
+        final int udoClear = Math.max(g.spacing(), 80);
+        final List<SpotGenerator.Blocker> npcs = List.of(new SpotGenerator.Blocker(udo.spot().x(), udo.spot().y(), udoClear), new SpotGenerator.Blocker(c.x(), c.y(), g.npcGap()));
         final List<SpotGenerator.Point> pts = SpotGenerator.generate(g, List.of(), 120, npcs, flat, new Random(3), 100_000, poly);
         assertTrue(pts.size() >= 100, "Giran polygon fits >=100 at spacing " + g.spacing() + ", got " + pts.size());
         for (SpotGenerator.Point p : pts) {
             assertTrue(poly.inside(p.x(), p.y()), "inside the polygon: " + p);
-            assertTrue(Math.hypot(p.x() - udo.spot().x(), p.y() - udo.spot().y()) >= g.spacing(), "clear of 4UDO: " + p);
+            assertTrue(Math.hypot(p.x() - udo.spot().x(), p.y() - udo.spot().y()) >= udoClear, "clear of 4UDO: " + p);
         }
         // not in rows: x values spread, not a handful of columns
         assertTrue(pts.stream().map(SpotGenerator.Point::x).distinct().count() > 50);

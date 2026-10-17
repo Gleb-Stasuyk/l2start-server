@@ -449,7 +449,8 @@ final class Traders {
             }
         }
         for (MarketAreas.Service sv : areas.services(town)) {
-            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), a.spacing()));
+            // keep ≥75 clear of 4UDO (smoke / walk-up room); spacing alone can be tighter
+            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), Math.max(a.spacing(), 80)));
         }
         final List<SpotGenerator.Point> keptPts = new ArrayList<>();
         for (Spot s : kept) {
@@ -510,7 +511,7 @@ final class Traders {
             }
         }
         for (MarketAreas.Service sv : areas.services(town)) {
-            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), a.spacing()));
+            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), Math.max(a.spacing(), 80)));
         }
         final SpotGenerator.Area ring = new SpotGenerator.Area(a.town(), c.x(), c.y(), c.z(), c.x() - c.rMax(), c.x() + c.rMax(), c.y() - c.rMax(), c.y() + c.rMax(), a.dz(), c.spacing(), a.npcGap(), a.doorGap(),
             a.reach());
