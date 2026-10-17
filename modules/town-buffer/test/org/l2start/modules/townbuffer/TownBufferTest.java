@@ -82,4 +82,34 @@ class TownBufferTest {
         assertFalse(at48.containsKey(9999));
         assertEquals(3, BuffLevels.at(tree, Towns.BUFFS, 78).get(1040));
     }
+
+    /** Prophet-like tree: PP 40/52/62/76 give growing buff sets (WW always; Bers from 52). */
+    @Test
+    void prophetSetsGrowWithLevel() {
+        final List<BuffLevels.Learn> tree = List.of(
+            new BuffLevels.Learn(1204, 1, 20), new BuffLevels.Learn(1204, 2, 30),
+            new BuffLevels.Learn(1068, 3, 40), new BuffLevels.Learn(1035, 2, 40), new BuffLevels.Learn(1045, 2, 40),
+            new BuffLevels.Learn(1040, 3, 44), new BuffLevels.Learn(1086, 1, 44), new BuffLevels.Learn(1077, 2, 44),
+            new BuffLevels.Learn(1085, 3, 48),
+            new BuffLevels.Learn(1062, 2, 52), new BuffLevels.Learn(1086, 2, 52),
+            new BuffLevels.Learn(1388, 1, 58), new BuffLevels.Learn(1389, 1, 58),
+            new BuffLevels.Learn(1388, 2, 66), new BuffLevels.Learn(1389, 2, 66),
+            new BuffLevels.Learn(1388, 3, 74), new BuffLevels.Learn(1389, 3, 74));
+        final Map<Integer, Integer> at40 = BuffLevels.at(tree, Towns.BUFFS, 40);
+        final Map<Integer, Integer> at52 = BuffLevels.at(tree, Towns.BUFFS, 52);
+        final Map<Integer, Integer> at62 = BuffLevels.at(tree, Towns.BUFFS, 62);
+        final Map<Integer, Integer> at76 = BuffLevels.at(tree, Towns.BUFFS, 76);
+        assertTrue(at40.containsKey(1204));
+        assertFalse(at40.containsKey(1062));
+        assertTrue(at52.containsKey(1062));
+        assertTrue(at52.size() > at40.size());
+        assertTrue(at62.containsKey(1388));
+        assertTrue(at62.size() >= at52.size());
+        assertEquals(3, at76.get(1388));
+        assertTrue(at76.size() >= at62.size());
+        // each higher band is a proper super-set of ids
+        assertTrue(at52.keySet().containsAll(at40.keySet()));
+        assertTrue(at62.keySet().containsAll(at52.keySet()));
+        assertTrue(at76.keySet().containsAll(at62.keySet()));
+    }
 }

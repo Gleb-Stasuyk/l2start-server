@@ -32,22 +32,22 @@ class MarketAreasTest {
     }
 
     @Test
-    void sixtyPlacesFormerTradersFirstThenThemesAndCrafters() throws Exception {
+    void oneHundredTwentyPlacesFormerTradersFirstThenThemesAndCrafters() throws Exception {
         final StoreSpots old = StoreSpots.load(Path.of("modules/economy-market/data/store-spots.xml"));
         final List<Spot> legacy = old.spots("giran").subList(0, 20);
         final List<SpotGenerator.Point> pts = new ArrayList<>();
-        for (int k = 0; k < 60; k++) {
+        for (int k = 0; k < 120; k++) {
             pts.add(new SpotGenerator.Point(82000 + (k * 10), 148000, -3464, 0));
         }
         final List<Spot> plan = MarketAreas.plan("Giran", pts, 0, legacy, new Random(5));
-        assertEquals(60, plan.size());
+        assertEquals(120, plan.size());
         assertEquals("giran-01", plan.get(0).id());
         assertEquals("Xevoq", plan.get(0).legacy());
         assertEquals(legacy.get(19).legacy(), plan.get(19).legacy());
         final long crafters = plan.stream().filter(p -> "CRAFT".equals(p.kind())).count();
-        assertEquals(5, crafters);
+        assertTrue(crafters >= 13 && crafters <= 16, "CRAFT×3 ≈15, got " + crafters);
         assertTrue(plan.stream().filter(p -> "CRAFT".equals(p.kind())).allMatch(p -> (p.classId() == MarketAreas.WARSMITH) && "DWARF".equals(p.race())));
-        assertTrue(plan.stream().filter(p -> "BUY".equals(p.kind())).count() >= 10);
+        assertTrue(plan.stream().filter(p -> "BUY".equals(p.kind())).count() >= 20);
         assertTrue(plan.stream().noneMatch(p -> "4UDO".equals(p.legacy())), "4UDO is the service trader, not a market place");
     }
 
@@ -59,6 +59,8 @@ class MarketAreasTest {
         assertEquals(31805, c.npcId());
         assertEquals(82840, c.x());
         assertEquals(147796, c.y());
+        assertEquals(6, a.resourceCrafters("Giran"));
+        assertTrue(c.rMin() <= 120 && c.rMax() <= 300, "crafters closer to guildsman");
         final SpotGenerator.Ground flat = new SpotGenerator.Ground() {
             @Override
             public Integer z(int x, int y, int z) {
@@ -73,14 +75,14 @@ class MarketAreasTest {
         final SpotGenerator.Area g = a.area("giran");
         final MarketAreas.Service udo = a.services("Giran").get(0);
         final List<SpotGenerator.Blocker> npcs = List.of(new SpotGenerator.Blocker(udo.spot().x(), udo.spot().y(), g.spacing()), new SpotGenerator.Blocker(c.x(), c.y(), g.npcGap()));
-        final List<SpotGenerator.Point> pts = SpotGenerator.generate(g, List.of(), 55, npcs, flat, new Random(3), 60_000, poly);
-        assertEquals(55, pts.size());
+        final List<SpotGenerator.Point> pts = SpotGenerator.generate(g, List.of(), 120, npcs, flat, new Random(3), 100_000, poly);
+        assertTrue(pts.size() >= 100, "Giran polygon fits >=100 at spacing " + g.spacing() + ", got " + pts.size());
         for (SpotGenerator.Point p : pts) {
             assertTrue(poly.inside(p.x(), p.y()), "inside the polygon: " + p);
             assertTrue(Math.hypot(p.x() - udo.spot().x(), p.y() - udo.spot().y()) >= g.spacing(), "clear of 4UDO: " + p);
         }
         // not in rows: x values spread, not a handful of columns
-        assertTrue(pts.stream().map(SpotGenerator.Point::x).distinct().count() > 40);
+        assertTrue(pts.stream().map(SpotGenerator.Point::x).distinct().count() > 50);
         final SpotGenerator.Area ring = new SpotGenerator.Area("Giran", c.x(), c.y(), c.z(), c.x() - c.rMax(), c.x() + c.rMax(), c.y() - c.rMax(), c.y() + c.rMax(), g.dz(), c.spacing(), g.npcGap(), g.doorGap(), g.reach());
         final List<SpotGenerator.Point> crafters = SpotGenerator.generate(ring, pts, 5, List.of(), flat, new Random(4), 20_000, a.crafterShape("Giran"));
         assertEquals(5, crafters.size());
@@ -101,9 +103,9 @@ class MarketAreasTest {
     }
 
     @Test
-    void giranHasTwoStaticResourceCraftersInTheCraftersRing() throws Exception {
+    void giranHasSixStaticResourceCraftersInTheCraftersRing() throws Exception {
         final MarketAreas a = MarketAreas.load(Path.of("modules/economy-market/data/market-areas.xml"));
-        org.junit.jupiter.api.Assertions.assertEquals(2, a.resourceCrafters("Giran"));
+        org.junit.jupiter.api.Assertions.assertEquals(6, a.resourceCrafters("Giran"));
         org.junit.jupiter.api.Assertions.assertEquals(0, a.resourceCrafters("Dion"));
     }
 }

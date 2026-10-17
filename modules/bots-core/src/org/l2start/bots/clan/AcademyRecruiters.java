@@ -250,6 +250,7 @@ public final class AcademyRecruiters {
                 break;
             }
             ensureAcademy(row.clanId());
+            // assign hall ownership early (no payer yet); functions enabled after place()
             if (halls != null) {
                 halls.ensureForRecruiter(row.clanId(), spot.x(), spot.y(), null);
             }
@@ -321,6 +322,9 @@ public final class AcademyRecruiters {
         if (dist > 400) {
             p.teleToLocation(spot.x() + ThreadLocalRandom.current().nextInt(-80, 81),
                 spot.y() + ThreadLocalRandom.current().nextInt(-80, 81), spot.z(), false);
+        }
+        if (halls != null) {
+            halls.ensureForRecruiter(row.clanId(), spot.x(), spot.y(), p);
         }
     }
 

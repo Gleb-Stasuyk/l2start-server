@@ -25,6 +25,7 @@ import org.l2start.bots.director.DirectorConfig;
 import org.l2start.bots.director.GearTable;
 import org.l2start.bots.director.WorldCatalog;
 import org.l2start.bots.persona.ClassPicker;
+import org.l2start.bots.persona.DigitNameTrim;
 import org.l2start.bots.persona.NameDictionary;
 import org.l2start.bots.persona.NameGenerator;
 import org.l2start.bots.persona.Persona;
@@ -211,7 +212,16 @@ public final class BotsCoreModule implements GameModule {
         final PersonaGenerator g = new PersonaGenerator(dict, NameGenerator.parseStyles(ctx.config().getList("NameStyles")), classes,
             PersonaGenerator.parseTimezones(ctx.config().getList("Timezones")), PersonaGenerator.parseChronotypes(ctx.config().getList("Chronotypes")));
         g.setPkShare(pkShareOf(ctx.config().getString("PkBotShare")));
+        g.setDigitShare(digitShareOf(ctx.config().getString("BotNameDigitShare")));
         return g;
+    }
+
+    static double digitShareOf(String raw) {
+        try {
+            return Math.max(0, Math.min(1, Double.parseDouble(raw == null ? "0.03" : raw.trim())));
+        } catch (RuntimeException e) {
+            return 0.03;
+        }
     }
 
     /** Phase 7c: 1–3 % of new personas are PK ({@code PkBotShare}). */
@@ -288,6 +298,10 @@ public final class BotsCoreModule implements GameModule {
             }
         }
         final int adopted = adoptOldBots();
+        final int renamed = trimDigitNames();
+        if (renamed > 0) {
+            ctx.log().info("renamed " + renamed + " bots with digit nicknames (BotNameDigitShare)");
+        }
         final int rebanned = repo.enforceBans();
         if (rebanned > 0) {
             ctx.log().warn(rebanned + " bot account(s) were not banned in the login server: banned again");
@@ -331,14 +345,11 @@ public final class BotsCoreModule implements GameModule {
                     ctx.log().warn("clan hall bids: " + e.getMessage());
                 }
             });
-            ctx.scheduler().fixedRate("clan hall cwh top-up", Duration.ofHours(6), Duration.ofHours(6), () -> {
+        }
+        if (clanHallAssign != null) {
+            ctx.scheduler().fixedRate("clan hall cwh top-up", Duration.ofHours(6), Duration.ofHours(1), () -> {
                 try {
-                    if ((clanHallAssign != null) && (academyRecruiters != null)) {
-                        for (Integer cid : academyRecruiters.recruiterClanIds()) {
-                            final var spot = org.l2start.bots.clan.AcademyRecruiters.TOWNS.get(0);
-                            clanHallAssign.ensureForRecruiter(cid, spot.x(), spot.y(), null);
-                        }
-                    }
+                    clanHallAssign.maintainAllOwned();
                 } catch (Exception e) {
                     ctx.log().warn("clan hall cwh top-up: " + e.getMessage());
                 }
@@ -443,6 +454,91 @@ public final class BotsCoreModule implements GameModule {
         return l;
     }
 
+    /** Offline bots with digit nicks beyond BotNameDigitShare get a new name (not in party/clan with a live player). */
+    private int trimDigitNames() {
+        if (personas == null) {
+            return 0;
+        }
+        final double share = personas.digitShare();
+        final List<BotRecord> all = new ArrayList<>();
+        final List<Integer> digitIds = new ArrayList<>();
+        final List<String> names = new ArrayList<>();
+        for (BotRecord r : active()) {
+            all.add(r);
+            names.add(r.name());
+            if (NameGenerator.hasDigit(r.name()) && !digitNameProtected(r)) {
+                digitIds.add(r.botId());
+            }
+        }
+        final int keep = DigitNameTrim.keepDigitCount(all.size(), digitIds.size(), share);
+        final List<Integer> rename = DigitNameTrim.toRename(digitIds, keep);
+        if (rename.isEmpty()) {
+            return 0;
+        }
+        final java.util.Set<String> taken = DigitNameTrim.takenLower(names);
+        final NameGenerator gen = new NameGenerator(new java.util.Random(42), personas.dictionary(), personas.styles(), share);
+        int n = 0;
+        for (Integer botId : rename) {
+            final BotRecord r = registry.byBotId(botId);
+            if ((r == null) || r.inWorld() || digitNameProtected(r)) {
+                continue;
+            }
+            try {
+                final boolean female = (r.persona() != null) && r.persona().female();
+                final String neu = DigitNameTrim.newNameWithoutDigits(gen, s -> taken.contains(s.toLowerCase(java.util.Locale.ROOT)) || org.l2start.bots.core.BotFactory.nameTaken(s), female, new java.util.Random(r.botId()));
+                final String old = r.name();
+                final org.l2jmobius.gameserver.data.sql.CharInfoTable charNames = org.l2jmobius.gameserver.data.sql.CharInfoTable.getInstance();
+                charNames.removeName(r.charId());
+                repo.rename(r.botId(), r.charId(), neu);
+                charNames.getIdByName(neu);
+                registry.rename(r, old, neu);
+                if (r.persona() != null) {
+                    final Persona p = r.persona().withName(neu);
+                    repo.savePersona(r.botId(), p);
+                    r.setPersona(p);
+                }
+                taken.add(neu.toLowerCase(java.util.Locale.ROOT));
+                n++;
+            } catch (Exception e) {
+                ctx.log().warn("digit rename " + r + ": " + e.getMessage());
+            }
+        }
+        return n;
+    }
+
+    private boolean digitNameProtected(BotRecord r) {
+        final Player p = r.player();
+        if (p == null) {
+            return false; // offline — ok to rename unless elsewhere protected
+        }
+        if ((p.getParty() != null) && partyHasLive(p.getParty())) {
+            return true;
+        }
+        if ((p.getClan() != null) && clanHasLive(p.getClan())) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean partyHasLive(org.l2jmobius.gameserver.entity.groups.Party party) {
+        for (Player m : party.getMembers()) {
+            if ((m != null) && !registry.isBot(m) && m.isOnline()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean clanHasLive(org.l2jmobius.gameserver.entity.clan.Clan clan) {
+        for (var m : clan.getMembers()) {
+            final Player p = m == null ? null : m.getPlayer();
+            if ((p != null) && !registry.isBot(p) && p.isOnline()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Bots created before step 3b have no persona/state rows: build them from the real character. */
     private int adoptOldBots() {
         int n = 0;
@@ -542,6 +638,7 @@ public final class BotsCoreModule implements GameModule {
         }
         if (personas != null) {
             personas.setPkShare(pkShareOf(ctx.config().getString("PkBotShare")));
+            personas.setDigitShare(digitShareOf(ctx.config().getString("BotNameDigitShare")));
         }
         if (clans != null) {
             long adenaLimit = 50_000_000L;

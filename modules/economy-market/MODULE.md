@@ -194,7 +194,8 @@ Reinforcing Agent/Plate, молды и холдеры), Create Item не ниж�
 | `NpcArbitrageGuard` | 0.9 | скупка не дороже этой доли цены NPC |
 | `BotAdenaPerPlayerDay` | 0.3 | (5d) бюджет адены от ботов на игрока в день |
 | `SellToBotsItemDay` | 20 | штук одного предмета в день на продажу ботам (×10 у дешёвых стаков) |
-| `StoresPerTown` | Giran:60, остальные 0 | места лавок по городам |
+| `StoresPerTown` | Giran:120, остальные 0 | места лавок по городам (в полигоне Гирана реально ~100+) |
+| — | `data/grocery-items.txt` | id из buylist Grocer: не в лавках/WTS/WTB/трейде (4UDO и D+ соски остаются) |
 | `SimulatedDrift` | auto | дрейф цен (auto = solo) |
 | `TradeLogDays` | 30 | сколько дней хранить журнал |
 | `Seed` | 0 | зерно дрейфа (0 = из базы) |

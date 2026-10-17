@@ -21,6 +21,8 @@ public final class PersonaGenerator {
     private final Weights<Chronotype> chronotypes;
     /** Phase 7c: share of new personas that are PK (0..1). */
     private volatile double pkShare = 0.02;
+    /** Share of nicknames that may contain digits (default 0.03). */
+    private volatile double digitShare = 0.03;
 
     public PersonaGenerator(NameDictionary dict, Weights<NameGenerator.Style> styles, ClassPicker classes, Weights<String> timezones, Weights<Chronotype> chronotypes) {
         this.dict = dict;
@@ -40,6 +42,22 @@ public final class PersonaGenerator {
 
     public double pkShare() {
         return pkShare;
+    }
+
+    public void setDigitShare(double share) {
+        digitShare = Math.max(0, Math.min(1, share));
+    }
+
+    public double digitShare() {
+        return digitShare;
+    }
+
+    public NameDictionary dictionary() {
+        return dict;
+    }
+
+    public Weights<NameGenerator.Style> styles() {
+        return styles;
     }
 
     public static Weights<String> parseTimezones(List<String> entries) {
@@ -66,7 +84,7 @@ public final class PersonaGenerator {
         }
         final int future = ClassPicker.futureClass(cls, rClass);
         final ClassPicker.Look look = classes.look(cls, rLook);
-        final NameGenerator.Named named = new NameGenerator(rName, dict, styles).next(taken, look.female());
+        final NameGenerator.Named named = new NameGenerator(rName, dict, styles, digitShare).next(taken, look.female());
         final Persona.Lang lang = lang(named.style(), rName);
         final boolean pk = part(seed, 6).nextDouble() < pkShare;
         return new Persona(Persona.VERSION, seed, named.name(), named.style().name(), lang, cls, future, look.female(), look.face(), look.hairStyle(), look.hairColor(), Traits.random(rTraits), chronotypes.pick(rTime), timezones.pick(rTime), pk);

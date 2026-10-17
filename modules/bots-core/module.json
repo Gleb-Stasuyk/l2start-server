@@ -18,6 +18,7 @@
     "DeathReturnMax": { "type": "duration", "default": "40s", "min": "0s", "reloadable": true, "description": "... and at most this long." },
     "RestoreOnStart": { "type": "bool", "default": true, "description": "Bots that were in the world when the server stopped come back on start, at the same places." },
     "NameStyles": { "type": "list", "default": "ru:35,en:30,fantasy:20,gamer:15", "reloadable": true, "description": "Share of nickname styles (word lists: data/names/*.txt)." },
+    "BotNameDigitShare": { "type": "double", "default": 0.03, "min": 0, "max": 1, "reloadable": true, "description": "Share of bot nicknames that may contain digits (~3%); excess offline bots are renamed on start (except those in a party/clan with a live player)." },
     "ClassWeights": { "type": "list", "default": "0:15,10:12,18:9,25:10,31:11,38:10,44:9,49:6,53:18", "reloadable": true, "description": "Share of the 9 starting classes (classId:weight)." },
     "FaceWeights": { "type": "list", "default": "4,3,3", "reloadable": true, "description": "Weights of face 0..2." },
     "HairColorWeights": { "type": "list", "default": "4,3,2,2", "reloadable": true, "description": "Weights of hair color 0..3." },

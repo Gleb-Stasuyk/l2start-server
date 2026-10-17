@@ -120,6 +120,46 @@ public final class PartyBuffs {
         return wanted(casterClassId, targetClassId, false);
     }
 
+    /**
+     * Keep only buffs the caster can use at its level (skill id present in {@code learnable}); Wind Walk and
+     * Berserker Spirit stay first when learnable. Empty learnable → empty list.
+     */
+    public static List<Integer> filterLearnable(List<Integer> wanted, java.util.Set<Integer> learnable) {
+        if ((wanted == null) || wanted.isEmpty() || (learnable == null) || learnable.isEmpty()) {
+            return List.of();
+        }
+        final List<Integer> out = new ArrayList<>();
+        if (learnable.contains(WIND_WALK) && wanted.contains(WIND_WALK)) {
+            out.add(WIND_WALK);
+        }
+        if (learnable.contains(BERSERKER) && wanted.contains(BERSERKER)) {
+            out.add(BERSERKER);
+        }
+        for (int id : wanted) {
+            if ((id == WIND_WALK) || (id == BERSERKER)) {
+                continue;
+            }
+            if (learnable.contains(id) && !out.contains(id)) {
+                out.add(id);
+            }
+        }
+        return out;
+    }
+
+    /** Ids learnable from a skill tree at {@code charLevel} (skill level ignored — presence only). */
+    public static java.util.Set<Integer> learnableIds(Iterable<int[]> treeSkillIdGetLevel, int charLevel) {
+        final java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        if (treeSkillIdGetLevel == null) {
+            return out;
+        }
+        for (int[] row : treeSkillIdGetLevel) {
+            if ((row != null) && (row.length >= 2) && (row[1] <= charLevel)) {
+                out.add(row[0]);
+            }
+        }
+        return out;
+    }
+
     private static void add(List<Integer> out, int[] ids) {
         for (int id : ids) {
             if (!out.contains(id)) {

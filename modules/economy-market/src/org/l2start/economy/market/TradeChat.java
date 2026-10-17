@@ -181,6 +181,10 @@ final class TradeChat {
         if (ad == null) {
             return;
         }
+        // Grocer NPC goods: not in bot shops / WTS / meetings (4UDO SERVICE still sells its own lines).
+        if (ad.items().stream().anyMatch(it -> traders.assortment().grocery().contains(it.id()))) {
+            return;
+        }
         final String key = p.getObjectId() + ":" + ad.items().get(0).id() + ":" + ad.playerSells();
         if (recent.containsKey(key)) {
             return;

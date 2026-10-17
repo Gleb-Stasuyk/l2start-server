@@ -2039,7 +2039,17 @@ public final class BasicBrain implements Brain {
             if (m.dead() || (m.distance() > 600)) {
                 continue;
             }
-            for (int id : PartyBuffs.wanted(me.classId(), m.classId(), peace)) {
+            final java.util.Set<Integer> known = new java.util.LinkedHashSet<>();
+            for (SkillView s : me.skills()) {
+                if (s != null) {
+                    known.add(s.id());
+                }
+            }
+            // known empty (tests without skill list): fall back to full wanted; live bots filter by learned
+            final java.util.List<Integer> buffIds = known.isEmpty()
+                ? PartyBuffs.wanted(me.classId(), m.classId(), peace)
+                : PartyBuffs.filterLearnable(PartyBuffs.wanted(me.classId(), m.classId(), peace), known);
+            for (int id : buffIds) {
                 final SkillView s = skill(me, id);
                 final String key = id + ">" + m.objectId();
                 if (!usable(me, s) || (partyBuffed.getOrDefault(key, 0L) > now)) {

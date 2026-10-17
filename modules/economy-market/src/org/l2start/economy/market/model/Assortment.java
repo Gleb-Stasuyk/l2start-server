@@ -34,9 +34,19 @@ public final class Assortment {
     }
 
     private final Map<String, Profile> profiles;
+    private volatile GroceryItems grocery = GroceryItems.empty();
 
     private Assortment(Map<String, Profile> profiles) {
         this.profiles = profiles;
+    }
+
+    /** Items sold by Grocer NPCs — excluded from bot shops (service traders bypass this). */
+    public void setGrocery(GroceryItems g) {
+        grocery = (g == null) ? GroceryItems.empty() : g;
+    }
+
+    public GroceryItems grocery() {
+        return grocery;
     }
 
     public static Assortment load(Path file) throws Exception {
@@ -73,11 +83,12 @@ public final class Assortment {
         return profiles;
     }
 
-    /** Items a profile may carry at a stage. */
+    /** Items a profile may carry at a stage (Grocery NPC goods excluded). */
     public List<MarketItem> candidates(Profile p, MarketItems items, int stage) {
         final List<MarketItem> out = new ArrayList<>();
+        final GroceryItems g = grocery;
         for (MarketItem i : items.all()) {
-            if ((i.price() > 0) && Stage.available(i, stage) && p.takes(i)) { // no reference price: no believable price either
+            if ((i.price() > 0) && Stage.available(i, stage) && p.takes(i) && !g.contains(i.id())) {
                 out.add(i);
             }
         }

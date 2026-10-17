@@ -25,7 +25,7 @@ class NameGeneratorTest {
 
     @Test
     void tenThousandValidUniqueNamesInTheApprovedStyleMix() {
-        final NameGenerator g = new NameGenerator(new Random(42), DICT);
+        final NameGenerator g = new NameGenerator(new Random(42), DICT, NameGenerator.parseStyles(NameGenerator.DEFAULT_STYLES), 1.0);
         final Set<String> taken = new HashSet<>();
         final Map<NameGenerator.Style, Integer> styles = new EnumMap<>(NameGenerator.Style.class);
         for (int i = 0; i < 10_000; i++) {

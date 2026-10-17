@@ -69,4 +69,21 @@ class PartyBuffsTest {
         final List<Integer> w = PartyBuffs.wanted(PROPHET, GLADIATOR, true);
         assertTrue(w.equals(List.of(PartyBuffs.WIND_WALK)));
     }
+
+    @Test
+    void filterLearnableKeepsWwAndBersFirst() {
+        final List<Integer> full = PartyBuffs.wanted(PROPHET, GLADIATOR);
+        final var at40 = PartyBuffs.learnableIds(List.of(
+            new int[] { 1204, 20 }, new int[] { 1068, 40 }, new int[] { 1040, 40 }), 40);
+        final List<Integer> low = PartyBuffs.filterLearnable(full, at40);
+        assertTrue(low.get(0) == PartyBuffs.WIND_WALK);
+        assertFalse(low.contains(PartyBuffs.BERSERKER));
+        assertTrue(low.contains(1068));
+        final var at52 = PartyBuffs.learnableIds(List.of(
+            new int[] { 1204, 20 }, new int[] { 1068, 40 }, new int[] { 1062, 52 }, new int[] { 1086, 52 }), 52);
+        final List<Integer> mid = PartyBuffs.filterLearnable(full, at52);
+        assertTrue(mid.contains(PartyBuffs.BERSERKER));
+        assertTrue(mid.indexOf(PartyBuffs.WIND_WALK) < mid.indexOf(PartyBuffs.BERSERKER));
+        assertTrue(mid.size() > low.size());
+    }
 }

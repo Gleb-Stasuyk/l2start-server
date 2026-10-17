@@ -23,6 +23,11 @@ public record Persona(int version, long seed, String name, String nameStyle, Lan
         return new Persona(VERSION, seed, name, nameStyle, lang, classId, futureClassId, female, face, hairStyle, hairColor, traits, chronotype, timezone, value);
     }
 
+    /** Rename (digit-share trim / admin). */
+    public Persona withName(String newName) {
+        return new Persona(VERSION, seed, newName, nameStyle, lang, classId, futureClassId, female, face, hairStyle, hairColor, traits, chronotype, timezone, pk);
+    }
+
     public String toJson() {
         final StringBuilder sb = new StringBuilder(340);
         sb.append('{');

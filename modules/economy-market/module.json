@@ -86,7 +86,7 @@
     },
     "StoresPerTown": {
       "type": "string",
-      "default": "Giran:60,Dion:0,Aden:0,Oren:0,Gludio:0,Heine:0,Rune:0,Goddard:0,Schuttgart:0,Floran:0,Hunters:0,Gludin:0",
+      "default": "Giran:120,Dion:0,Aden:0,Oren:0,Gludio:0,Heine:0,Rune:0,Goddard:0,Schuttgart:0,Floran:0,Hunters:0,Gludin:0",
       "reloadable": true,
       "description": "Bot store places per town (steps 5b/5e): scattered places generated once (seeded, on the ground, clear of NPCs) and kept in the database; every 8th new place is a dwarf crafter. For now only Giran has stores; the other towns get places when their number is above 0 and they have an area in data/market-areas.xml."
     },

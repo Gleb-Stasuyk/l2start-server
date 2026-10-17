@@ -133,6 +133,22 @@ final class Traders {
         legacy = StoreSpots.load(m.ctx().resources().path("data/store-spots.xml"));
         areas = MarketAreas.load(m.ctx().resources().path("data/market-areas.xml"));
         assortment = Assortment.load(m.ctx().resources().path("data/trader-profiles.xml"));
+        try {
+            final java.nio.file.Path list = m.ctx().resources().path("data/grocery-items.txt");
+            var grocery = org.l2start.economy.market.model.GroceryItems.loadList(list);
+            if (grocery.size() == 0) {
+                final java.nio.file.Path stockData = java.nio.file.Path.of("core/dist/game/data");
+                if (java.nio.file.Files.isDirectory(stockData.resolve("buylists"))) {
+                    grocery = org.l2start.economy.market.model.GroceryItems.load(stockData);
+                }
+            }
+            if (grocery.size() > 0) {
+                assortment.setGrocery(grocery);
+                m.ctx().log().info("grocery filter: " + grocery.size() + " items from Grocer buylists");
+            }
+        } catch (Exception e) {
+            m.ctx().log().warn("grocery filter not loaded: " + e.getMessage());
+        }
         crafts = new Crafts(m);
         shoppers = new Shoppers(m, this, pool);
         meetings = new Meetings(m, this, pool);
@@ -186,6 +202,16 @@ final class Traders {
                     close(s, "sold out, logged out by the stock store code");
                     s.reopenAt = now + REOPEN_AFTER_LOGOUT_MS;
                     s.forceRestock = true;
+                    continue;
+                }
+                if (s.open && (s.soldOutAt > 0) && !s.service() && !s.craft()) {
+                    try {
+                        replaceSoldOut(s, now, night, day, nightStay);
+                    } catch (Exception e) {
+                        warnOnce("replace " + s.spot.id(), "sold-out replace at " + s.spot.id() + ": " + e.getMessage());
+                        s.forceRestock = true;
+                        refreshInPlace(s, p, now, "sold out fallback");
+                    }
                     continue;
                 }
                 if (s.open && (s.soldOutAt > 0)) {
@@ -307,6 +333,10 @@ final class Traders {
 
     TraderPool pool() {
         return pool;
+    }
+
+    Assortment assortment() {
+        return assortment;
     }
 
     /** The trader's price of an item now (sell or buy side, by its greed). */
@@ -644,6 +674,27 @@ final class Traders {
         s.row = new StoreRow(botId, s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), title, s.row.openedAt(), now, linesStart);
     }
 
+    /**
+     * Empty sell/buy store: close, drop the persona from the spot, open with a new trader immediately
+     * (Giran keeps only active shops with goods).
+     */
+    private void replaceSoldOut(Store s, long now, boolean night, long day, double nightStay) throws Exception {
+        final int oldId = (s.row == null) ? 0 : s.row.botId();
+        final String oldName = (oldId > 0) ? pool.name(oldId) : "?";
+        close(s, "sold out, replace trader");
+        if (oldId > 0) {
+            repo.dropStore(oldId);
+        }
+        s.row = null;
+        s.lines = new ArrayList<>();
+        s.soldOutAt = 0;
+        s.forceRestock = true;
+        s.reopenAt = 0;
+        open(s, now, night, day, nightStay);
+        final int neu = (s.row == null) ? 0 : s.row.botId();
+        m.ctx().log().info("trader replaced at " + s.spot.id() + ": " + oldName + " -> " + (neu > 0 ? pool.name(neu) : "?"));
+    }
+
     /** In place, without a logout: what was sold leaves the lines, the paper life runs, the store opens again refilled. */
     private void refreshInPlace(Store s, Player p, long now, String why) throws Exception {
         synchronized (s) {
@@ -758,6 +809,13 @@ final class Traders {
             if (put == 0) {
                 emptyBag(p);
                 s.soldOutAt = 0;
+                if (!s.service() && !s.craft()) {
+                    s.forceRestock = true;
+                    m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + " empty bag: will be replaced");
+                    // close without client store; tick replaceSoldOut needs soldOutAt — set and leave for next tick
+                    s.soldOutAt = System.currentTimeMillis();
+                    return;
+                }
                 s.forceRestock = true;
                 m.ctx().log().warn("trader " + p.getName() + " at " + s.spot.id() + " has nothing to show (" + s.row.profile() + "): refilled on the restock timer");
                 return;

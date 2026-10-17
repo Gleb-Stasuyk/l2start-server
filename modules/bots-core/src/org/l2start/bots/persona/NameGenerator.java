@@ -28,12 +28,19 @@ public final class NameGenerator {
     private boolean female;
     private final NameDictionary dict;
     private final Weights<Style> styles;
+    /** Share of new names allowed to contain digits (default 0.03). */
+    private final double digitShare;
     private final List<String> ruMale, ruFemale, enMale, enFemale, ruWords, ruSuffixes, enFirst, enSecond, fantasyStart, fantasyMid, fantasyEnd, gamerRoles, gamerNumbers, stopWords;
 
     public NameGenerator(Random rnd, NameDictionary dict, Weights<Style> styles) {
+        this(rnd, dict, styles, 0.03);
+    }
+
+    public NameGenerator(Random rnd, NameDictionary dict, Weights<Style> styles, double digitShare) {
         this.rnd = rnd;
         this.dict = dict;
         this.styles = styles;
+        this.digitShare = Math.max(0, Math.min(1, digitShare));
         ruMale = dict.get("ru_names_male");
         ruFemale = dict.get("ru_names_female");
         enMale = dict.get("en_names_male");
@@ -51,7 +58,23 @@ public final class NameGenerator {
     }
 
     public NameGenerator(Random rnd, NameDictionary dict) {
-        this(rnd, dict, parseStyles(DEFAULT_STYLES));
+        this(rnd, dict, parseStyles(DEFAULT_STYLES), 0.03);
+    }
+
+    public double digitShare() {
+        return digitShare;
+    }
+
+    public static boolean hasDigit(String name) {
+        if (name == null) {
+            return false;
+        }
+        for (int i = 0; i < name.length(); i++) {
+            if (Character.isDigit(name.charAt(i))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Weights<Style> parseStyles(List<String> entries) {
@@ -81,7 +104,19 @@ public final class NameGenerator {
         for (int i = 0; i < 5; i++) {
             final Style style = pickStyle();
             for (int k = 0; k < 40; k++) {
+                // first half: natural mix; digit names kept with probability digitShare
                 final String name = generate(style);
+                if (!isValid(name) || taken.test(name)) {
+                    continue;
+                }
+                if (hasDigit(name) && (rnd.nextDouble() >= digitShare)) {
+                    continue;
+                }
+                return new Named(name, style);
+            }
+            // second half: force no digits so the pool never stalls
+            for (int k = 0; k < 40; k++) {
+                final String name = generateWithoutDigits(style);
                 if (isValid(name) && !taken.test(name)) {
                     return new Named(name, style);
                 }
@@ -95,19 +130,29 @@ public final class NameGenerator {
 
     public String generate(Style style) {
         return switch (style) {
-            case RU -> ru();
-            case EN -> en();
+            case RU -> ru(true);
+            case EN -> en(true);
             case FANTASY -> fantasy();
-            case GAMER -> gamer();
+            case GAMER -> gamer(true);
         };
     }
 
-    private String ru() {
-        switch (rnd.nextInt(7)) {
+    private String generateWithoutDigits(Style style) {
+        return switch (style) {
+            case RU -> ru(false);
+            case EN -> en(false);
+            case FANTASY -> fantasy();
+            case GAMER -> gamer(false);
+        };
+    }
+
+    private String ru(boolean allowDigits) {
+        final int roll = allowDigits ? rnd.nextInt(7) : rnd.nextInt(5);
+        switch (roll) {
             case 0:
                 return pick(ruNames());
             case 1:
-                return pick(ruNames()) + year();
+                return allowDigits ? pick(ruNames()) + year() : stem(pick(ruNames())) + pick(ruSuffixes);
             case 2:
                 return stem(pick(ruNames())) + pick(ruSuffixes);
             case 3:
@@ -117,7 +162,7 @@ public final class NameGenerator {
             case 5:
                 return "Ne" + pick(ruWords);
             default:
-                return pick(ruWords) + (10 + rnd.nextInt(90));
+                return allowDigits ? pick(ruWords) + (10 + rnd.nextInt(90)) : pick(ruWords);
         }
     }
 
@@ -136,15 +181,17 @@ public final class NameGenerator {
         return rnd.nextInt(100) < 3 ? fem : male;
     }
 
-    private String en() {
-        switch (rnd.nextInt(5)) {
+    private String en(boolean allowDigits) {
+        final int roll = allowDigits ? rnd.nextInt(5) : rnd.nextInt(4);
+        switch (roll) {
             case 0:
             case 1:
                 return pick(enFirst) + pick(enSecond);
             case 2:
                 return pick(enNames());
             case 3:
-                return pick(enNames()) + (rnd.nextBoolean() ? year() : String.valueOf(1 + rnd.nextInt(99)));
+                return allowDigits ? pick(enNames()) + (rnd.nextBoolean() ? year() : String.valueOf(1 + rnd.nextInt(99)))
+                    : pick(enNames()) + pick(enFirst);
             default:
                 return pick(enNames()) + pick(enFirst);
         }
@@ -159,13 +206,14 @@ public final class NameGenerator {
         return sb.toString();
     }
 
-    private String gamer() {
+    private String gamer(boolean allowDigits) {
         final String word = capitalize(pick(enSecond));
-        switch (rnd.nextInt(6)) {
+        final int roll = allowDigits ? rnd.nextInt(6) : rnd.nextInt(3);
+        switch (roll) {
             case 0:
                 return "xX" + pick(enFirst) + word + "Xx";
             case 1:
-                return pick(enFirst) + "Lord" + pick(gamerNumbers);
+                return allowDigits ? pick(enFirst) + "Lord" + pick(gamerNumbers) : "Pro" + pick(gamerRoles);
             case 2:
                 return "Pro" + pick(gamerRoles);
             case 3:
@@ -173,7 +221,7 @@ public final class NameGenerator {
             case 4:
                 return pick(enFirst) + word + pick(gamerNumbers);
             default:
-                return (rnd.nextBoolean() ? "Mr" : "Lord") + pick(enFirst) + (rnd.nextBoolean() ? "" : pick(gamerNumbers));
+                return (rnd.nextBoolean() ? "Mr" : "Lord") + pick(enFirst) + ((allowDigits && rnd.nextBoolean()) ? pick(gamerNumbers) : "");
         }
     }
 
