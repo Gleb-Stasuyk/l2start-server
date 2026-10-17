@@ -22,7 +22,8 @@ public final class TownBufferModule implements GameModule {
         } catch (NoClassDefFoundError e) {
             buffers = null; // bots-core not installed
         }
-        c.log().info("enabled: " + ((buffers == null) ? "no bots-core, buffers off" : "5 buffers (Gludio 48, Dion 55, Giran 64, Aden 74, Goddard 78), in the world while a player is near"));
+        c.log().info("enabled: " + ((buffers == null) ? "no bots-core, buffers off"
+            : "7 buffers (PP Gludio/Dion/Giran/Aden/Goddard + SE Giran64/Goddard78), in the world while a player is near"));
     }
 
     @Override

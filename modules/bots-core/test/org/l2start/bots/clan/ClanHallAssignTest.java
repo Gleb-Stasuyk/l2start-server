@@ -42,4 +42,12 @@ class ClanHallAssignTest {
         assertTrue(ClanHallAssign.isMaxConfigured(8, 2, 300, 40, 50));
         assertFalse(ClanHallAssign.isMaxConfigured(7, 2, 300, 40, 50));
     }
+
+    @Test
+    void needCoversOneMillionLeaseTwoPeriods() {
+        // Giran/Aden/Goddard lease ≈ 1kk → message "$s1=1000000 tomorrow"
+        assertEquals(2_000_000L, ClanHallAssign.needForTwoPeriods(1_000_000, List.of()));
+        final long withDaily = ClanHallAssign.needForTwoPeriods(1_000_000, List.of(new ClanHallAssign.FeePeriod(50_000, DAY)));
+        assertEquals(2_000_000L + (50_000L * 14), withDaily);
+    }
 }

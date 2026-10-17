@@ -229,6 +229,31 @@
 18. **КХ рекрутёрам:** ближайший free auctionable к ГК (иначе соседний); персистентно; max SUPPORT/TELEPORT/RESTORE_*; CWH ≥ 2 периода lease (сток платит).
 19. Шаблон шаута с lvl и КХ; `PvpAggression` default `normal`; доки `BOTS_PVP_CLANS.md`.
 
+### Доработки после 7g (17–18.10.2026)
+
+Решения Глеба:
+
+| Тема | Решение |
+|---|---|
+| SE-баферы | Рядом с PP: Giran SE64 / 20k, Goddard SE78 / 40k; трейд как PP |
+| SE маг | Empower, Wild Magic; Arcane Protection **только SE78** (сток, без форса на 64) |
+| SE воин | Vampiric Rage; Arcane Protection только SE78 |
+| Пустой BUY | Сразу replace как SELL; в Гиране нет open store с 0 линий |
+| SE78 класс | Shillien Saint (для 1354); SE64 = Shillien Elder |
+
+Причины багов:
+
+| Баг | Причина | Фикс |
+|---|---|---|
+| «1kk завтра» + мёртвые функции КХ | `setOwner` → `FeeTask(0)` до top-up CWH → `_paid=false`; EnterWorld шлёт lease; `maintainAllOwned` initialDelay 6h | CWH до setOwner; `botEnsurePaid`; функции после оплаты; scheduler delay секунды |
+| Нет Berserker | `1062` = `PARTY_MEMBER` | временная пати на время бафа |
+| ГК подвисает | полный скан SpawnTable в `showTeleportList` | прогрев кэша при ready |
+| Пустые BUY | ветка «Full today» | replaceSoldOut |
+
+Шаги: КХ → party-buff PP → SE → world-info → BUY replace → крафт B/A → тесты/smoke/push PR#9 (не мёржить).
+
+**КТ (клиент):** вход в КХ-клан без сообщения о долге, бафы/телепорт/реген; Berserker с PP; SE рядом с PP; ГК без лага; нет пустых BUY; крафт B–A.
+
 ## 7. Бэклог (после этапа 7 / в этапе 8)
 
 - Войны кланов, осады замков и фортов.

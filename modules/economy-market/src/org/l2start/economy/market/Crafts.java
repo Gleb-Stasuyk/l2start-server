@@ -50,6 +50,23 @@ final class Crafts {
         return Math.max(1, n);
     }
 
+    /**
+     * Weapon / Armor / jewelry: only B or A. Materials and other kinds unrestricted.
+     * Pure (tested).
+     */
+    static boolean gearGradeOk(MarketItem product) {
+        if (product == null) {
+            return false;
+        }
+        final String k = product.kind();
+        if ((k == null) || !(k.equalsIgnoreCase("Weapon") || k.equalsIgnoreCase("Armor") || k.equalsIgnoreCase("Accessary")
+            || k.equalsIgnoreCase("Accessory"))) {
+            return true;
+        }
+        final MarketItem.Grade g = product.grade();
+        return (g == MarketItem.Grade.B) || (g == MarketItem.Grade.A);
+    }
+
     /** World thread: recipes into the book, the store list, full MP. @return the number of recipes shown. */
     int open(Player p, Traders.Store s, String lang) {
         int skill = p.getSkillLevel(CommonSkill.CREATE_DWARVEN.getId());
@@ -133,7 +150,7 @@ final class Crafts {
                 continue;
             }
             final MarketItem product = m.book().items().get(r.getItemId());
-            if ((product == null) || (product.stage() > stage)) {
+            if ((product == null) || (product.stage() > stage) || !gearGradeOk(product)) {
                 continue;
             }
             fit.add(r);

@@ -347,7 +347,8 @@ public final class BotsCoreModule implements GameModule {
             });
         }
         if (clanHallAssign != null) {
-            ctx.scheduler().fixedRate("clan hall cwh top-up", Duration.ofHours(6), Duration.ofHours(1), () -> {
+            // initialDelay seconds (not 6h): fix unpaid halls soon after restart
+            ctx.scheduler().fixedRate("clan hall cwh top-up", Duration.ofSeconds(30), Duration.ofHours(1), () -> {
                 try {
                     clanHallAssign.maintainAllOwned();
                 } catch (Exception e) {

@@ -210,7 +210,7 @@ real_modules() { # real_modules LOG N
   check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, champion x2.0 \(adena x3.0\), adena x5.0' "$1"
   check "$2: platform API 1.11.0" grep -qE 'Platform: API 1\.11\.0,' "$1"
   check "$2: world-info RUNNING (hook P8-TELEPORT-NAME)" state_is world-info RUNNING "$1"
-  check "$2: town-buffer RUNNING (5 buffers)" state_is town-buffer RUNNING "$1"
+  check "$2: town-buffer RUNNING (buffers)" state_is town-buffer RUNNING "$1"
   check "$2: rates override XP x10 applied" has "override game/Rates.ini: RateXp = 10" "$1"
   check "$2: extras: champions on (Custom override)" has "override game/Custom/ChampionMonsters.ini: ChampionEnable = True" "$1"
   check "$2: extras: shift+click view for players" has "override game/NPC.ini: AltGameViewNpc = True" "$1"

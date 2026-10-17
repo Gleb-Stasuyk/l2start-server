@@ -796,24 +796,14 @@ final class Traders {
             s.charId = p.getObjectId();
             byChar.put(p.getObjectId(), s);
             s.open = true;
-            if ((put == 0) && buy && (budgetLeft != Long.MAX_VALUE) && !s.lines.isEmpty()) {
-                // 5d: the day budget is spent: the buyer stays, "full for today" (an empty buy list, never store NONE)
-                p.getBuyList().setTitle(StoreTitle.fit("RU".equals(pool.lang(s.row.botId())) ? "Набрал, завтра снова" : "Full today, back tmrw"));
-                s.charId = p.getObjectId();
-                p.sitDown();
-                p.setPrivateStoreType(PrivateStoreType.BUY);
-                p.broadcastUserInfo();
-                p.broadcastPacket(new PrivateStoreMsgBuy(p));
-                m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + ": day budget of the players spent, buys nothing more today");
-                return;
-            }
             if (put == 0) {
+                // empty SELL or BUY (incl. day budget spent): replace trader — no open stores with 0 lines
                 emptyBag(p);
                 s.soldOutAt = 0;
                 if (!s.service() && !s.craft()) {
                     s.forceRestock = true;
-                    m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + " empty bag: will be replaced");
-                    // close without client store; tick replaceSoldOut needs soldOutAt — set and leave for next tick
+                    m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + " empty " + (buy ? "BUY" : "SELL") + ": will be replaced"
+                        + ((buy && (budgetLeft != Long.MAX_VALUE)) ? " (day budget)" : ""));
                     s.soldOutAt = System.currentTimeMillis();
                     return;
                 }

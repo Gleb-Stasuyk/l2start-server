@@ -112,6 +112,8 @@ public final class ClanHallAssign {
                 ctx.log().warn("no free clan hall for bot clan " + clan.getName());
                 return 0;
             }
+            // CWH before setOwner so FeeTask(0) / ensurePaidFromCwh can take the lease
+            topUpWarehouse(clan, hall, actor != null ? actor : onlineMember(clan));
             try {
                 ClanHallTable.getInstance().setOwner(hall.getId(), clan);
                 ctx.log().info("bot clan " + clan.getName() + " assigned CH#" + hall.getId() + " (" + hall.getLocation() + ")");
@@ -153,7 +155,16 @@ public final class ClanHallAssign {
         }
         final Player payer = actor != null ? actor : onlineMember(clan);
         topUpWarehouse(clan, hall, payer);
-        enableMaxFunctions(hall, payer);
+        if (!hall.getPaid() || (hall.getPaidUntil() <= System.currentTimeMillis())) {
+            if (!hall.ensurePaidFromCwh()) {
+                ctx.log().warn("CH#" + hall.getId() + " lease unpaid after top-up (CWH " + clan.getWarehouse().getAdena() + ", lease " + hall.getLease() + ")");
+            } else {
+                ctx.log().info("CH#" + hall.getId() + " lease paid until " + hall.getPaidUntil());
+            }
+        }
+        if (hall.getPaid()) {
+            enableMaxFunctions(hall, payer);
+        }
         return hall.getId();
     }
 

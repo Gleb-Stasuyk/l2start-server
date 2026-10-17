@@ -32,15 +32,20 @@ final class Deal {
         return adena >= price ? Verdict.OK : Verdict.NOT_ENOUGH;
     }
 
-    /** Skill id and level to cast, in the old order, only the buffs of the payer's kind (mage or warrior). */
-    static List<int[]> plan(Map<Integer, Integer> levels, boolean mage) {
+    /** Skill id and level to cast, in order, only the buffs of the payer's kind (mage or warrior). */
+    static List<int[]> plan(Map<Integer, Integer> levels, int[] order, Towns.Kind kind, boolean mage) {
         final List<int[]> out = new ArrayList<>();
-        for (int id : Towns.BUFFS) {
+        for (int id : order) {
             final Integer lv = levels.get(id);
-            if ((lv != null) && Towns.forClass(id, mage)) {
+            if ((lv != null) && Towns.forClass(kind, id, mage)) {
                 out.add(new int[] { id, lv });
             }
         }
         return out;
+    }
+
+    /** PP plan (tests / legacy). */
+    static List<int[]> plan(Map<Integer, Integer> levels, boolean mage) {
+        return plan(levels, Towns.PP_BUFFS, Towns.Kind.PP, mage);
     }
 }
