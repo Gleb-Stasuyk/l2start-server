@@ -66,7 +66,7 @@
 | `Social` | `true` | этап 6d: поиск пати в городах (LFP/LFM шаут/трейд), ответы на шёпот и на LFP игрока; `false` = как до 6d (инвайты 6b/6c остаются) |
 | `LfpReplies` | `2` | этап 6d: сколько ботов максимум отвечают шёпотом на одно LFP/LFM игрока (0–5) |
 | `SocialNoise` | `lively` | этап 6d/6g: `quiet` / `normal` / `lively` — как часто боты пишут LFP/LFM и болтают в пати |
-| `PvpAggression` | `on` | этап 7a: `off` / `on` (=normal) / `low` / `normal` / `high` — инициатива к живым (`off` = не нападать первым; защита и месть отдельно) |
+| `PvpAggression` | `normal` | этап 7a/7g: `off` / `low` / `normal` / `high` — инициатива к живым (`off` = не нападать первым; защита и месть отдельно) |
 | `PvpPlayerCooldown` | `12m` | этап 7a: пауза между решениями «напасть первым» на одного и того же живого |
 | `PvpProtectParty` / `PvpProtectClan` | `on` | этап 7a: защита пати/клана (клан — с 7d); не гасятся `off` |
 | `PvpRevenge` | `on` | этап 7a: месть по `KILLED_ME`/`ATTACKED_ME`; не гасится `off` |

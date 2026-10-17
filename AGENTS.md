@@ -82,7 +82,7 @@ tools/smoke.sh                # полный docker smoke (~10 мин) — то�
 1. `README.md`, `docs/ARCHITECTURE.md`
 2. `docs/MODULES.md`, `docs/PLATFORM_API.md`, `docs/PLATFORM_HOOKS.md`, `docs/ID_RANGES.md`
 3. `modules/README.md` и `MODULE.md` нужного модуля
-4. Боты: `docs/BOTS_RUNTIME.md`, `docs/BOTS_CLIENTLESS.md`, `docs/PHASE6_PLAN.md`
+4. Боты: `docs/BOTS_RUNTIME.md`, `docs/BOTS_CLIENTLESS.md`, `docs/PHASE6_PLAN.md`, `docs/PHASE7_PLAN.md`, `docs/BOTS_PVP_CLANS.md`
 5. Рейты/дополнения: `docs/RATES_PLAN.md`, `docs/EXTRAS_PLAN.md`
 6. Апстрим: `docs/UPSTREAM.md`, `upstream.lock`
 

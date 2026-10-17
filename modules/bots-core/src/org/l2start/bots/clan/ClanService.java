@@ -37,7 +37,6 @@ public final class ClanService {
     private final List<ClanTemplate> templates;
     private final Map<Integer, Integer> botClan = new ConcurrentHashMap<>(); // botId -> bot-clan id (0 = none / player clan)
     private final Map<Integer, ClanStore.Row> byClan = new ConcurrentHashMap<>();
-    private final Map<Integer, Long> inviteAt = new ConcurrentHashMap<>(); // live charId -> last invite ms
     private final Map<Integer, Long> adenaSpentDay = new ConcurrentHashMap<>(); // clanId -> spent today
     private final Map<Integer, Long> adenaDayStart = new ConcurrentHashMap<>();
     private final Set<Integer> playerClanBots = ConcurrentHashMap.newKeySet(); // botIds in a live player's clan
@@ -49,7 +48,6 @@ public final class ClanService {
     private volatile double mixedPartyChance = 0.25;
     private volatile double clanBotShare = 0.40;
     private volatile int bigClans = 1;
-    private volatile long inviteCooldownMs = 24 * 60 * 60_000L;
     private volatile long adenaSpendLimit = 50_000_000L;
     /** Optional: director pull (legacy; stock clans no longer wait for leader enter). */
     private volatile LeaderEnterHook leaderEnterHook;
@@ -108,20 +106,19 @@ public final class ClanService {
     }
 
     public void configure(int botClans, int minMembers, int maxMembers, double mixedChance, double share, int big,
-        long inviteCdMs, long adenaLimit) {
+        long adenaLimit) {
         wantClans = Math.max(0, Math.min(20, botClans));
         membersMin = Math.max(1, Math.min(40, minMembers));
         membersMax = Math.max(membersMin, Math.min(40, maxMembers));
         mixedPartyChance = Math.max(0, Math.min(1, mixedChance));
         clanBotShare = Math.max(0, Math.min(1, share));
         bigClans = Math.max(0, Math.min(3, big));
-        inviteCooldownMs = Math.max(0, inviteCdMs);
         adenaSpendLimit = Math.max(0, adenaLimit);
     }
 
     /** Back-compat for 7d callers. */
     public void configure(int botClans, int minMembers, int maxMembers, double mixedChance) {
-        configure(botClans, minMembers, maxMembers, mixedChance, clanBotShare, bigClans, inviteCooldownMs, adenaSpendLimit);
+        configure(botClans, minMembers, maxMembers, mixedChance, clanBotShare, bigClans, adenaSpendLimit);
     }
 
     public double mixedPartyChance() {
@@ -138,10 +135,6 @@ public final class ClanService {
 
     public int wantClans() {
         return wantClans;
-    }
-
-    public long inviteCooldownMs() {
-        return inviteCooldownMs;
     }
 
     public long adenaSpendLimit() {
@@ -770,27 +763,6 @@ public final class ClanService {
         } catch (Exception e) {
             ctx.log().warn("clear player clan " + botId + ": " + e.getMessage());
         }
-    }
-
-    /** @return true if this live player may receive another bot-clan invite now */
-    public boolean inviteCooldownOk(int liveCharId, long now) {
-        if (inviteCooldownMs <= 0) {
-            return true;
-        }
-        final long last = inviteAt.getOrDefault(liveCharId, 0L);
-        return (now - last) >= inviteCooldownMs;
-    }
-
-    public void noteInvite(int liveCharId, long now) {
-        inviteAt.put(liveCharId, now);
-    }
-
-    /** Pure: invite cooldown check. */
-    public static boolean inviteCooldownAllows(long lastInviteMs, long now, long cooldownMs) {
-        if (cooldownMs <= 0) {
-            return true;
-        }
-        return (now - lastInviteMs) >= cooldownMs;
     }
 
     public boolean canSpendAdena(int clanId, long amount, long now) {

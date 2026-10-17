@@ -25,19 +25,13 @@ import org.l2start.platform.api.ModuleContext;
 import org.l2start.platform.hooks.CoreHooks;
 
 /**
- * Phase 7f: academy recruiters near GK in Gludin / Gludio / Dion / Giran.
+ * Phase 7f/7g: academy recruiters near GK — invite only when asked; CH assigned to their clans.
  */
 public final class AcademyRecruiters {
     public static final String TITLE = "Набор в академию";
     private static final int NEAR = 6000;
     private static final long STAY_MS = 5 * 60_000L;
     private static final long SHOUT_GAP_MS = 90_000L;
-    private static final String[] SHOUTS = {
-        "Набор в академию! 1-2 профа до 40 лвл — пиши!",
-        "Academy open! No clan, under 40 — whisper me.",
-        "В академию клана! Вступление + выпуск бонусом.",
-        "Trade: academy invite. Whisper «в академию»."
-    };
 
     public record Spot(String town, int x, int y, int z) {
     }
@@ -55,7 +49,6 @@ public final class AcademyRecruiters {
         int clanId;
         long seenAt;
         long lastShoutAt;
-        long lastInviteAt;
 
         Slot(Spot spot) {
             this.spot = spot;
@@ -78,6 +71,9 @@ public final class AcademyRecruiters {
     private volatile SocialBoard social = SocialBoard.NONE;
     private volatile ForceEnter forceEnter = (id, x, y, z, lvl) -> {
     };
+    private volatile ClanHallAssign halls;
+    private volatile int joinReward = 50_000;
+    private volatile int gradReward = 150_000;
 
     public AcademyRecruiters(ModuleContext ctx, ClanService clans, BotRegistry registry, BotWorld world) {
         this.ctx = ctx;
@@ -91,6 +87,28 @@ public final class AcademyRecruiters {
 
     public void configure(boolean on) {
         enabled = on;
+    }
+
+    public void setHalls(ClanHallAssign assign) {
+        halls = assign;
+    }
+
+    public void setRewards(int join, int graduate) {
+        joinReward = Math.max(0, join);
+        gradReward = Math.max(0, graduate);
+    }
+
+    /** Clan ids currently used as recruiters (for CH assign / bids skip). */
+    public Set<Integer> recruiterClanIds() {
+        final Set<Integer> out = new HashSet<>();
+        for (List<Slot> slots : byTown.values()) {
+            for (Slot s : slots) {
+                if (s.clanId > 0) {
+                    out.add(s.clanId);
+                }
+            }
+        }
+        return out;
     }
 
     public void setSocial(SocialBoard board) {
@@ -174,7 +192,6 @@ public final class AcademyRecruiters {
                 slot.seenAt = now;
                 ensureTitle(bot);
                 maybeShout(slot, bot, now);
-                maybeInviteNear(slot, bot, now);
             }
         }
     }
@@ -201,7 +218,13 @@ public final class AcademyRecruiters {
             return false;
         }
         final String t = text.toLowerCase(Locale.ROOT);
-        return t.contains("academy") || t.contains("академ") || t.contains("набор");
+        return t.contains("academy") || t.contains("академ") || t.contains("акаду") || t.contains("набор")
+            || t.contains("возьмите") || t.contains("take me") || t.contains("invite me");
+    }
+
+    /** Pure: whether a recruiter may auto-invite (always false after 7g). */
+    public static boolean proactiveInviteAllowed() {
+        return false;
     }
 
     private void ensureRecruiters(Spot spot, List<Slot> slots, long now) {
@@ -227,6 +250,9 @@ public final class AcademyRecruiters {
                 break;
             }
             ensureAcademy(row.clanId());
+            if (halls != null) {
+                halls.ensureForRecruiter(row.clanId(), spot.x(), spot.y(), null);
+            }
             final BotRecord leader = byBot(row.leaderBotId());
             if (leader == null) {
                 continue;
@@ -313,22 +339,20 @@ public final class AcademyRecruiters {
             return;
         }
         slot.lastShoutAt = now;
-        final String text = SHOUTS[ThreadLocalRandom.current().nextInt(SHOUTS.length)];
+        final String text = shoutText(slot);
         final ChatType type = ThreadLocalRandom.current().nextBoolean() ? ChatType.SHOUT : ChatType.TRADE;
         bot.broadcastPacket(new CreatureSay(bot, type, bot.getName(), text));
     }
 
-    private void maybeInviteNear(Slot slot, Player bot, long now) {
-        for (Player p : World.getVisibleObjectsInRange(bot, Player.class, 400)) {
-            if ((p == null) || CoreHooks.isBot(p)) {
-                continue;
-            }
-            if (!AcademyRewards.eligible(p.getClan() != null, p.getLevel(), p.getPlayerClass().level())) {
-                continue;
-            }
-            tryInvite(p, bot, slot, now);
-            return;
+    String shoutText(Slot slot) {
+        final Clan clan = ClanTable.getInstance().getClan(slot.clanId);
+        final String name = clan == null ? "?" : clan.getName();
+        final int lvl = clan == null ? 0 : clan.getLevel();
+        String town = ClanHallAssign.hallTownLabel(clan);
+        if (town.isBlank()) {
+            town = slot.spot.town();
         }
+        return ClanHallAssign.shoutLine(name, lvl, town, joinReward, gradReward);
     }
 
     private void tryInvite(Player live, Player bot, Slot slot, long now) {
@@ -338,13 +362,8 @@ public final class AcademyRecruiters {
         if (!AcademyRewards.eligible(live.getClan() != null, live.getLevel(), live.getPlayerClass().level())) {
             return;
         }
-        if (!clans.inviteCooldownOk(live.getObjectId(), now)) {
-            return;
-        }
         ensureAcademy(slot.clanId);
         if (ClanInvites.invite(bot, live, Clan.SUBUNIT_ACADEMY)) {
-            clans.noteInvite(live.getObjectId(), now);
-            slot.lastInviteAt = now;
             ctx.log().info("academy invite " + live.getName() + " <- " + bot.getName());
         }
     }

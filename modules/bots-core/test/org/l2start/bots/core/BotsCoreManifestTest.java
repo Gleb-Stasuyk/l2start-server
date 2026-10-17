@@ -25,7 +25,7 @@ class BotsCoreManifestTest {
         assertTrue(json.contains("ClanMixedPartyChance"));
         assertTrue(json.contains("ClanBotShare"));
         assertTrue(json.contains("BigBotClans"));
-        assertTrue(json.contains("ClanInviteCooldown"));
+        assertTrue(!json.contains("ClanInviteCooldown"));
         assertTrue(json.contains("ClanHallBids"));
         assertTrue(json.contains("ClanHallBidShare"));
         assertTrue(json.contains("AcademyRecruiters"));

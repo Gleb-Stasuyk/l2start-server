@@ -28,6 +28,7 @@ public final class ClanHallBids {
     private volatile boolean enabled = true;
     private volatile double share = 0.55;
     private volatile long budget = 200_000_000L;
+    private volatile java.util.function.Supplier<java.util.Set<Integer>> skipClans = java.util.Set::of;
 
     public ClanHallBids(ModuleContext ctx, ClanService clans, BotRegistry registry) {
         this.ctx = ctx;
@@ -39,6 +40,11 @@ public final class ClanHallBids {
         enabled = on;
         share = Math.max(0, Math.min(1, bidShare));
         budget = Math.max(0, bidBudget);
+    }
+
+    /** Recruiter clans already own a hall — do not bid. */
+    public void setSkipClans(java.util.function.Supplier<java.util.Set<Integer>> skip) {
+        skipClans = skip == null ? java.util.Set::of : skip;
     }
 
     /** Pure: which auction ids a clan should cover for the configured share. */
@@ -103,7 +109,11 @@ public final class ClanHallBids {
             }
         }
         final Set<Integer> usedAuctions = new HashSet<>();
+        final Set<Integer> skip = skipClans.get();
         for (ClanStore.Row row : clans.clans()) {
+            if ((skip != null) && skip.contains(row.clanId())) {
+                continue;
+            }
             final Clan clan = ClanTable.getInstance().getClan(row.clanId());
             if (clan == null) {
                 continue;

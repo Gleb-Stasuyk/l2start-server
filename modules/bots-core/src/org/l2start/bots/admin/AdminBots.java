@@ -524,18 +524,29 @@ public final class AdminBots implements IAdminCommandHandler {
         }
         final org.l2jmobius.gameserver.entity.clan.Clan stock = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(r.clanId());
         if (stock != null) {
+            final org.l2start.bots.clan.ClanHallBids halls = core.clanHallBids();
+            sb.append("KH ").append(halls == null ? "—" : halls.hallLabel(stock)).append("<br>");
             sb.append("<br><font color=\"LEVEL\">Live players</font><br>");
             boolean any = false;
+            boolean anyAcad = false;
             for (org.l2jmobius.gameserver.entity.clan.ClanMember m : stock.getMembers()) {
                 final Player p = m == null ? null : m.getPlayer();
                 if ((p == null) || core.registry().isBot(p)) {
                     continue;
                 }
                 any = true;
-                sb.append(p.getName()).append(" lv ").append(p.getLevel()).append(p.isOnline() ? " online" : " offline").append("<br>");
+                final boolean acad = m.getPledgeType() == org.l2jmobius.gameserver.entity.clan.Clan.SUBUNIT_ACADEMY;
+                if (acad) {
+                    anyAcad = true;
+                }
+                sb.append(p.getName()).append(" lv ").append(p.getLevel());
+                sb.append(acad ? " academy" : " main");
+                sb.append(p.isOnline() ? " online" : " offline").append("<br>");
             }
             if (!any) {
                 sb.append("(none online)<br>");
+            } else if (!anyAcad) {
+                sb.append("(no academy members online)<br>");
             }
         }
         sb.append("<br><a action=\"bypass -h admin_bots clans\">Back</a></body></html>");

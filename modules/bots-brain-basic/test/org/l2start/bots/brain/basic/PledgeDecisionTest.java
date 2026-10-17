@@ -2,7 +2,6 @@ package org.l2start.bots.brain.basic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Random;
 import java.util.Set;
@@ -13,7 +12,7 @@ import org.l2start.bots.api.Memory;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.clan.ClanService;
 
-/** Phase 7e: pledge accept/decline and invite cooldown. */
+/** Phase 7e/7g: pledge accept/decline (invite only when asked). */
 class PledgeDecisionTest {
     private static final Pos HOME = new Pos(0, 0, 0);
 
@@ -37,12 +36,12 @@ class PledgeDecisionTest {
     }
 
     @Test
-    void inviteOutNeedsCooldownAndSlots() {
+    void inviteOutNeedsSlotsAndLevel() {
         final Random rnd = new Random(2);
         final Memory.Of mem = Memory.Of.none(3);
-        assertEquals(PledgeDecision.Answer.DECLINE, PledgeDecision.decideInviteOut(info(0.9, 0.2), mem, true, false, true, 40, rnd));
-        assertEquals(PledgeDecision.Answer.DECLINE, PledgeDecision.decideInviteOut(info(0.9, 0.2), mem, true, true, false, 40, rnd));
-        assertEquals(PledgeDecision.Answer.DECLINE, PledgeDecision.decideInviteOut(info(0.9, 0.2), mem, true, true, true, 15, rnd));
+        assertEquals(PledgeDecision.Answer.DECLINE, PledgeDecision.decideInviteOut(info(0.9, 0.2), mem, false, true, 40, rnd));
+        assertEquals(PledgeDecision.Answer.DECLINE, PledgeDecision.decideInviteOut(info(0.9, 0.2), mem, true, false, 40, rnd));
+        assertEquals(PledgeDecision.Answer.DECLINE, PledgeDecision.decideInviteOut(info(0.9, 0.2), mem, true, true, 15, rnd));
     }
 
     @Test
@@ -52,16 +51,9 @@ class PledgeDecisionTest {
     }
 
     @Test
-    void inviteCooldownPure() {
-        assertTrue(ClanService.inviteCooldownAllows(0, 1000, 0));
-        assertFalse(ClanService.inviteCooldownAllows(0, 1000, 2000));
-        assertTrue(ClanService.inviteCooldownAllows(0, 3000, 2000));
-    }
-
-    @Test
     void wantMembersForShare() {
-        assertEquals(40, ClanService.wantMembersForPool(100, 0.40));
-        assertEquals(0, ClanService.wantMembersForPool(0, 0.40));
+        assertEquals(70, ClanService.wantMembersForPool(100, 0.70));
+        assertEquals(0, ClanService.wantMembersForPool(0, 0.70));
     }
 
     @Test

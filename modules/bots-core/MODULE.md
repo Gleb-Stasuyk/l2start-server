@@ -148,13 +148,12 @@
 | `BigBotClans` | `2` | фаза 7f: больших кланов (lvl 8 × 40), заполняются первыми |
 | `ClanMembersMin` / `ClanMembersMax` | `8` / `20` | фаза 7d: потолок размера мелких кланов |
 | `ClanMixedPartyChance` | `0.25` | фаза 7d: шанс смешанной пати у кланового охотника |
-| `ClanInvitePlayers` / `ClanJoinPlayers` | `on` | фаза 7e: бот-кланы зовут живых / боты принимают инвайт игрока |
-| `ClanInviteCooldown` | `24h` | фаза 7e/7f: не чаще раза в сутки инвайт одному живому |
+| `ClanInvitePlayers` / `ClanJoinPlayers` | `on` | фаза 7e/7g: ответ на просьбу войти / боты принимают инвайт игрока (не зовут первыми) |
 | `ClanAdenaSpendLimit` | `50000000` | фаза 7e: потолок трат склада бот-клана в сутки |
-| `ClanHallBids` | `on` | фаза 7f: ставки бот-кланов на стоковом аукционе КХ |
+| `ClanHallBids` | `on` | фаза 7f: ставки не-рекрутёрских бот-кланов на аукционе КХ |
 | `ClanHallBidShare` | `0.55` | фаза 7f: доля открытых аукционов (~50–60 %) |
 | `ClanHallBidBudget` | `200000000` | фаза 7f: потолок адены на ставки КХ (на клан) |
-| `AcademyRecruiters` | `on` | фаза 7f: рекрутёры у ГК Глудин/Глудио/Дион/Гиран |
+| `AcademyRecruiters` | `on` | фаза 7f/7g: рекрутёры у ГК; инвайт только по шёпоту; КХ с max-функциями |
 | `AcademyJoinReward` | `50000` | фаза 7f: адена живому при вступлении в academy (1×) |
 | `AcademyGraduateReward` | `150000` | фаза 7f: адена при выпуске ≥40 (1×; выход раньше — нет) |
 | `PaperLevelPace` | `1.0` | 4e: темп роста уровня «на бумаге» (×); при 3 ч игры в день 40 ур. ≈ 3 недели, 61 ≈ 2,5 месяца, 76 — полгода и больше |
@@ -189,6 +188,6 @@
 Удалять ботов в 3a нечем специально: персонажей не трогаем, при выключении модуля боты остаются обычными
 (забаненными) персонажами в БД.
 
-**Фаза 7d–7f:** `data/clans/BotClans.xml` (два `large` lvl8×40 + мелкие 3–7), fill по `ClanBotShare=0.70`. Бот-кланы **сразу стоковые** с гербом. КХ: `ClanHallAuction.setBid` на долю `ClanHallBidShare`. Рекрутёры academy у ГК 4 городов (титул «Набор в академию»), инвайт + ledger 50k/150k. `//bots clans`: КХ, рекрутёры, выплаты. Хуки `P7-BOT-CLAN`, `P7-BOT-PLEDGE`.
+**Фаза 7d–7g:** `BotClans.xml` (два `large`), `ClanBotShare=0.70`. Рекрутёры: инвайт **только по просьбе**; их кланам — guaranteed КХ (ближайший free) + max SUPPORT/TELEPORT/RESTORE, CWH ≥ 2 периода lease. Остальные — bids `ClanHallBidShare`. Шауты с lvl/КХ. Ledger academy 50k/150k. `//bots clans` / `pvp`. Док: `docs/BOTS_PVP_CLANS.md`. Хуки `P7-BOT-CLAN`, `P7-BOT-PLEDGE`, `P7-BOT-DUEL`, `P7-ATTACKABLE`.
 
 **Фаза 6 (6a–6g):** хук `P6-BOT-PARTY` (API 1.5 `onBotPartyRequest`, с 1.8 ещё `onPartyBusy` / `CoreHooks.botPartyBusy` — инвайт бота уже в пати пар ботов; 6g — стоковый `BlockList`), события `PartyInvite`/`Chat`/`PartyRedirect`/`Whisper`, действия пати и чата (`sayShout`/`sayTrade`/`inviteParty`), `SocialBoard` (`LfpShoutPerHour`, `WhisperPerHour`, счётчики для `//bots social`) + `LfpParse`/`WhisperParse` («отстань» → ANNOYED 24 ч), фразы в `data/chat/phrases.xml`, память `mod_bots_core_memory` (остывание affinity −1/неделя, вес `partyMinutes`), трейд в пати `PartyTrades` через `P6-BOT-TRADE` (сосы/банки; бот ничего не отдаёт), настройка `PartyBotsMax` (3). Бот в пати с живым игроком закреплён: режиссёр его не уводит. Простым языком — `docs/BOTS_SOCIAL.md`; рантайм — `docs/BOTS_RUNTIME.md`.

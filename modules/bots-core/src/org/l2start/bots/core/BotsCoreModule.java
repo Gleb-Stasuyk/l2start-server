@@ -52,6 +52,7 @@ public final class BotsCoreModule implements GameModule {
     private PkLedger pkLedger;
     private org.l2start.bots.clan.ClanService clans;
     private org.l2start.bots.clan.ClanHallBids clanHallBids;
+    private org.l2start.bots.clan.ClanHallAssign clanHallAssign;
     private org.l2start.bots.clan.AcademyRecruiters academyRecruiters;
     private org.l2start.bots.clan.AcademyRewards academyRewards;
     private volatile boolean clanInvitePlayers = true;
@@ -64,6 +65,7 @@ public final class BotsCoreModule implements GameModule {
         pkLedger = new PkLedger(ctx.db());
         clans = new org.l2start.bots.clan.ClanService(ctx, registry, repo, ctx.resources().path("data/clans/BotClans.xml"));
         clanHallBids = new org.l2start.bots.clan.ClanHallBids(ctx, clans, registry);
+        clanHallAssign = new org.l2start.bots.clan.ClanHallAssign(ctx, clans, registry);
         academyRewards = new org.l2start.bots.clan.AcademyRewards(ctx, clans, registry);
         final long seed = ctx.config().getLong("Seed");
         seeds = seed == 0 ? new Random() : new Random(seed);
@@ -71,6 +73,7 @@ public final class BotsCoreModule implements GameModule {
         factory = new BotFactory(repo, registry, () -> personas, () -> seeds.nextLong());
         world = new BotWorld(repo, ctx.log());
         academyRecruiters = new org.l2start.bots.clan.AcademyRecruiters(ctx, clans, registry, world);
+        academyRecruiters.setHalls(clanHallAssign);
         brains = new BrainHost(ctx, registry, world, this::brainLogout);
         world.setListener(new BotWorld.Listener() {
             @Override
@@ -232,6 +235,10 @@ public final class BotsCoreModule implements GameModule {
         return clanHallBids;
     }
 
+    public org.l2start.bots.clan.ClanHallAssign clanHallAssign() {
+        return clanHallAssign;
+    }
+
     public org.l2start.bots.clan.AcademyRecruiters academyRecruiters() {
         return academyRecruiters;
     }
@@ -314,11 +321,26 @@ public final class BotsCoreModule implements GameModule {
             });
         }
         if (clanHallBids != null) {
+            if (academyRecruiters != null) {
+                clanHallBids.setSkipClans(academyRecruiters::recruiterClanIds);
+            }
             ctx.scheduler().fixedRate("clan hall bids", Duration.ofMinutes(5), Duration.ofMinutes(5), () -> {
                 try {
                     clanHallBids.tick();
                 } catch (Exception e) {
                     ctx.log().warn("clan hall bids: " + e.getMessage());
+                }
+            });
+            ctx.scheduler().fixedRate("clan hall cwh top-up", Duration.ofHours(6), Duration.ofHours(6), () -> {
+                try {
+                    if ((clanHallAssign != null) && (academyRecruiters != null)) {
+                        for (Integer cid : academyRecruiters.recruiterClanIds()) {
+                            final var spot = org.l2start.bots.clan.AcademyRecruiters.TOWNS.get(0);
+                            clanHallAssign.ensureForRecruiter(cid, spot.x(), spot.y(), null);
+                        }
+                    }
+                } catch (Exception e) {
+                    ctx.log().warn("clan hall cwh top-up: " + e.getMessage());
                 }
             });
         }
@@ -532,7 +554,6 @@ public final class BotsCoreModule implements GameModule {
                 parseChance(ctx.config().getString("ClanMixedPartyChance"), 0.25),
                 parseChance(ctx.config().getString("ClanBotShare"), 0.70),
                 ctx.config().getInt("BigBotClans"),
-                ctx.config().getDuration("ClanInviteCooldown").toMillis(),
                 adenaLimit);
         }
         clanInvitePlayers = ctx.config().getBoolean("ClanInvitePlayers");
@@ -564,6 +585,9 @@ public final class BotsCoreModule implements GameModule {
                 ctx.log().warn("bad AcademyGraduateReward");
             }
             academyRewards.configure(join, grad);
+            if (academyRecruiters != null) {
+                academyRecruiters.setRewards((int) Math.min(Integer.MAX_VALUE, join), (int) Math.min(Integer.MAX_VALUE, grad));
+            }
         }
     }
 

@@ -138,7 +138,6 @@ public final class BasicBrain implements Brain {
         evaluatePvp(ctx, w, me, now); // phase 7b: decide and enact (fight / flee / call-help)
         answerDuel(ctx, me, now);
         answerPledge(ctx, me, now);
-        maybeInvitePlayerToClan(ctx, w, me, now);
         maybeClanRally(ctx, w, me, now);
         final long d = tickMain(ctx, w, me, now);
         final long due = socialDue();
@@ -2371,7 +2370,6 @@ public final class BasicBrain implements Brain {
     private BotEvent.PledgeInvite pledgeInvite;
     private PledgeDecision.Answer pledgeAnswer;
     private long pledgeAnswerAt;
-    private long nextClanInviteAt;
     private long nextClanRallyAt;
     private Pos clanRallyAt;
     private long clanRallyUntil;
@@ -2439,29 +2437,6 @@ public final class BasicBrain implements Brain {
             final var lines = ctx.chat().lines("CLAN_DECLINE", java.util.Map.of("player", pi.from()), "EN");
             if (!lines.isEmpty()) {
                 ctx.act().whisper(pi.from(), lines.get(0));
-            }
-        }
-    }
-
-    private void maybeInvitePlayerToClan(BrainContext ctx, WorldView w, SelfView me, long now) {
-        if (!clanInvitePlayers || !me.clanLeader() || me.dead() || me.inPeaceZone() || (now < nextClanInviteAt)) {
-            return;
-        }
-        nextClanInviteAt = now + 60_000L + ctx.rnd().nextInt(120_000);
-        for (PlayerView p : w.players()) {
-            if (p.bot() || (p.clanId() != 0) || (p.level() < 20) || (p.distance() > 600) || p.socialBusy()) {
-                continue;
-            }
-            final var mem = ctx.memory().of(p.objectId());
-            // cooldown checked in module when invite lands; here use memory lastSeen as soft gate
-            if (PledgeDecision.decideInviteOut(ctx.info(), mem, true, true, true, p.level(), ctx.rnd()) != PledgeDecision.Answer.ACCEPT) {
-                continue;
-            }
-            final ActionResult r = ctx.act().inviteClan(p.name(), 0);
-            if (r.ok()) {
-                ctx.note("invited " + p.name() + " to clan");
-                nextClanInviteAt = now + 10 * 60_000L;
-                return;
             }
         }
     }

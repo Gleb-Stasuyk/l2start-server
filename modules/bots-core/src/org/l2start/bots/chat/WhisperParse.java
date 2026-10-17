@@ -169,8 +169,8 @@ public final class WhisperParse {
         r.add(sw(Intent.ASK_BUFF, "buff me", "pls buff", "buff pls", "бафни", "бафни меня", "бафани", "можно баф", "кинь баф"));
         r.add(sw(Intent.ASK_PARTY, "can i join", "invite me", "party?", "можно к вам", "го пати", "кинь пати", "возьми в пати", "take me"));
         r.add(sw(Intent.ASK_CLAN, "invite clan", "clan invite", "join clan", "can i join clan", "в клан", "инвайт в клан", "можно в клан", "возьми в клан",
-            "academy", "в академию", "можно в академию"));
-        r.add(ct(Intent.ASK_CLAN, "join;clan", "clan;please", "в;клан", "клан;инвайт"));
+            "academy", "в академию", "можно в академию", "возьмите в акаду", "возьми в акаду", "take me academy", "invite me academy"));
+        r.add(ct(Intent.ASK_CLAN, "join;clan", "clan;please", "в;клан", "клан;инвайт", "в;акад", "take;academy"));
         r.add(sw(Intent.GREET, "hi ", "hey ", "hello ", "привет ", "прив ", "ку ", "здарова "));
         r.add(sw(Intent.BYE, "bye ", "bb ", "пока ", "бб "));
         r.add(sw(Intent.THANKS, "thanks ", "thank ", "ty ", "спс ", "спасибо "));

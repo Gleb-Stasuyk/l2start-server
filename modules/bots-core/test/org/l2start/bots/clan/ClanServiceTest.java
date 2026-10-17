@@ -89,10 +89,4 @@ class ClanServiceTest {
         }
     }
 
-    @Test
-    void inviteCooldownWindow() {
-        assertTrue(ClanService.inviteCooldownAllows(0, 100, 50));
-        assertFalse(ClanService.inviteCooldownAllows(60, 100, 50));
-        assertTrue(ClanService.inviteCooldownAllows(40, 100, 50));
-    }
 }

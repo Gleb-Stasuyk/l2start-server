@@ -32,6 +32,13 @@ class AcademyRewardsTest {
         assertTrue(AcademyRecruiters.TITLE.length() <= 16);
         assertTrue(AcademyRecruiters.asksAcademy("можно в академию"));
         assertTrue(AcademyRecruiters.asksAcademy("academy pls"));
+        assertTrue(AcademyRecruiters.asksAcademy("возьмите в акаду"));
+        assertTrue(AcademyRecruiters.asksAcademy("take me academy"));
         assertFalse(AcademyRecruiters.asksAcademy("hello"));
+    }
+
+    @Test
+    void noProactiveInvite() {
+        assertFalse(AcademyRecruiters.proactiveInviteAllowed());
     }
 }

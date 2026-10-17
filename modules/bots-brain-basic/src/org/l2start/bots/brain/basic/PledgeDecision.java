@@ -53,15 +53,14 @@ public final class PledgeDecision {
     }
 
     /**
-     * Bot-clan leader considering inviting a live player nearby.
+     * Legacy helper (proactive invite removed in 7g). Kept for tests; prefer {@link #decideAskIn}.
      * @param inviteEnabled ClanInvitePlayers
-     * @param cooldownOk not invited this player within ClanInviteCooldown
      * @param slotsFree clan has free main-pledge slots
      * @param theirLevel live player level
      */
-    public static Answer decideInviteOut(BotInfo me, Memory.Of mem, boolean inviteEnabled, boolean cooldownOk, boolean slotsFree,
+    public static Answer decideInviteOut(BotInfo me, Memory.Of mem, boolean inviteEnabled, boolean slotsFree,
         int theirLevel, Random rnd) {
-        if (!inviteEnabled || !cooldownOk || !slotsFree || (theirLevel < 20)) {
+        if (!inviteEnabled || !slotsFree || (theirLevel < 20)) {
             return Answer.DECLINE;
         }
         if (mem.has(Memory.Tag.KILLED_ME) || mem.has(Memory.Tag.ANNOYED) || (mem.affinity() <= -20)) {
