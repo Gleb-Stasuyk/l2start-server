@@ -51,6 +51,9 @@ public final class BotsCoreModule implements GameModule {
     private DirectorRunner director;
     private PkLedger pkLedger;
     private org.l2start.bots.clan.ClanService clans;
+    private org.l2start.bots.clan.ClanHallBids clanHallBids;
+    private org.l2start.bots.clan.AcademyRecruiters academyRecruiters;
+    private org.l2start.bots.clan.AcademyRewards academyRewards;
     private volatile boolean clanInvitePlayers = true;
     private volatile boolean clanJoinPlayers = true;
 
@@ -60,11 +63,14 @@ public final class BotsCoreModule implements GameModule {
         repo = new BotRepository(ctx.db());
         pkLedger = new PkLedger(ctx.db());
         clans = new org.l2start.bots.clan.ClanService(ctx, registry, repo, ctx.resources().path("data/clans/BotClans.xml"));
+        clanHallBids = new org.l2start.bots.clan.ClanHallBids(ctx, clans, registry);
+        academyRewards = new org.l2start.bots.clan.AcademyRewards(ctx, clans, registry);
         final long seed = ctx.config().getLong("Seed");
         seeds = seed == 0 ? new Random() : new Random(seed);
         personas = buildPersonas(); // bad dictionary or weights: the module fails to enable with a clear message
         factory = new BotFactory(repo, registry, () -> personas, () -> seeds.nextLong());
         world = new BotWorld(repo, ctx.log());
+        academyRecruiters = new org.l2start.bots.clan.AcademyRecruiters(ctx, clans, registry, world);
         brains = new BrainHost(ctx, registry, world, this::brainLogout);
         world.setListener(new BotWorld.Listener() {
             @Override
@@ -132,6 +138,9 @@ public final class BotsCoreModule implements GameModule {
         final org.l2start.bots.chat.SocialBoard social = new org.l2start.bots.chat.SocialBoard(ctx.config().getInt("LfpShoutPerHour"));
         social.setWhispersPerHour(ctx.config().getInt("WhisperPerHour"));
         brains.setSocial(social);
+        if (academyRecruiters != null) {
+            academyRecruiters.setSocial(social);
+        }
         ctx.log().info("social: LFP shouts " + social.shoutsPerHour() + "/hour, whisper answers " + social.whispersPerHour() + "/bot/hour (phase 6d/6g)");
         final MemoryStore memories = new MemoryStore(ctx.db());
         brains.setMemories(memories);
@@ -175,6 +184,18 @@ public final class BotsCoreModule implements GameModule {
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
         ctx.events().<OnAttackableKill> onMonsters(EventType.ON_ATTACKABLE_KILL, this::onKill);
+        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanJoin> onPlayers(
+            EventType.ON_PLAYER_CLAN_JOIN, e -> {
+                if (academyRewards != null) {
+                    academyRewards.onClanJoin(e);
+                }
+            });
+        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanLeft> onPlayers(
+            EventType.ON_PLAYER_CLAN_LEFT, e -> {
+                if (academyRewards != null) {
+                    academyRewards.onClanLeft(e);
+                }
+            });
         ctx.handlers().admin(new AdminBots(this));
         // a module that is disabled or degraded must not leave its bots standing in the world
         ctx.cleanup("log out all bots", () -> stopAll("module stopped"));
@@ -205,6 +226,23 @@ public final class BotsCoreModule implements GameModule {
 
     public org.l2start.bots.clan.ClanService clans() {
         return clans;
+    }
+
+    public org.l2start.bots.clan.ClanHallBids clanHallBids() {
+        return clanHallBids;
+    }
+
+    public org.l2start.bots.clan.AcademyRecruiters academyRecruiters() {
+        return academyRecruiters;
+    }
+
+    public org.l2start.bots.clan.AcademyRewards academyRewards() {
+        return academyRewards;
+    }
+
+    /** Phase 7f: director must not logout academy recruiters while on duty. */
+    public boolean isAcademyRecruiter(int botId) {
+        return (academyRecruiters != null) && academyRecruiters.isRecruiter(botId);
     }
 
     /**
@@ -272,6 +310,34 @@ public final class BotsCoreModule implements GameModule {
                     clans.ensureFilled();
                 } catch (Exception e) {
                     ctx.log().warn("bot clans refill: " + e.getMessage());
+                }
+            });
+        }
+        if (clanHallBids != null) {
+            ctx.scheduler().fixedRate("clan hall bids", Duration.ofMinutes(5), Duration.ofMinutes(5), () -> {
+                try {
+                    clanHallBids.tick();
+                } catch (Exception e) {
+                    ctx.log().warn("clan hall bids: " + e.getMessage());
+                }
+            });
+        }
+        if (academyRecruiters != null) {
+            if (director != null) {
+                academyRecruiters.setForceEnter(director::requestClanLeaderEnter);
+            }
+            ctx.scheduler().fixedRate("academy recruiters presence", Duration.ofSeconds(20), Duration.ofSeconds(10), () -> {
+                try {
+                    academyRecruiters.presence();
+                } catch (Exception e) {
+                    ctx.log().warn("academy recruiters presence: " + e.getMessage());
+                }
+            });
+            ctx.scheduler().fixedRate("academy recruiters tick", Duration.ofSeconds(15), Duration.ofSeconds(5), () -> {
+                try {
+                    academyRecruiters.tick();
+                } catch (Exception e) {
+                    ctx.log().warn("academy recruiters: " + e.getMessage());
                 }
             });
         }
@@ -412,6 +478,14 @@ public final class BotsCoreModule implements GameModule {
             } catch (Exception e) {
                 ctx.log().warn("cannot clear in-world marks", e);
             }
+            try {
+                final int wiped = repo.wipeInventoryLoot();
+                if (wiped > 0) {
+                    ctx.log().info("director: wiped " + wiped + " leftover bag loot row(s) after logout");
+                }
+            } catch (Exception e) {
+                ctx.log().warn("cannot wipe leftover bot bag loot", e);
+            }
         } else {
             logoutAll(why, true);
         }
@@ -456,13 +530,41 @@ public final class BotsCoreModule implements GameModule {
             }
             clans.configure(ctx.config().getInt("BotClans"), ctx.config().getInt("ClanMembersMin"), ctx.config().getInt("ClanMembersMax"),
                 parseChance(ctx.config().getString("ClanMixedPartyChance"), 0.25),
-                parseChance(ctx.config().getString("ClanBotShare"), 0.40),
+                parseChance(ctx.config().getString("ClanBotShare"), 0.70),
                 ctx.config().getInt("BigBotClans"),
                 ctx.config().getDuration("ClanInviteCooldown").toMillis(),
                 adenaLimit);
         }
         clanInvitePlayers = ctx.config().getBoolean("ClanInvitePlayers");
         clanJoinPlayers = ctx.config().getBoolean("ClanJoinPlayers");
+        if (clanHallBids != null) {
+            long chBudget = 200_000_000L;
+            try {
+                chBudget = Long.parseLong(ctx.config().getString("ClanHallBidBudget").trim().replace("_", ""));
+            } catch (RuntimeException e) {
+                ctx.log().warn("bad ClanHallBidBudget");
+            }
+            clanHallBids.configure(ctx.config().getBoolean("ClanHallBids"),
+                parseChance(ctx.config().getString("ClanHallBidShare"), 0.55), chBudget);
+        }
+        if (academyRecruiters != null) {
+            academyRecruiters.configure(ctx.config().getBoolean("AcademyRecruiters"));
+        }
+        if (academyRewards != null) {
+            long join = 50_000L;
+            long grad = 150_000L;
+            try {
+                join = Long.parseLong(ctx.config().getString("AcademyJoinReward").trim().replace("_", ""));
+            } catch (RuntimeException e) {
+                ctx.log().warn("bad AcademyJoinReward");
+            }
+            try {
+                grad = Long.parseLong(ctx.config().getString("AcademyGraduateReward").trim().replace("_", ""));
+            } catch (RuntimeException e) {
+                ctx.log().warn("bad AcademyGraduateReward");
+            }
+            academyRewards.configure(join, grad);
+        }
     }
 
     static double parseChance(String raw, double def) {
@@ -589,6 +691,9 @@ public final class BotsCoreModule implements GameModule {
             if (r != null) {
                 r.whisper(from.getName(), e.getText());
                 ctx.metrics().counter("whispersReceived").inc();
+                if ((academyRecruiters != null) && academyRecruiters.onWhisper(from, r, e.getText())) {
+                    return;
+                }
                 brains.post(r, new BotEvent.Whisper(from.getName(), e.getText()));
             }
             return;

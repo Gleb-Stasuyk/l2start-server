@@ -71,12 +71,18 @@
     "ClanMembersMin": { "type": "int", "default": 8, "min": 1, "max": 40, "reloadable": true, "description": "Phase 7d: minimum members per bot clan (target size rolled per clan)." },
     "ClanMembersMax": { "type": "int", "default": 20, "min": 1, "max": 40, "reloadable": true, "description": "Phase 7d: maximum members per bot clan." },
     "ClanMixedPartyChance": { "type": "string", "default": "0.25", "reloadable": true, "description": "Phase 7d: chance a clan hunter parties with clanless / other-clan bots (else clanmates only)." },
-    "ClanBotShare": { "type": "string", "default": "0.40", "reloadable": true, "description": "Phase 7e: share of the whole bot pool (ACTIVE+TRADER) that should be in bot clans (primary fill target)." },
-    "BigBotClans": { "type": "int", "default": 1, "min": 0, "max": 3, "reloadable": true, "description": "Phase 7e: how many large bot clans (lvl 8, 40 main members) to keep; filled first." },
+    "ClanBotShare": { "type": "string", "default": "0.70", "reloadable": true, "description": "Phase 7f: share of the whole bot pool (ACTIVE+TRADER) that should be in bot clans (primary fill target)." },
+    "BigBotClans": { "type": "int", "default": 2, "min": 0, "max": 3, "reloadable": true, "description": "Phase 7f: how many large bot clans (lvl 8, 40 main members) to keep; filled first." },
     "ClanInvitePlayers": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7e: bot-clan leaders may invite live players." },
     "ClanJoinPlayers": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7e: bots may accept a live player's clan/academy invite." },
-    "ClanInviteCooldown": { "type": "duration", "default": "24h", "min": "0s", "reloadable": true, "description": "Phase 7e: min time between bot-clan invites to the same live player." },
+    "ClanInviteCooldown": { "type": "duration", "default": "24h", "min": "0s", "reloadable": true, "description": "Phase 7e/7f: min time between bot-clan / academy-recruiter invites to the same live player." },
     "ClanAdenaSpendLimit": { "type": "string", "default": "50000000", "reloadable": true, "description": "Phase 7e: max clan-warehouse adena a bot clan may spend per day (skills/subunits)." },
+    "ClanHallBids": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7f: bot clans place stock ClanHallAuction bids." },
+    "ClanHallBidShare": { "type": "string", "default": "0.55", "reloadable": true, "description": "Phase 7f: share of open clan-hall auctions bot clans bid on (~50-60%)." },
+    "ClanHallBidBudget": { "type": "string", "default": "200000000", "reloadable": true, "description": "Phase 7f: max adena one bot clan may put into CH bids (funds CWH)." },
+    "AcademyRecruiters": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7f: academy recruiters near GK in Gludin/Gludio/Dion/Giran." },
+    "AcademyJoinReward": { "type": "string", "default": "50000", "reloadable": true, "description": "Phase 7f: adena paid once to a live player joining a bot-clan academy." },
+    "AcademyGraduateReward": { "type": "string", "default": "150000", "reloadable": true, "description": "Phase 7f: adena paid once when a live academy member leaves at level >=40 (stock graduate)." },
     "StatsLogInterval": { "type": "duration", "default": "60s", "min": "0s", "description": "Runtime line 'BOTS world=... p99=... overrun=...' in the log this often while bots are in the world (0 = never)." }
   }
 }

@@ -26,6 +26,12 @@ class BotsCoreManifestTest {
         assertTrue(json.contains("ClanBotShare"));
         assertTrue(json.contains("BigBotClans"));
         assertTrue(json.contains("ClanInviteCooldown"));
+        assertTrue(json.contains("ClanHallBids"));
+        assertTrue(json.contains("ClanHallBidShare"));
+        assertTrue(json.contains("AcademyRecruiters"));
+        assertTrue(json.contains("AcademyJoinReward"));
+        assertTrue(json.contains("AcademyGraduateReward"));
+        assertTrue(json.contains("\"0.70\"") || json.contains("0.70"));
     }
 
     @Test
@@ -41,6 +47,7 @@ class BotsCoreManifestTest {
         assertTrue(all.toString().contains("mod_bots_core_clan"));
         assertTrue(all.toString().contains("mod_bots_core_clan_member"));
         assertTrue(all.toString().contains("mod_bots_core_player_clan"));
+        assertTrue(all.toString().contains("mod_bots_core_academy_reward"));
         for (String line : all.toString().split("\n")) {
             if (line.toUpperCase().contains("CREATE TABLE")) {
                 assertTrue(line.contains("mod_bots_core_"), line);

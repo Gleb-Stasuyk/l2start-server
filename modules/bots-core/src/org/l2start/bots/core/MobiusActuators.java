@@ -395,7 +395,8 @@ final class MobiusActuators implements Actuators {
         final Player p = r.player();
         final Player target = playerName == null ? null : World.getPlayer(playerName);
         final org.l2jmobius.gameserver.entity.clan.Clan clan = p == null ? null : p.getClan();
-        if ((p == null) || (target == null) || (clan == null) || (clan.getLeaderId() != p.getObjectId())
+        // stock RequestJoinPledge: any member with INVITE_MEMBER (checkClanJoinCondition), not only the leader
+        if ((p == null) || (target == null) || (clan == null)
             || (target.getClient() == null) || target.getClient().isDetached() || (target.getClan() != null)
             || !clan.checkClanJoinCondition(p, target, pledgeType)) {
             return done("inviteClan", playerName, ActionResult.INVALID);

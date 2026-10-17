@@ -144,6 +144,29 @@ public final class StockClanFactory {
         return fresh;
     }
 
+    /**
+     * Phase 7f: ensure stock academy subunit exists (clan level ≥5). Idempotent.
+     * @return clan after reload (may be same instance if already had academy)
+     */
+    public static Clan ensureAcademy(Clan clan) throws Exception {
+        if ((clan == null) || (clan.getLevel() < 5)) {
+            return clan;
+        }
+        if (clan.getSubPledge(Clan.SUBUNIT_ACADEMY) != null) {
+            return clan;
+        }
+        try (Connection con = DatabaseFactory.getConnection();
+            PreparedStatement ps = con.prepareStatement(
+                "INSERT INTO clan_subpledges (clan_id,sub_pledge_id,name,leader_id) VALUES (?,?,?,?)")) {
+            ps.setInt(1, clan.getId());
+            ps.setInt(2, Clan.SUBUNIT_ACADEMY);
+            ps.setString(3, "Academy");
+            ps.setInt(4, 0);
+            ps.executeUpdate();
+        }
+        return reload(clan.getId());
+    }
+
     public static List<Member> membersOf(int leaderCharId, List<Integer> memberCharIds) {
         final List<Member> out = new ArrayList<>();
         out.add(new Member(leaderCharId, true));

@@ -70,16 +70,17 @@ class ClanServiceTest {
 
     @Test
     void shareAndBigDefaultsMatchPlan() throws Exception {
-        assertEquals(40, ClanService.wantMembersForPool(100, 0.40));
-        assertEquals(80, ClanService.wantMembersForPool(200, 0.40));
+        assertEquals(70, ClanService.wantMembersForPool(100, 0.70));
+        assertEquals(140, ClanService.wantMembersForPool(200, 0.70));
         assertEquals(40, ClanService.BIG_TARGET);
         assertEquals(8, ClanService.BIG_LEVEL);
         final List<ClanTemplate> t = ClanTemplates.load(Path.of("modules/bots-core/data/clans/BotClans.xml"));
         final long big = t.stream().filter(ClanTemplate::large).count();
-        assertEquals(1, big, "BigBotClans=1 → one large template");
-        final ClanTemplate large = t.stream().filter(ClanTemplate::large).findFirst().orElseThrow();
-        assertEquals(8, large.level());
-        assertTrue(large.crestSeed() > 0);
+        assertEquals(2, big, "BigBotClans=2 → two large templates");
+        for (ClanTemplate large : t.stream().filter(ClanTemplate::large).toList()) {
+            assertEquals(8, large.level());
+            assertTrue(large.crestSeed() > 0);
+        }
         for (ClanTemplate c : t) {
             assertTrue(c.crestSeed() > 0, c.name() + " needs crest seed");
             if (!c.large()) {

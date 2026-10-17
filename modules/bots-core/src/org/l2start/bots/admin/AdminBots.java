@@ -415,6 +415,7 @@ public final class AdminBots implements IAdminCommandHandler {
         final StringBuilder sb = new StringBuilder("<html><title>Bots: clans</title><body>");
         sb.append("<font color=\"LEVEL\">Bot clans (").append(svc.clans().size()).append('/').append(svc.wantClans()).append(")</font><br>");
         sb.append("сток/герб: ✓ = ClanTable+crest, ! = нет герба, — = нет стока<br>");
+        final org.l2start.bots.clan.ClanHallBids halls = core.clanHallBids();
         for (org.l2start.bots.clan.ClanStore.Row r : svc.clans()) {
             final BotRecord leader = byBotId(r.leaderBotId());
             int online = 0;
@@ -426,13 +427,41 @@ public final class AdminBots implements IAdminCommandHandler {
                     online++;
                 }
             }
+            final org.l2jmobius.gameserver.entity.clan.Clan stock = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(r.clanId());
+            final String kh = halls == null ? "—" : halls.hallLabel(stock);
             sb.append("<a action=\"bypass -h admin_bots clan ").append(r.name()).append("\">").append(r.name()).append("</a>");
             sb.append(" lv ").append(r.level()).append(" leader ").append(leader == null ? "?" : leader.name());
             sb.append(" ").append(online).append('/').append(total);
+            sb.append(" KH ").append(kh);
             sb.append(" [").append(svc.stockCrestMark(r)).append("]<br>");
         }
         if (svc.clans().isEmpty()) {
             sb.append("(none yet)<br>");
+        }
+        final org.l2start.bots.clan.AcademyRecruiters recruiters = core.academyRecruiters();
+        if (recruiters != null) {
+            sb.append("<br><font color=\"LEVEL\">Academy recruiters</font><br>");
+            for (String line : recruiters.statusLines()) {
+                sb.append(line).append("<br>");
+            }
+        }
+        final org.l2start.bots.clan.AcademyRewards rewards = core.academyRewards();
+        if (rewards != null) {
+            sb.append("<br><font color=\"LEVEL\">Academy live players / payouts</font><br>");
+            int shown = 0;
+            for (org.l2start.bots.clan.AcademyRewards.Row row : rewards.paidSummary()) {
+                if (shown++ >= 20) {
+                    sb.append("…<br>");
+                    break;
+                }
+                sb.append("char#").append(row.charId()).append(" clan ").append(row.botClanId());
+                sb.append(row.joinPaid() ? " join✓" : " join—");
+                sb.append(row.graduatePaid() ? " grad✓" : " grad—");
+                sb.append("<br>");
+            }
+            if (shown == 0) {
+                sb.append("(none)<br>");
+            }
         }
         final var inPlayer = svc.playerClanBotIds();
         if (!inPlayer.isEmpty()) {

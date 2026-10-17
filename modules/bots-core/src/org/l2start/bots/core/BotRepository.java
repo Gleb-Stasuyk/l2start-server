@@ -168,4 +168,13 @@ public final class BotRepository {
     public int enforcePlayerAccess() throws SQLException {
         return db.update("UPDATE characters c JOIN " + identity + " i ON i.char_id = c.charId SET c.accesslevel = 0 WHERE c.accesslevel <> 0");
     }
+
+    /**
+     * Phase 7f / director: belt-and-suspenders wipe of bag loot after logout (arrows kept). Matches smoke
+     * {@code loot vanished} allowlist. Does not touch PAPERDOLL or traders.
+     */
+    public int wipeInventoryLoot() throws SQLException {
+        return db.update("DELETE FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345)"
+            + " AND owner_id IN (SELECT char_id FROM " + identity + " WHERE status='ACTIVE')");
+    }
 }

@@ -136,7 +136,8 @@ public final class DirectorRunner {
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
             if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
-                && !withPlayer(p)) { // phase 6b: in a real player's party it is his companion, the director leaves it be
+                && !withPlayer(p) // phase 6b: in a real player's party it is his companion, the director leaves it be
+                && !module.isAcademyRecruiter(r.botId())) { // phase 7f: recruiters stay at GK
                 bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
             }
         }
