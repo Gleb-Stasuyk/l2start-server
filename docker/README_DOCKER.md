@@ -33,6 +33,27 @@ docker compose --env-file profiles\solo.env ps
 При первом запуске `l2s-db-init` импортирует `core/dist/db_installer/sql/{login,game}/*.sql`, **только если БД пустая**.
 Данные сохраняются в томе `l2s-db-data`. Полный сброс: `docker compose --env-file profiles\solo.env down -v` (удаляет все аккаунты и персонажей).
 
+### Бэкап и восстановление
+
+Перед каждым `start.bat solo rebuild` (или `online rebuild`) `start.bat` вызывает `backup-db.bat`:
+дамп `mariadb-dump | gzip` в `F:\l2start-server\backups\l2s-YYYYMMDD-HHMM.sql.gz`, хранятся **последние 10** файлов.
+Если контейнера `l2s-db` ещё нет (первый запуск) — бэкап пропускается. Если дамп падает — rebuild не идёт.
+
+Вручную:
+```bat
+cd F:\l2start-server\docker
+backup-db.bat solo
+```
+
+Восстановить (останавливает game/login, заливает дамп в `l2s-db`):
+```bat
+cd F:\l2start-server\docker
+restore.bat ..\backups\l2s-20261019-1145.sql.gz
+start.bat solo
+```
+
+Папка `backups/` в git не попадает (`.gitignore`).
+
 ## Геодата
 
 Геодата не хранится в git. Чтобы подключить, укажи папку с `*.l2j` в `docker/.env`:
@@ -51,7 +72,7 @@ Docker Desktop сейчас ~3,8 ГБ. Профиль `solo` держит игр
 
 - `AutoLoot = True` — дроп с обычных мобов сразу в инвентарь (игрокам и ботам); травы (`AutoLootHerbs`) и дроп рейдов/боссов
   (`AutoLootRaids`) — стоково, руками; при полном инвентаре дроп падает на землю (`AutoLootSlotLimit`, сток);
-- `DisableTutorial = True` — без гайда новичка: ни квеста-туториала Q255, ни всплывающих «?»/голоса/окон при входе и создании.
+- `DisableTutorial = False` — туториал и диалоги Newbie Helper / Grand Master после создания персонажа (как в стоке).
   Побочный эффект (сток): Newbie Helper больше не выдаёт награды туториала (новичковые заряды, жетоны).
 
 В `overrides/<profile>/login/config/Server.ini` — только сетевые/аккаунт-ключи.

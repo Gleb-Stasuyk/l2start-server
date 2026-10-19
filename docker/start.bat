@@ -22,6 +22,16 @@ if errorlevel 1 (
 set "ENVFILES=--env-file profiles\%PROFILE%.env"
 if exist ".env" set "ENVFILES=%ENVFILES% --env-file .env"
 
+rem Before rebuild: dump DB so a bad compose/rebuild cannot wipe characters unnoticed.
+if defined BUILD (
+  call "%~dp0backup-db.bat" %PROFILE%
+  if errorlevel 1 (
+    echo Backup failed — rebuild aborted. Fix DB / Docker, or run without rebuild.
+    pause
+    exit /b 1
+  )
+)
+
 rem Ports 2106/7777 are shared with the old servers (l2-*, lw-*): only one server can run.
 set "BUSY="
 for /f %%N in ('docker ps --format "{{.Names}}" ^| findstr /x "l2-login l2-game lw-login lw-game"') do set "BUSY=!BUSY! %%N"

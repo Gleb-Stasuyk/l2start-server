@@ -196,7 +196,7 @@ real_modules() { # real_modules LOG N
   check "$2: lw-fixes RUNNING" state_is lw-fixes RUNNING "$1"
   check "$2: lw-fixes cursed weapon fix on" has "Module[lw-fixes]: enabled: CursedWeaponRefresh=true" "$1"
   check "$2: profile override AutoLoot = True" has "override game/Player.ini: AutoLoot = True" "$1"
-  check "$2: profile override DisableTutorial = True" has "override game/Player.ini: DisableTutorial = True" "$1"
+  check "$2: profile override DisableTutorial = False" has "override game/Player.ini: DisableTutorial = False" "$1"
   check "$2: rates override RateXp = 10" has "override game/Rates.ini: RateXp = 10" "$1"
   check "$2: rates override RateSp = 10" has "override game/Rates.ini: RateSp = 10" "$1"
   check "$2: rates override RateQuestRewardAdena = 5" has "override game/Rates.ini: RateQuestRewardAdena = 5" "$1"
