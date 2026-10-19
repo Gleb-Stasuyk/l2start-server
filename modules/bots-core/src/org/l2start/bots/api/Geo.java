@@ -15,4 +15,9 @@ public interface Geo {
 
     /** A random point within radius of center that can be reached in a straight line from center. */
     Optional<Pos> randomReachablePoint(Pos center, int radius, Random rnd);
+
+    /** Stock pathfinding is on (PathFinding &gt; 0): a move order finds its way round walls by itself. */
+    default boolean pathfinding() {
+        return false;
+    }
 }

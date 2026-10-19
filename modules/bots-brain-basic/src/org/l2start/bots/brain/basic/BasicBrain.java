@@ -146,6 +146,7 @@ public final class BasicBrain implements Brain {
 
     private long tickMain(BrainContext ctx, WorldView w, SelfView me, long now) {
         final Assignment order = ctx.assignment();
+        currentOrder = order;
         if (!started && (order == null)) {
             start(ctx, me, now);
         }
@@ -161,6 +162,7 @@ public final class BasicBrain implements Brain {
                     notePvpKiller(ctx, w, d.killerId()); // phase 7a grudge
                 }
                 case BotEvent.Teleported t -> revived = true;
+                case BotEvent.Idle i -> unstick(ctx, me, now, i);
                 case BotEvent.Attacked at -> {
                     if (at.byPlayer()) {
                         playerHits.put(at.attackerId(), now);
@@ -261,9 +263,80 @@ public final class BasicBrain implements Brain {
     private void enter(BrainContext ctx, Phase p, String why) {
         if (phase != p) {
             ctx.note(p + (why.isEmpty() ? "" : " (" + why + ")"));
+            phaseSince = ctx.now();
         }
         phase = p;
         detail = why;
+    }
+
+    // ------------------------------------------------------------------ idle watch (docs/STARTER_ZONES_PLAN.md S3)
+
+    private long phaseSince;
+    private long afkSince;
+    private Assignment currentOrder;
+
+    @Override
+    public org.l2start.bots.api.Activity activity() {
+        final long now = ctxNow;
+        if (phase == Phase.DEAD) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.DEAD, false, phaseSince);
+        }
+        if (ptMateId != 0) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.PARTY, false, phaseSince);
+        }
+        final Assignment o = currentOrder;
+        if ((o != null) && (o.kind() == Assignment.Kind.TRANSIT)) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.TRANSIT, false, phaseSince);
+        }
+        if (afkUntil > now) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.AFK, false, afkSince);
+        }
+        if (phase == Phase.REST) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.REST, false, phaseSince);
+        }
+        if (fightId != 0) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.FIGHT, false, fightSince);
+        }
+        if ((errand != null) && "group".equals(errandWhat) && (arrivedAt > 0)) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.GROUP, false, arrivedAt);
+        }
+        if (phase == Phase.TOWN_IDLE) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.TOWN, false, phaseSince);
+        }
+        if (phase == Phase.LEVEL) {
+            final boolean looting = now < lootUntil;
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.MOVE, !looting, phaseSince);
+        }
+        return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.NONE, false, phaseSince);
+    }
+
+    /** The idle watch says it stands about: drop what it does and take up something else. */
+    private void unstick(BrainContext ctx, SelfView me, long now, BotEvent.Idle i) {
+        ctx.note("idle (" + i.why() + (i.again() ? ", again" : "") + "): another activity");
+        if (fightId != 0) {
+            blacklist.put(fightId, now + BLACKLIST_MS);
+            endFight();
+        }
+        afkUntil = 0;
+        afkAt = 0;
+        errand = null;
+        arrivedAt = 0;
+        stuck = 0;
+        detourSide = 0;
+        lastPos = null;
+        lootUntil = 0;
+        if (transitUntil > now) {
+            transitUntil = now; // its few seconds at the gatekeeper are over: teleports on
+        }
+        standIfSitting(ctx, me);
+        if (currentOrder == null) {
+            zone = null; // another hunting ground (or another stroll)
+            idleUntil = now;
+            enter(ctx, Phase.LEVEL, "idle: " + i.why());
+        } else if (phase == Phase.REST) {
+            enter(ctx, Phase.LEVEL, "idle: " + i.why());
+        }
+        phaseSince = now;
     }
 
     // ------------------------------------------------------------------ a real player attacks
@@ -918,7 +991,8 @@ public final class BasicBrain implements Brain {
                 zone = null; // not walking across the world
             }
             if (zone == null) {
-                idleUntil = now + 300_000;
+                // a beginner always has something to do: a short stroll in its village, then another look for a ground
+                idleUntil = now + (me.level() <= 10 ? 20_000 + ctx.rnd().nextInt(40_000) : 300_000);
                 enter(ctx, Phase.TOWN_IDLE, "no hunting ground for level " + me.level());
                 return 5000;
             }
@@ -973,6 +1047,13 @@ public final class BasicBrain implements Brain {
             final Pos leg = me.pos().toward(dest, len);
             if (w.geo().canMoveTo(me.pos(), leg) && ctx.act().moveTo(leg).ok()) {
                 detourSide = 0;
+                return 2000;
+            }
+        }
+        if (w.geo().pathfinding() && !stuckNow) {
+            // no straight leg (inside a building, e.g. Einhovant's School): stock pathfinding finds the way round the walls
+            final Pos to = me.pos().distance2d(dest) <= 3500 ? dest : me.pos().toward(dest, LEG);
+            if (ctx.act().moveTo(new Pos(to.x(), to.y(), w.geo().height(to))).ok()) {
                 return 2000;
             }
         }
@@ -1361,6 +1442,7 @@ public final class BasicBrain implements Brain {
     private long afk(BrainContext ctx, SelfView me, long now) {
         if ((afkAt > 0) && (now >= afkAt) && (fightId == 0)) {
             afkAt = 0;
+            afkSince = now;
             afkUntil = now + 60_000 + ctx.rnd().nextInt(9 * 60_000);
             ctx.act().stop();
             ctx.note("afk for " + ((afkUntil - now) / 60_000) + " min");

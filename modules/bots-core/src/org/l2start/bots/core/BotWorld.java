@@ -283,6 +283,20 @@ public final class BotWorld {
      * of Einhovant's School), scattered so bots do not pile up on them.
      */
     Location townPoint(BotRecord r, Player p) {
+        final org.l2start.bots.director.StarterZones z = zones;
+        if (z != null) {
+            // in a starting zone: to a spread point of its village (the stock point of Einhovant's School is a dead end)
+            final Pos here = new Pos(p.getX(), p.getY(), p.getZ());
+            final int zoneRace = z.raceAt(here);
+            if (zoneRace >= 0) {
+                final int race = raceOf(r);
+                final Pos v = z.villagePoint(race >= 0 ? race : zoneRace, WorldScatter.occupied(z.village(race >= 0 ? race : zoneRace).center(), p), Scatter.CLEAR, terrain,
+                    ThreadLocalRandom.current());
+                if (v != null) {
+                    return WorldScatter.loc(v);
+                }
+            }
+        }
         final Location stock = MapRegionData.getInstance().getTeleToLocation(p, TeleportWhereType.TOWN);
         if (stock == null) {
             return null;
@@ -293,6 +307,18 @@ public final class BotWorld {
             log.warn("town: " + r.name() + ": no free spot around " + at + ", at the town point");
         }
         return WorldScatter.loc(s.pos());
+    }
+
+    private volatile org.l2start.bots.director.StarterZones zones;
+    private volatile org.l2start.bots.director.Director.Terrain terrain = q -> q;
+
+    void setStarterZones(org.l2start.bots.director.StarterZones z, org.l2start.bots.director.Director.Terrain t) {
+        zones = z;
+        terrain = t;
+    }
+
+    static int raceOf(BotRecord r) {
+        return org.l2start.bots.director.StarterZones.raceOfStartClass(r.persona() == null ? r.classId() : r.persona().classId());
     }
 
     /** Store traders entered since the last call (one summary line instead of one per trader). */

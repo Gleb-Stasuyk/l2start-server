@@ -41,6 +41,8 @@ public final class BotRecord {
     private volatile int realLevel = 1;
     /** Phase 4g: the bot pair/trio it came in with (0 = alone); its members form a party. */
     private volatile int group;
+    /** Stands at a post on purpose (academy recruiter at its gatekeeper): the idle watch leaves it alone. */
+    private volatile boolean post;
 
     public BotRecord(int botId, int charId, String accountName, String name, int classId, Status status, long lastLogin, long lastLogout) {
         this.botId = botId;
@@ -72,6 +74,8 @@ public final class BotRecord {
     public int group() { return group; }
 
     public void setGroup(int g) { group = g; }
+    public boolean post() { return post; }
+    public void setPost(boolean p) { post = p; }
     public int homeX() { return homeX; }
     public int homeY() { return homeY; }
     public int homeZ() { return homeZ; }
@@ -128,6 +132,7 @@ public final class BotRecord {
 
     void leftWorld(long now) {
         player = null;
+        post = false;
         inWorldSince = 0;
         lastLogout = now;
     }

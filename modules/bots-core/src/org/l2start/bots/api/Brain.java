@@ -24,4 +24,9 @@ public interface Brain {
     default boolean inCombat() {
         return false;
     }
+
+    /** What it is doing, for the idle watch; null = cannot tell (only piles are taken apart). */
+    default Activity activity() {
+        return null;
+    }
 }

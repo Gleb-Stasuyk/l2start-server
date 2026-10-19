@@ -37,6 +37,18 @@ public sealed interface BotEvent {
         }
     }
 
+    /**
+     * The idle watch of bots-core (docs/STARTER_ZONES_PLAN.md S3): no goal, no movement or an intentional state past its
+     * maximum. The brain takes up another activity; {@code again} = the second time in a row (a teleport waits until no
+     * live player sees the bot, meanwhile it should run).
+     */
+    record Idle(String why, boolean again) implements BotEvent {
+        @Override
+        public String key() {
+            return "idle";
+        }
+    }
+
     record LevelUp(int oldLevel, int newLevel) implements BotEvent {
         @Override
         public String key() {

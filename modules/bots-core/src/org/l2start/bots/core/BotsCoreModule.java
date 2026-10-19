@@ -114,6 +114,8 @@ public final class BotsCoreModule implements GameModule {
         final List<Pos> nodes = new ArrayList<>(stockPoints.creation());
         nodes.addAll(stockPoints.respawn());
         zones.setAvoid(nodes);
+        world.setStarterZones(zones, terrain());
+        brains.setStarterZones(zones);
         factory.setHomePicker(race -> zones.villagePoint(race, List.of(), 0, terrain(), new java.util.Random()));
         if ("director".equals(ctx.config().getString("Presence"))) {
             // bad catalogue or gear table: the module fails to enable with a clear message

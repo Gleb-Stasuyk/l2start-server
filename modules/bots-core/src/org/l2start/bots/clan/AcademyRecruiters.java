@@ -370,6 +370,7 @@ public final class AcademyRecruiters {
         slot.clanId = row.clanId();
         slot.seenAt = now;
         activeBotIds.add(r.botId());
+        r.setPost(true);
         ensureTitle(p);
         final double dist = Math.hypot(p.getX() - spot.x(), p.getY() - spot.y());
         if (dist > 400) {

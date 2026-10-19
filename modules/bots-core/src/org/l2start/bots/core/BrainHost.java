@@ -47,6 +47,12 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         volatile BrainFactory factory;
         long lodCheckedAt;
         double nearestLive = Double.POSITIVE_INFINITY;
+        // idle watch (docs/STARTER_ZONES_PLAN.md S3)
+        final org.l2start.bots.runtime.IdleWatch idle = new org.l2start.bots.runtime.IdleWatch();
+        volatile org.l2start.bots.api.Activity activity;
+        Pos teleportPending;
+        long warnedAt;
+        long separatedAt;
 
         Mind(BotRecord r, long first) {
             this.r = r;
@@ -407,8 +413,163 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             m.ctx.view = null;
         }
         m.r.setGoal(brain.state());
+        watch(m, slot, p, brain, now);
         final long d = Lod.delay(slot.lod().level(), brain.inCombat() || p.isInCombat(), wanted, m.ctx.rnd().nextDouble());
         return overload.delay(d, slot.lod().level() == Lod.Level.ACTIVE, m.nearestLive);
+    }
+
+    private volatile org.l2start.bots.director.StarterZones zones;
+
+    void setStarterZones(org.l2start.bots.director.StarterZones z) {
+        zones = z;
+    }
+
+    /**
+     * Idle watch after every tick (docs/STARTER_ZONES_PLAN.md S3): piles are taken apart in any state; an idle bot takes up
+     * another activity; the second time it is teleported to a fitting spot, but only when no live player sees it (until
+     * then it runs and the teleport waits). Stores, buffers and recruiters at their posts are left alone.
+     */
+    private void watch(Mind m, BotSlot slot, Player p, Brain brain, long now) {
+        if ((m.r.status() != BotRecord.Status.ACTIVE) || m.r.post() || p.isDead()) {
+            return;
+        }
+        final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
+        final org.l2start.bots.api.Activity a = brain.activity();
+        m.activity = a;
+        separate(m, p, now);
+        if (m.teleportPending != null) {
+            final Boolean go = org.l2start.bots.runtime.IdleWatch.pendingTeleport(m.teleportPending, at, seenByLive(p));
+            if (go == null) {
+                m.teleportPending = null; // it ran off: no teleport needed
+            } else if (go) {
+                m.teleportPending = null;
+                teleportToSpot(m, p, "idle again, now unseen");
+                return;
+            }
+        }
+        final org.l2start.bots.runtime.IdleWatch.Verdict v = m.idle.check(now, at, a);
+        final org.l2start.bots.runtime.IdleWatch.Reaction what = org.l2start.bots.runtime.IdleWatch.react(v, (v == org.l2start.bots.runtime.IdleWatch.Verdict.IDLE_AGAIN) && seenByLive(p));
+        switch (what) {
+            case CHANGE -> {
+                ctx.log().info("idle: " + m.r.name() + " " + m.idle.why() + " at " + at + " (" + (a == null ? "?" : a.kind()) + ", " + m.r.goal() + "): another activity");
+                post(m.r, new BotEvent.Idle(m.idle.why(), false));
+            }
+            case TELEPORT -> teleportToSpot(m, p, "idle again (" + m.idle.why() + ")");
+            case RUN_TELEPORT_LATER -> {
+                ctx.log().info("idle: " + m.r.name() + " " + m.idle.why() + " again at " + at + ", seen by a live player: runs, the teleport waits");
+                m.teleportPending = at;
+                post(m.r, new BotEvent.Idle(m.idle.why(), true));
+            }
+            default -> {
+            }
+        }
+        if ((slot.lod().level() == Lod.Level.ACTIVE) && (m.idle.stillFor(now) > org.l2start.bots.runtime.IdleWatch.WARN_STILL_MS)
+            && !org.l2start.bots.runtime.IdleWatch.standsOnPurpose(a, now) && ((now - m.warnedAt) > 5 * 60_000L)) {
+            m.warnedAt = now;
+            ctx.log().warn("idle: ACTIVE " + m.r.name() + " has not moved more than 50 for " + (m.idle.stillFor(now) / 1000) + " s at " + at + " (" + (a == null ? "?" : a.kind()) + ", "
+                + m.r.goal() + ")");
+        }
+    }
+
+    /** Closer than 50 to another bot (its party / pair: 90): a short step away, in any state. */
+    private void separate(Mind m, Player p, long now) {
+        if (p.isMoving() || ((now - m.separatedAt) < 3000)) {
+            return;
+        }
+        for (Player o : World.getVisibleObjectsInRange(p, Player.class, 100)) {
+            final BotRecord or = registry.byCharId(o.getObjectId());
+            if ((or == null) || o.isDead()) {
+                continue;
+            }
+            final boolean mate = ((p.getParty() != null) && (p.getParty() == o.getParty())) || ((m.r.group() != 0) && (or.group() == m.r.group()));
+            final double min = mate ? 90 : 50;
+            final double d = p.calculateDistance2D(o);
+            if (d >= min) {
+                continue;
+            }
+            m.separatedAt = now;
+            if (p.isSitting()) {
+                p.standUp();
+                return;
+            }
+            double ang = Math.atan2(p.getY() - o.getY(), p.getX() - o.getX());
+            if (d < 1) {
+                ang = ThreadLocalRandom.current().nextDouble() * Math.PI * 2;
+            }
+            final double step = (min - d) + 40 + ThreadLocalRandom.current().nextInt(41);
+            final int x = p.getX() + (int) (Math.cos(ang) * step);
+            final int y = p.getY() + (int) (Math.sin(ang) * step);
+            m.act.moveTo(new Pos(x, y, org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance().getHeight(x, y, p.getZ())));
+            return;
+        }
+    }
+
+    /** A live player (or a director test anchor) within the demote radius sees the bot. */
+    private boolean seenByLive(Player p) {
+        for (Player o : World.getVisibleObjectsInRange(p, Player.class, demoteRadius)) {
+            if (!registry.isBot(o) && (o.isOnlineInt() != 0) && org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance().canSeeTarget(o, p)) {
+                return true;
+            }
+        }
+        for (Pos a : anchors.get()) {
+            if (Math.hypot(a.x() - p.getX(), a.y() - p.getY()) <= demoteRadius) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** To the nearest spot that fits it: its director place, else a hunting ground of its level (own race in starting zones), else its village. */
+    private void teleportToSpot(Mind m, Player p, String why) {
+        final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
+        final Pos spot = fittingSpot(m.r, p, at);
+        if (spot == null) {
+            post(m.r, new BotEvent.Idle(why, true));
+            return;
+        }
+        final org.l2start.bots.director.Scatter.Result s = WorldScatter.pick(spot, p);
+        ctx.log().info("idle: " + m.r.name() + " " + why + " at " + at + ": teleported to " + s.pos() + (s.fallback() ? " (fallback)" : ""));
+        if (p.isSitting()) {
+            p.standUp();
+        }
+        p.abortAttack();
+        p.abortCast();
+        p.getAI().setIntentionActive();
+        p.teleToLocation(WorldScatter.loc(s.pos()), false);
+    }
+
+    private Pos fittingSpot(BotRecord r, Player p, Pos at) {
+        final org.l2start.bots.api.Assignment a = r.assignment();
+        final org.l2start.bots.director.StarterZones z = zones;
+        final int race = org.l2start.bots.director.StarterZones.raceOfStartClass(r.persona() == null ? r.classId() : r.persona().classId());
+        if ((a != null) && (a.kind() == org.l2start.bots.api.Assignment.Kind.HUNT)) {
+            return a.center();
+        }
+        if (z == null) {
+            return a == null ? null : a.center();
+        }
+        if ((a != null) && ((a.kind() == org.l2start.bots.api.Assignment.Kind.TOWN) || (a.kind() == org.l2start.bots.api.Assignment.Kind.ERRANDS))) {
+            final org.l2start.bots.director.WorldCatalog.Town t = z.catalog().town(a.place());
+            if ((t != null) && (org.l2start.bots.director.StarterZones.VILLAGES.indexOf(t.id()) >= 0)) {
+                return z.villagePoint(race, List.of(), 0, terrain(), ThreadLocalRandom.current());
+            }
+            return a.center();
+        }
+        org.l2start.bots.director.WorldCatalog.Ground best = null;
+        for (org.l2start.bots.director.WorldCatalog.Ground g : z.catalog().grounds()) {
+            final int gr = org.l2start.bots.director.StarterZones.raceOfGround(g);
+            if (!g.fits(p.getLevel()) || ((gr >= 0) && (race >= 0) && (gr != race)) || g.indoor()) {
+                continue;
+            }
+            if ((g.center().distance2d(at) < 30_000) && ((best == null) || (g.center().distance2d(at) < best.center().distance2d(at)))) {
+                best = g;
+            }
+        }
+        return best != null ? best.center() : z.villagePoint(race, List.of(), 0, terrain(), ThreadLocalRandom.current());
+    }
+
+    private org.l2start.bots.director.Director.Terrain terrain() {
+        return q -> DirectorRunner.ground(q, world.requireGeodata());
     }
 
     private double nearestLive(Player p) {

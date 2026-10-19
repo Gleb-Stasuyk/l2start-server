@@ -22,6 +22,11 @@ final class MobiusGeo implements Geo {
     }
 
     @Override
+    public boolean pathfinding() {
+        return org.l2jmobius.gameserver.config.GeoEngineConfig.PATHFINDING > 0;
+    }
+
+    @Override
     public int height(Pos p) {
         return GeoEngine.getInstance().getHeight(p.x(), p.y(), p.z());
     }
