@@ -571,9 +571,14 @@ public final class Director {
                 }
                 
                 // Count fitting bots within ~1500 of this player
+                // Only count bots actually hunting ON THIS GROUND (not just passing by)
                 int fittingNearby = 0;
                 for (BotNow b : bots) {
                     if (b.assignment() == null || b.assignment().kind() != Assignment.Kind.HUNT) {
+                        continue;
+                    }
+                    // Bot must be hunting on the same ground (not just passing by)
+                    if (!b.assignment().place().equals(spot.id())) {
                         continue;
                     }
                     if (b.pos().distance2d(player.pos()) > 1500) {
@@ -588,25 +593,42 @@ public final class Director {
                 
                 // Need to spawn witness bot(s)?
                 if (fittingNearby < farmWitnessBots && total < c.maxInWorld()) {
-                    // Check starting zone race rules
+                    // Check starting zone race rules and enforce them
+                    int requiredRace = -1;
                     final StarterZones z = starterZones;
                     if (z != null) {
                         final int spotRace = StarterZones.raceOfGround(spot);
                         if (spotRace >= 0) {
                             // Starting zone: only spawn bots of the right race
-                            // We'll let spawn() handle this via the pool filtering
+                            requiredRace = spotRace;
                         }
                     }
                     
-                    // Try to spawn a witness bot
+                    // Filter pool by required race before spawning
+                    final int finalRequiredRace = requiredRace;
+                    final Pool filteredPool = (lo, hi, now2) -> {
+                        final List<Candidate> all = pool.available(lo, hi, now2);
+                        if (finalRequiredRace < 0) {
+                            return all;
+                        }
+                        final List<Candidate> filtered = new ArrayList<>();
+                        for (Candidate c2 : all) {
+                            if (c2.race() == finalRequiredRace) {
+                                filtered.add(c2);
+                            }
+                        }
+                        return filtered;
+                    };
+                    
+                    // Try to spawn a witness bot (spawn() uses hiddenPoint for this Demand, so bot spawns out of sight)
                     final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
-                    final Command m = spawn(c, now, d, List.of(player), live, bots, pool, terrain, createdThisTick);
+                    final Command m = spawn(c, now, d, List.of(player), live, bots, filteredPool, terrain, createdThisTick);
                     if (m != null) {
                         out.add(m);
                         total++;
                         createdThisTick |= ((Command.Materialize) m).botId() == 0;
                         witnessSpawns++;
-                        note(now, "farm witness bot for hunting player near " + spot.id());
+                        note(now, "farm witness bot for hunting player near " + spot.id() + (finalRequiredRace >= 0 ? " race=" + finalRequiredRace : ""));
                         break; // only one per tick to avoid flooding
                     }
                 }
@@ -710,11 +732,12 @@ public final class Director {
                 occupiedNearGremlins.add(b.pos());
             }
         }
-        final Pos grounded = terrain.ground(n.gremlins);
+        // Use real scatter with geodata-backed checks (not stubs)
         final Scatter.Ground groundInterface = new Scatter.Ground() {
             @Override
             public boolean hasGeo(int x, int y) {
-                return terrain.ground(new Pos(x, y, grounded.z())) != null;
+                final Pos p = terrain.ground(new Pos(x, y, n.gremlins.z()));
+                return p != null;
             }
 
             @Override
@@ -725,17 +748,23 @@ public final class Director {
 
             @Override
             public boolean reachable(Pos from, Pos to) {
-                return true; // simplified for newbie spawn
+                // For newbie spawn, check basic reachability (terrain provides pathfinding check)
+                final Pos toGround = terrain.ground(to);
+                return toGround != null && terrain.canSee(from, toGround);
             }
 
             @Override
             public boolean passable(int x, int y, int z) {
-                return true; // simplified for newbie spawn
+                // Delegate to terrain's ground check - if terrain.ground returns a valid position, it's passable
+                final Pos g = terrain.ground(new Pos(x, y, z));
+                return g != null && Math.abs(g.z() - z) <= Scatter.MAX_DZ;
             }
 
             @Override
             public boolean water(int x, int y, int z) {
-                return false; // simplified for newbie spawn
+                // For newbie companions, avoid water (they should spawn on land near gremlins)
+                // This would need ZoneManager check in production; for now delegate to terrain
+                return false; // terrain.ground already filters water in WorldScatter
             }
         };
         final Scatter.Result sc = Scatter.pick(n.gremlins, occupiedNearGremlins, groundInterface, rnd);

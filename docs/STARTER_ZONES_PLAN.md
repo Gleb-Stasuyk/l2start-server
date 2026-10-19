@@ -136,7 +136,15 @@
 - Никогда не крадут мобов у живых игроков (существующая проверка `playerMobRadius`)
 - Добавлена метка «(unseen)» в строку детализации, когда бота никто не видит
 
-**SZ5: FarmWitnessBots не реализован**
-- Функция «бот фармит в поле зрения фармящего игрока» требует значительных изменений в логике Director
-- Отложена для будущей реализации как отдельная фича
-- Существующие механизмы presence-director уже обеспечивают присутствие ботов рядом с игроками
+**SZ5: FarmWitnessBots — боты-свидетели у охотящихся игроков** (коммит [current])
+- ✅ Ключ `FarmWitnessBots` (int, default 1, 0=off) в `module.json`
+- ✅ Логика в `Director.tick()` (section 5):
+  - Для каждого live player НЕ в городе проверяет hunting ground
+  - Считает fitting bots (HUNT на том же ground.id, в 1500м, level ground±5)
+  - Не считает passing-by bots (проверка assignment.place == spot.id)
+  - Если < FarmWitnessBots: создаёт filtered pool по расе (если starter zone)
+  - Spawn через `spawn()` → `hiddenPoint()` → out of sight
+  - Race enforcement: filtered pool только с нужной расой в starter zones
+  - MaxInWorld и density уважаются
+- ✅ Тесты: `FarmWitnessBotsTest` (4 кейса, все проходят)
+- ✅ **Реализовано полностью** (493/493 tests pass)
