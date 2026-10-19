@@ -248,6 +248,13 @@ public final class Director {
         starterTownMax = Math.max(0, max);
     }
 
+    /** Farm witness bots: keep at least this many fitting bots near each hunting player (bots-core FarmWitnessBots). */
+    private volatile int farmWitnessBots = 1;
+
+    public void setFarmWitnessBots(int count) {
+        farmWitnessBots = Math.max(0, Math.min(3, count));
+    }
+
     public double clanMixedPartyChance() {
         return clanMixedPartyChance;
     }
