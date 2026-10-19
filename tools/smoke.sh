@@ -25,8 +25,8 @@
 #   7 bots      solo, AutoCreate=20 AutoSpawn=10, RequireGeodata=false -> 20 bot characters (banned accounts, online=0,
 #                                                      starting gear, personas, state), 10 in the world, logged out on shutdown;
 #                                                      brain 'basic' runs: the bots walk, attack and kill monsters, 0 brain errors;
-#                                                      after a restart (brain off, so they stand) the SAME 10 come back (restore) at the
-#                                                      same places, nothing created twice
+#                                                      after a restart (brain off, so they stand) the SAME 10 come back (restore) near the
+#                                                      same places (every login scattered 150..2500), nothing created twice
 set -uo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -240,7 +240,7 @@ check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bot
 check "bots-brain-basic: hunting grounds loaded" grep -qE "Module\[bots-brain-basic\]: brain 'basic' registered: [0-9]+ hunting grounds around 5 starting villages" "$OUT/6-solo.log"
 check "runtime started" grep -qE 'Module\[bots-core\]: runtime: [0-9]+ shards, wave 100 ms, budget 25 ms' "$OUT/6-solo.log"
 check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-core\]: ready: 0 bots known .*geodata in starting villages: NO' "$OUT/6-solo.log"
-check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_academy_reward mod_bots_core_account mod_bots_core_clan mod_bots_core_clan_member mod_bots_core_identity mod_bots_core_memory mod_bots_core_persona mod_bots_core_pk_ledger mod_bots_core_player_clan mod_bots_core_progress mod_bots_core_state "
+check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_academy_reward mod_bots_core_account mod_bots_core_clan mod_bots_core_clan_member mod_bots_core_identity mod_bots_core_memory mod_bots_core_newbie mod_bots_core_persona mod_bots_core_pk_ledger mod_bots_core_player_clan mod_bots_core_progress mod_bots_core_state "
 # phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
 check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify + busy)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" -ge 3
 check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
@@ -312,7 +312,8 @@ sql "$POS" > "$OUT/7-pos-after.txt"
 # a bot that was dead at the 1st stop goes to town after the restart: compare the ones alive at the 1st stop
 cut -f1 "$OUT/7-pos-before.txt" > "$OUT/7-pos-names.txt"
 grep -F -w -f "$OUT/7-pos-names.txt" "$OUT/7-pos-after.txt" > "$OUT/7-pos-after-same.txt"
-check "same places: positions saved at the 2nd stop == positions at the 1st stop (>= 8 of 10 bots alive)" bash -c "diff -q \"\$0\" \"\$1\" && test \$(wc -l < \"\$0\") -ge 8" "$OUT/7-pos-before.txt" "$OUT/7-pos-after-same.txt"
+# every login is scattered (docs/STARTER_ZONES_PLAN.md S1): back near the same places, never on the very same spot
+check "near the same places: back 150..2500 from where they logged out (>= 8 of 10 bots alive)" bash -c 'join -t "$(printf "\t")" <(sort "$0") <(sort "$1") | awk -F"\t" "{ d = sqrt((\$2 - \$5) ^ 2 + (\$3 - \$6) ^ 2); if ((d >= 149) && (d <= 2500)) ok++ } END { exit !(ok >= 8) }"' "$OUT/7-pos-before.txt" "$OUT/7-pos-after-same.txt"
 
 # ---- 8 presence director: two test players (Anchors) - one in Giran, one on a level 39-40 ground (Field of Silence)
 say "-- 8 presence director (Anchors: Giran + Field of Silence)"
