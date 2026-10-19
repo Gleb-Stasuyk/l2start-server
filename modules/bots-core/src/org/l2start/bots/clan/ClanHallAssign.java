@@ -14,6 +14,7 @@ import org.l2jmobius.gameserver.entity.itemcontainer.Inventory;
 import org.l2jmobius.gameserver.entity.residences.AuctionableHall;
 import org.l2jmobius.gameserver.entity.residences.ClanHall;
 import org.l2jmobius.gameserver.entity.zone.type.ClanHallZone;
+import org.l2jmobius.gameserver.network.serverpackets.AgitDecoInfo;
 import org.l2start.bots.core.BotRecord;
 import org.l2start.bots.core.BotRegistry;
 import org.l2start.platform.api.ModuleContext;
@@ -196,6 +197,11 @@ public final class ClanHallAssign {
         final boolean addNew = cur == null;
         if (!hall.updateFunctions(payer, type, level, fee, ratio, addNew)) {
             ctx.log().warn("CH#" + hall.getId() + " function " + type + " lvl " + level + " failed");
+            return;
+        }
+        // stock ClanHallManager does this after updateFunctions so the client sees Recovery/Other
+        if (hall instanceof AuctionableHall ah) {
+            payer.sendPacket(new AgitDecoInfo(ah));
         }
     }
 

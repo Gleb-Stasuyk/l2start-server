@@ -20,7 +20,7 @@ public final class ClassLabels {
         e(101, "Wind Rider"), e(102, "Moonlight"),
         e(25, "Elven Mystic"), e(26, "Elven Wizard"), e(27, "Spellsinger"), e(28, "EE"),
         e(103, "Mystic Muse"), e(104, "Elemental"), e(29, "Oracle"), e(30, "Elder"), e(105, "Eva Saint"),
-        e(31, "Dark Fighter"), e(32, "Palus"), e(33, "Shillien Knight"), e(34, "BD"), e(106, "Shillien Templar"),
+        e(31, "Dark Fighter"), e(32, "Palus"), e(33, "Shillien Knight"), e(34, "Bladedancer"), e(106, "Shillien Templar"),
         e(107, "Spectral Dancer"), e(35, "Assassin"), e(36, "Abyss"), e(37, "Phantom Ranger"),
         e(108, "Ghost Hunter"), e(109, "Ghost Ranger"),
         e(38, "Dark Mystic"), e(39, "Dark Wizard"), e(40, "Spellhowler"), e(41, "Phantom Summoner"),

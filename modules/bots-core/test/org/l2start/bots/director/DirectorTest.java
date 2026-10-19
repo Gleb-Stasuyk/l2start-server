@@ -240,7 +240,7 @@ class DirectorTest {
         return new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), d.hiddenMin(), d.hiddenMax(), d.seenRadius(), d.unseenRadius(),
             d.unseenLogoutMs(), minMs, maxMs, d.townNight(), d.townDay(), d.townEvening(), d.groundMin(), d.groundMax(), d.indoorFactor(),
             d.huntPerCluster(), d.huntPerExtraPlayer(), d.maxPerCluster(), d.maxInWorld(), d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), d.returnCooldownMs(),
-            d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs());
+            d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs(), d.townWanderersMultiplier());
     }
 
     static long stat(Director d, String key) {
@@ -372,10 +372,35 @@ class DirectorTest {
         final DirectorConfig c = new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), d.hiddenMin(), d.hiddenMax(), d.seenRadius(), d.unseenRadius(),
             d.unseenLogoutMs(), d.lingerMinMs(), d.lingerMaxMs(), d.townNight(), d.townDay(), d.townEvening(), d.groundMin(), d.groundMax(), d.indoorFactor(),
             d.huntPerCluster(), d.huntPerExtraPlayer(), d.maxPerCluster(), 3, d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(), d.returnCooldownMs(),
-            d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs());
+            d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs(), d.townWanderersMultiplier());
         final Sim s = new Sim(c);
         s.run(20, at(new Pos(0, -1500, 0), FIELD), 10 * 60_000);
         assertTrue(s.bots.size() <= 3, "budget: " + s.bots.size());
+    }
+
+    @Test
+    void townWanderersMultiplierDoublesTownAndPassPace() {
+        final DirectorConfig base = withWander(1.0);
+        final DirectorConfig double_ = withWander(2.0);
+        final int hour = 14;
+        final double curve = base.curve(hour);
+        final int t1 = (int) Math.round(Director.townTarget(base, "giran", hour, curve) * base.wanderMult());
+        final int t2 = (int) Math.round(Director.townTarget(double_, "giran", hour, curve) * double_.wanderMult());
+        assertEquals(t1 * 2, t2);
+        final Random rnd = new Random(1);
+        final long p1 = Director.passInterval(base, 0.5, rnd);
+        final Random rnd2 = new Random(1);
+        final long p2 = Director.passInterval(double_, 0.5, rnd2);
+        assertEquals(p1 / 2, p2);
+        assertEquals(1.0, DirectorConfig.defaults().townWanderersMultiplier(), "unit baseline");
+    }
+
+    static DirectorConfig withWander(double m) {
+        final DirectorConfig d = DirectorConfig.defaults();
+        return new DirectorConfig(d.clusterLink(), d.groundReach(), d.townMargin(), d.hiddenMin(), d.hiddenMax(), d.seenRadius(), d.unseenRadius(),
+            d.unseenLogoutMs(), d.lingerMinMs(), d.lingerMaxMs(), d.townNight(), d.townDay(), d.townEvening(), d.groundMin(), d.groundMax(), d.indoorFactor(),
+            d.huntPerCluster(), d.huntPerExtraPlayer(), d.maxPerCluster(), d.maxInWorld(), d.spawnIntervalMinMs(), d.spawnIntervalMaxMs(), d.leaveIntervalMs(),
+            d.returnCooldownMs(), d.pendingTimeoutMs(), d.onlineCurve(), d.transitMinMs(), d.transitMaxMs(), d.transitStarterFactor(), d.passMinMs(), d.passMaxMs(), m);
     }
 
     @Test

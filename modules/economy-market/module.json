@@ -148,6 +148,12 @@
       "reloadable": false,
       "description": "Private stores for everybody anywhere (auto = on in solo, stock in online): the stock no-store zones (custom_no_store.xml) are off and Seven Signs peace zones allow stores; jail stays without stores. Applied at the start."
     },
+    "GiranMarketBrowsers": {
+      "type": "string",
+      "default": "3-5",
+      "reloadable": true,
+      "description": "Phase 7 polish: keep this many bots (min-max) walking Giran SELL/BUY/CRAFT market spots, stopping and sometimes buying from real player stores."
+    },
     "BuyFromPlayers": {
       "type": "bool",
       "default": true,

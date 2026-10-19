@@ -26,12 +26,16 @@ import org.l2start.platform.hooks.CoreHooks;
 
 /**
  * Phase 7f/7g: academy recruiters near GK — invite only when asked; CH assigned to their clans.
+ * Shouts are outside the 6g SocialBoard world limit (per-bot {@code AcademyShoutIntervalSec} only).
  */
 public final class AcademyRecruiters {
-    public static final String TITLE = "Набор в академию";
+    /** Legacy default; prefer {@link #pickTitle()}. */
+    public static final String TITLE = "Набор в академ";
+    public static final List<String> TITLES = List.of("Набор в академ", "LF academ");
     private static final int NEAR = 6000;
     private static final long STAY_MS = 5 * 60_000L;
-    private static final long SHOUT_GAP_MS = 90_000L;
+    private static final long SHOUT_GAP_MIN_MS = 30_000L;
+    private static final long SHOUT_GAP_MAX_MS = 100_000L;
 
     public record Spot(String town, int x, int y, int z) {
     }
@@ -49,6 +53,7 @@ public final class AcademyRecruiters {
         int clanId;
         long seenAt;
         long lastShoutAt;
+        long nextShoutGapMs;
 
         Slot(Spot spot) {
             this.spot = spot;
@@ -74,6 +79,8 @@ public final class AcademyRecruiters {
     private volatile ClanHallAssign halls;
     private volatile int joinReward = 50_000;
     private volatile int gradReward = 150_000;
+    private volatile long shoutMinMs = SHOUT_GAP_MIN_MS;
+    private volatile long shoutMaxMs = SHOUT_GAP_MAX_MS;
 
     public AcademyRecruiters(ModuleContext ctx, ClanService clans, BotRegistry registry, BotWorld world) {
         this.ctx = ctx;
@@ -89,6 +96,22 @@ public final class AcademyRecruiters {
         enabled = on;
     }
 
+    /** AcademyShoutIntervalSec=min-max (seconds per bot between shouts). */
+    public void setShoutIntervalSec(int minSec, int maxSec) {
+        final int lo = Math.max(5, Math.min(minSec, maxSec));
+        final int hi = Math.max(lo, Math.max(minSec, maxSec));
+        shoutMinMs = lo * 1000L;
+        shoutMaxMs = hi * 1000L;
+    }
+
+    public long shoutMinMs() {
+        return shoutMinMs;
+    }
+
+    public long shoutMaxMs() {
+        return shoutMaxMs;
+    }
+
     public void setHalls(ClanHallAssign assign) {
         halls = assign;
     }
@@ -96,6 +119,35 @@ public final class AcademyRecruiters {
     public void setRewards(int join, int graduate) {
         joinReward = Math.max(0, join);
         gradReward = Math.max(0, graduate);
+    }
+
+    /** Random title ≤16 chars (client title limit). */
+    public static String pickTitle() {
+        return TITLES.get(ThreadLocalRandom.current().nextInt(TITLES.size()));
+    }
+
+    static boolean isRecruiterTitle(String title) {
+        return TITLES.contains(title) || TITLE.equals(title) || "Набор в академию".equals(title);
+    }
+
+    /** Parse {@code "30-100"} → {30, 100}; bad input → defaults. */
+    public static int[] parseIntervalSec(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return new int[] { 30, 100 };
+        }
+        final String s = raw.trim().replace('_', '-');
+        final int dash = s.indexOf('-');
+        try {
+            if (dash < 0) {
+                final int v = Integer.parseInt(s);
+                return new int[] { v, v };
+            }
+            final int a = Integer.parseInt(s.substring(0, dash).trim());
+            final int b = Integer.parseInt(s.substring(dash + 1).trim());
+            return new int[] { Math.min(a, b), Math.max(a, b) };
+        } catch (NumberFormatException e) {
+            return new int[] { 30, 100 };
+        }
     }
 
     /** Clan ids currently used as recruiters (for CH assign / bids skip). */
@@ -295,8 +347,9 @@ public final class AcademyRecruiters {
         }
         final int dx = ThreadLocalRandom.current().nextInt(-120, 121);
         final int dy = ThreadLocalRandom.current().nextInt(-120, 121);
+        final String title = pickTitle();
         final String err = world.enterPrepared(leader, new Location(spot.x() + dx, spot.y() + dy, spot.z()), p -> {
-            p.setTitle(TITLE);
+            p.setTitle(title);
             p.broadcastUserInfo();
         });
         if (err == null) {
@@ -329,23 +382,35 @@ public final class AcademyRecruiters {
     }
 
     private static void ensureTitle(Player p) {
-        if (!TITLE.equals(p.getTitle())) {
-            p.setTitle(TITLE);
+        if (!isRecruiterTitle(p.getTitle())) {
+            p.setTitle(pickTitle());
             p.broadcastUserInfo();
         }
     }
 
     private void maybeShout(Slot slot, Player bot, long now) {
-        if ((now - slot.lastShoutAt) < SHOUT_GAP_MS) {
+        final long gap = shoutGapMs(slot);
+        if ((now - slot.lastShoutAt) < gap) {
             return;
         }
-        if (!social.tryShout(now)) {
-            return;
-        }
+        // Outside 6g SocialBoard world LFP limit; only per-bot cooldown applies.
         slot.lastShoutAt = now;
+        slot.nextShoutGapMs = nextShoutGapMs();
         final String text = shoutText(slot);
         final ChatType type = ThreadLocalRandom.current().nextBoolean() ? ChatType.SHOUT : ChatType.TRADE;
         bot.broadcastPacket(new CreatureSay(bot, type, bot.getName(), text));
+    }
+
+    private long shoutGapMs(Slot slot) {
+        if (slot.nextShoutGapMs <= 0) {
+            slot.nextShoutGapMs = nextShoutGapMs();
+        }
+        return slot.nextShoutGapMs;
+    }
+
+    private long nextShoutGapMs() {
+        final long span = Math.max(0, shoutMaxMs - shoutMinMs);
+        return shoutMinMs + (span == 0 ? 0 : ThreadLocalRandom.current().nextLong(span + 1));
     }
 
     String shoutText(Slot slot) {

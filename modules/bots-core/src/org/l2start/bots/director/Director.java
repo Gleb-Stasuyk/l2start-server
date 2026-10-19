@@ -386,12 +386,13 @@ public final class Director {
             }
             demand.keySet().removeAll(claimed);
             claimed.addAll(demand.keySet());
-            // targets
+            // targets (TownWanderersMultiplier scales TOWN + hunt + PASS frequency)
+            final double wander = c.wanderMult();
             final Map<String, Integer> target = new LinkedHashMap<>();
             int townSum = 0;
             for (Demand d : demand.values()) {
                 if (d.town()) {
-                    final int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density);
+                    final int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density * wander);
                     target.put(d.id(), t);
                     townSum += t;
                 }
@@ -403,9 +404,11 @@ public final class Director {
                 }
             }
             grounds.sort((a, b) -> Double.compare(a.nearest(), b.nearest()));
-            int huntCap = (int) Math.round(Math.min(c.huntPerCluster() + (c.huntPerExtraPlayer() * (cluster.size() - 1)), Math.max(0, c.maxPerCluster() - townSum)) * density);
+            final int clusterCap = (int) Math.round(c.maxPerCluster() * wander);
+            final int huntBase = (int) Math.round((c.huntPerCluster() + (c.huntPerExtraPlayer() * (cluster.size() - 1))) * wander);
+            int huntCap = (int) Math.round(Math.min(huntBase, Math.max(0, clusterCap - townSum)) * density);
             for (Demand d : grounds) {
-                int t = (int) Math.round(groundTarget(c, d.groundRef(), curve) * density) - d.players();
+                int t = (int) Math.round(groundTarget(c, d.groundRef(), curve) * density * wander) - d.players();
                 t = Math.max(0, Math.min(t, huntCap));
                 huntCap -= t;
                 target.put(d.id(), t);
@@ -706,10 +709,10 @@ public final class Director {
         return (long) (base * k);
     }
 
-    /** Next passer-by: min..max at a usual hour (curve 0.5), twice as often at the evening peak, rarer at night. */
+    /** Next passer-by: min..max at a usual hour (curve 0.5), twice as often at the evening peak, rarer at night; ÷ TownWanderersMultiplier. */
     static long passInterval(DirectorConfig c, double curve, Random rnd) {
         final long base = c.passMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.passMaxMs() - c.passMinMs()));
-        return (long) (base * (0.5 / Math.max(0.25, curve)));
+        return (long) ((base * (0.5 / Math.max(0.25, curve))) / c.wanderMult());
     }
 
     /** A persona for a short appearance (transit, passer-by): one of the pool, else a new one (at most one per tick). */

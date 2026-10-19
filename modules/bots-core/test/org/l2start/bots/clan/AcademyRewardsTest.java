@@ -30,6 +30,14 @@ class AcademyRewardsTest {
     void recruiterTownsAreFour() {
         assertEquals(4, AcademyRecruiters.TOWNS.size());
         assertTrue(AcademyRecruiters.TITLE.length() <= 16);
+        for (String t : AcademyRecruiters.TITLES) {
+            assertTrue(t.length() <= 16, t);
+        }
+        assertTrue(AcademyRecruiters.isRecruiterTitle("Набор в академ"));
+        assertTrue(AcademyRecruiters.isRecruiterTitle("LF academ"));
+        final int[] iv = AcademyRecruiters.parseIntervalSec("30-100");
+        assertEquals(30, iv[0]);
+        assertEquals(100, iv[1]);
         assertTrue(AcademyRecruiters.asksAcademy("можно в академию"));
         assertTrue(AcademyRecruiters.asksAcademy("academy pls"));
         assertTrue(AcademyRecruiters.asksAcademy("возьмите в акаду"));

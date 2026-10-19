@@ -63,6 +63,17 @@ class ChatTest {
     }
 
     @Test
+    void lfpTemplatesIncludeProfessionAndLevel() throws Exception {
+        final Phrases p = Phrases.load(FILE);
+        assertTrue(p.lines("LFP", "RU").stream().anyMatch(l -> l.contains("{class}") && l.contains("{level}")));
+        assertTrue(p.lines("LFP", "EN").stream().anyMatch(l -> l.contains("{class}") && l.contains("{level}")));
+        final String filled = Phrases.fill("LFP {class} {level}", Map.of("class", "Bishop", "level", "58"));
+        assertEquals("LFP Bishop 58", filled);
+        assertEquals("Bladedancer", ClassLabels.name(34, "EN"));
+        assertTrue(Phrases.fill("{class} {level} ищет пати", Map.of("class", ClassLabels.name(34, "RU"), "level", "62")).contains("62"));
+    }
+
+    @Test
     void humanizerTypesLikeAPerson() {
         final Random r = new Random(3);
         for (int i = 0; i < 200; i++) {

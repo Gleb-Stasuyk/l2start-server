@@ -33,8 +33,6 @@ final class Buffers {
     private static final class Buffer {
         final Towns.Spot spot;
         int botId;
-        int requester;
-        long acceptAt;
         long tradeSince;
         long confirmAt;
         int customer;
@@ -111,7 +109,7 @@ final class Buffers {
                 }
             } else if ((bot != null) && ((now - b.seenAt) > STAY_MS)) {
                 synchronized (b) {
-                    if ((b.customer == 0) && (b.requester == 0) && (bot.getActiveTradeList() == null)) {
+                    if ((b.customer == 0) && (b.tradeSince == 0) && (bot.getActiveTradeList() == null)) {
                         leaveParty(bot);
                         pool.leave(b.botId);
                         ctx.log().info("buffer " + b.spot.id() + ": nobody around, logged out");
@@ -170,19 +168,30 @@ final class Buffers {
         return null;
     }
 
+    /**
+     * Accept trade immediately (like Meetings): delayed accept loses stock ActiveRequester and never opens the window.
+     * AnswerDelay is used only before confirm.
+     */
     boolean onTradeRequest(Player requester, Player bot) {
         final Buffer b = of(bot);
         if (b == null) {
             return false;
         }
         synchronized (b) {
-            if ((b.customer != 0) || (b.requester != 0) || (bot.getActiveTradeList() != null)) {
+            if ((b.customer != 0) || (b.tradeSince > 0) || (bot.getActiveTradeList() != null)) {
                 deny(requester, bot);
                 whisper(bot, requester, "Сейчас бафаю другого, подожди немного.");
                 return true;
             }
-            b.requester = requester.getObjectId();
-            b.acceptAt = System.currentTimeMillis() + ctx.config().getDuration("AnswerDelay").toMillis();
+            bot.startTrade(requester);
+            bot.setActiveRequester(null);
+            requester.onTransactionResponse();
+            b.tradeSince = System.currentTimeMillis();
+            b.confirmAt = 0;
+            final String kind = b.spot.kind() == Towns.Kind.SE ? "SE " : "";
+            whisper(bot, requester, kind + "баф " + (isMage(requester) ? "мага" : "воина") + " — " + String.format("%,d", price(b.spot))
+                + " адены. Положи адену в окно и подтверди.");
+            ctx.log().info("buffer " + b.spot.id() + ": trade with " + requester.getName());
             return true;
         }
     }
@@ -201,9 +210,7 @@ final class Buffers {
                 if (bot == null) {
                     continue;
                 }
-                if (b.requester != 0) {
-                    accept(b, bot, now);
-                } else if (b.tradeSince > 0) {
+                if (b.tradeSince > 0) {
                     trade(b, bot, now);
                 } else if (b.customer != 0) {
                     buff(b, bot, now);
@@ -212,27 +219,6 @@ final class Buffers {
                 ctx.log().warn("buffer " + b.spot.id() + " tick: " + e);
             }
         }
-    }
-
-    private void accept(Buffer b, Player bot, long now) {
-        final Player r = World.getPlayer(b.requester);
-        if ((r == null) || !r.isOnline() || (r.getActiveRequester() != bot)) {
-            b.requester = 0;
-            bot.setActiveRequester(null);
-            return;
-        }
-        if (now < b.acceptAt) {
-            return;
-        }
-        bot.startTrade(r);
-        bot.setActiveRequester(null);
-        r.onTransactionResponse();
-        b.requester = 0;
-        b.tradeSince = now;
-        b.confirmAt = 0;
-        final String kind = b.spot.kind() == Towns.Kind.SE ? "SE " : "";
-        whisper(bot, r, kind + "баф " + (isMage(r) ? "мага" : "воина") + " — " + String.format("%,d", price(b.spot)) + " адены. Положи адену в окно и подтверди.");
-        ctx.log().info("buffer " + b.spot.id() + ": trade with " + r.getName());
     }
 
     static boolean isMage(Player p) {

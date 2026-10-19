@@ -109,6 +109,7 @@ final class Traders {
     private final Assortment assortment;
     private final Crafts crafts;
     private final Shoppers shoppers;
+    private final MarketBrowsers browsers;
     private final TradeChat chat;
     private final Random rnd = new Random();
     private final Map<String, Store> stores = new ConcurrentHashMap<>(); // spot id
@@ -151,6 +152,7 @@ final class Traders {
         }
         crafts = new Crafts(m);
         shoppers = new Shoppers(m, this, pool);
+        browsers = new MarketBrowsers(m, this, pool);
         meetings = new Meetings(m, this, pool);
         chat = new TradeChat(m, this, meetings);
         m.ctx().events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerChat> onGlobal(org.l2jmobius.gameserver.mechanics.events.EventType.ON_PLAYER_CHAT, chat::onChat);
@@ -254,6 +256,11 @@ final class Traders {
             shoppers.tick(now); // 5e
         } catch (Exception e) {
             warnOnce("shoppers " + e.getClass().getSimpleName(), "shoppers: " + e);
+        }
+        try {
+            browsers.tick(now); // Giran market browsers
+        } catch (Exception e) {
+            warnOnce("browsers " + e.getClass().getSimpleName(), "browsers: " + e);
         }
         try {
             chat.tick(now); // 5f
@@ -944,8 +951,28 @@ final class Traders {
     synchronized void stop() {
         stopped = true;
         shoppers.stop();
+        browsers.stop();
         meetings.stop();
         closeAll("server stop");
+        try {
+            final int n = repo.clearShopperBags();
+            if (n > 0) {
+                m.ctx().log().info("traders: cleared " + n + " leftover shopper/browser bag rows");
+            }
+        } catch (Exception e) {
+            m.ctx().log().warn("traders: clearShopperBags: " + e.getMessage());
+        }
+    }
+
+    /** Giran SELL/BUY/CRAFT places for market browsers (open or planned spots). */
+    List<Spot> giranBrowseSpots() {
+        final List<Spot> out = new ArrayList<>();
+        for (Store s : stores.values()) {
+            if ((s.spot != null) && MarketBrowsers.TOWN.equalsIgnoreCase(s.spot.town())) {
+                out.add(s.spot);
+            }
+        }
+        return out;
     }
 
     synchronized void closeAll(String reason) {

@@ -32,8 +32,11 @@ class TownBufferTest {
 
     @Test
     void onlyAdenaAtLeastThePrice() {
+        // Exact price and overpay both OK (buffers keep the overpay); underpay / non-adena / bot giving items = fail.
         assertEquals(Deal.Verdict.OK, Deal.check(List.of(new long[] { 57, 62_000 }), 0, 62_000));
         assertEquals(Deal.Verdict.OK, Deal.check(List.of(new long[] { 57, 70_000 }), 0, 62_000));
+        assertEquals(Deal.Verdict.OK, Deal.check(List.of(new long[] { 57, 20_000 }), 0, Towns.price(48)));
+        assertEquals(Deal.Verdict.OK, Deal.check(List.of(new long[] { 57, 40_000 }), 0, 40_000)); // SE 78 title price
         assertEquals(Deal.Verdict.NOT_ENOUGH, Deal.check(List.of(new long[] { 57, 61_999 }), 0, 62_000));
         assertEquals(Deal.Verdict.NOT_ENOUGH, Deal.check(List.of(), 0, 62_000));
         assertEquals(Deal.Verdict.WRONG, Deal.check(List.of(new long[] { 57, 62_000 }, new long[] { 1835, 1 }), 0, 62_000));

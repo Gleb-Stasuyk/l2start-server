@@ -101,15 +101,15 @@
 		<ru>грац|поздравляю|гц|с апом</ru>
 		<en>grats|gz|congrats|gratz</en>
 	</intent>
-	<!-- phase 6d: bot looks for a party in town (shout/trade); {level} {role} {spot} optional -->
+	<!-- phase 6d/7 polish: bot looks for a party in town (shout/trade); {class} profession + {level} -->
 	<intent id="LFP">
-		<ru>LFP {level}+ {role}|ищу пати {level}+ {role}|LF party {level} {role}|пати {level}+ кто нибудь|LFP {level} {spot}|ищу пати на {spot}</ru>
-		<en>LFP {level}+ {role}|LF party {level} {role}|looking for party {level}+|LFP {level} {spot}|anyone for {spot}?</en>
+		<ru>LFP {class} {level}|{class} {level} ищет пати|ищу пати {class} {level}|LFP {level}+ {role}|ищу пати {level}+ {role}|пати {level}+ кто нибудь|ищу пати на {spot}</ru>
+		<en>LFP {class} {level}|{class} {level} LFP|looking for party, {class} {level}|LFP {level}+ {role}|LF party {level} {role}|LFP {level} {spot}|anyone for {spot}?</en>
 	</intent>
 	<!-- phase 6d: bot has a party (pair) and wants one more -->
 	<intent id="LFM">
-		<ru>LFM {role} {level}+|нужен {role} {level}+|LFM DD {spot}|ещё нужен {role}|LFM {level}+ на {spot}</ru>
-		<en>LFM {role} {level}+|need {role} {level}+|LFM DD {spot}|one more {role}|LFM {level}+ {spot}</en>
+		<ru>LFM {class} {level}+|нужен {role} {level}+|LFM {role} {level}+|ещё нужен {role}|LFM {level}+ на {spot}</ru>
+		<en>LFM {class} {level}+|need {role} {level}+|LFM {role} {level}+|one more {role}|LFM {level}+ {spot}</en>
 	</intent>
 	<!-- phase 6d: bot answers the player's LFP shout in a whisper -->
 	<intent id="LFP_REPLY">

@@ -2801,8 +2801,10 @@ public final class BasicBrain implements Brain {
         final Assignment order = ctx.assignment();
         final String spot = (order == null) || (order.place() == null) ? "" : order.place();
         final String channel = (me.level() >= 20) && ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
+        final String lang = ctx.info().lang();
         speak(ctx, channel, null, intent,
-            Map.of("level", Integer.toString(me.level()), "role", roleWord(me.classId(), ctx.info().lang()), "spot", spot, "player", ""), now);
+            Map.of("level", Integer.toString(me.level()), "class", ClassLabels.name(me.classId(), lang),
+                "role", roleWord(me.classId(), lang), "spot", spot, "player", ""), now);
         lfpShoutAt = now;
         ctx.note("lfp " + intent + " via " + channel);
     }
