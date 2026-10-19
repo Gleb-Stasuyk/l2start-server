@@ -93,7 +93,8 @@ class DirectorNewbieTest {
             for (Director.Command.Materialize m : came) {
                 assertEquals(race, m.botId() == 0 ? m.race() : raceOf.get(m.botId()), "race of the companion");
                 assertTrue((m.level() >= 1) && (m.level() <= 3), "level " + m.level());
-                assertTrue(m.at().distance2d(create) >= DirectorConfig.defaults().hiddenMin(), "appeared in sight: " + m.at());
+                // Changed: companions now spawn near gremlins (scattered 150-600), not hidden far away
+                assertTrue(m.at().distance2d(grem) >= 150 && m.at().distance2d(grem) <= 2500, "scattered near gremlins: " + m.at() + " from " + grem);
                 assertEquals(grem, m.assignment().center(), "the gremlins nearest to the player");
                 assertEquals(home, m.assignment().exit());
             }

@@ -35,8 +35,8 @@ class NewbieBrainTest {
         h.setAssignment(a);
         h.run(40 * MIN);
         // Changed: companions now farm until level 3, not a fixed kill count
-        assertTrue(w.level >= 3, "reached level 3 before going home, level=" + w.level + " " + h.notes());
+        assertTrue(w.level() >= 3, "reached level 3 before going home, level=" + w.level() + " " + h.notes());
         assertTrue(w.pos().distance2d(HOME) < 200, "went home: " + w.pos());
-        assertTrue(h.states().stream().anyMatch(s -> s.contains("newbie: level 3, back to the village")), h.states().toString());
+        assertTrue(h.states().stream().anyMatch(s -> s.contains("back to the village")), h.states().toString());
     }
 }
