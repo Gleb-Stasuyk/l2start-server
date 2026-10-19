@@ -1157,7 +1157,6 @@ public final class BasicBrain implements Brain {
                 if (!anyLivePlayerNear) {
                     // No live player sees us: abandon fight and just run
                     fightId = 0;
-                    fightStart = 0;
                 } else {
                     final long d = fight(ctx, w, me, now);
                     if (d > 0) {

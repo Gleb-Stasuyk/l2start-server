@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.l2start.bots.api.Assignment;
 import org.l2start.bots.api.Pos;
 
-/** S6 (docs/STARTER_ZONES_PLAN.md): a new live character of any race gets 1-2 beginners of its race at the nearest gremlins, once. */
+/** S6 improvements: a new live character of any race gets 1-3 beginners of its race near the gremlins (scattered), once. */
 class DirectorNewbieTest {
     static WorldCatalog catalog;
     static StarterZones zones;

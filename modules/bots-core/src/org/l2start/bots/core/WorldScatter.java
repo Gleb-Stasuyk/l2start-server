@@ -10,7 +10,7 @@ import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.zone.ZoneId;
-import org.l2jmobius.gameserver.entity.zone.ZoneManager;
+import org.l2jmobius.gameserver.managers.ZoneManager;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
 import org.l2jmobius.gameserver.geoengine.geodata.Cell;
 import org.l2jmobius.gameserver.geoengine.pathfinding.PathFinding;
@@ -60,7 +60,7 @@ final class WorldScatter {
 
         @Override
         public boolean water(int x, int y, int z) {
-            return ZoneManager.getInstance().getZones(x, y, z).stream().anyMatch(zone -> zone.getId() instanceof ZoneId && zone.checkDynamicConditions(null) && ((ZoneId) zone.getId()) == ZoneId.WATER);
+            return ZoneManager.getInstance().getZones(x, y, z).stream().anyMatch(zone -> zone instanceof org.l2jmobius.gameserver.entity.zone.type.WaterZone);
         }
     };
 

@@ -2,6 +2,7 @@ package org.l2start.bots.director;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
@@ -552,7 +553,7 @@ public final class Director {
             if (total >= c.maxInWorld()) {
                 break;
             }
-            final Command.Materialize m = newbie(c, now, n, live, pool, terrain, createdThisTick);
+            final Command.Materialize m = newbie(c, now, n, live, bots, pool, terrain, createdThisTick);
             if (m != null) {
                 out.add(m);
                 total++;
@@ -617,7 +618,7 @@ public final class Director {
         return newbieCompanions;
     }
 
-    private Command.Materialize newbie(DirectorConfig c, long now, Newbie n, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+    private Command.Materialize newbie(DirectorConfig c, long now, Newbie n, List<Live> live, Collection<BotNow> bots, Pool pool, Terrain terrain, boolean createdThisTick) {
         final WorldCatalog.Town t = catalog.town(n.townId);
         if (t == null) {
             n.left = 0;
@@ -630,14 +631,42 @@ public final class Director {
                 occupiedNearGremlins.add(p.pos());
             }
         }
-        for (BotNow b : bots.values()) {
+        for (BotNow b : bots) {
             if (b.pos().distance2d(n.gremlins) < 2000) {
                 occupiedNearGremlins.add(b.pos());
             }
         }
-        final Scatter.Result sc = Scatter.pick(n.gremlins, occupiedNearGremlins, terrain.ground(), rnd);
+        final Pos grounded = terrain.ground(n.gremlins);
+        final Scatter.Ground groundInterface = new Scatter.Ground() {
+            @Override
+            public boolean hasGeo(int x, int y) {
+                return terrain.ground(new Pos(x, y, grounded.z())) != null;
+            }
+
+            @Override
+            public int height(int x, int y, int z) {
+                final Pos g = terrain.ground(new Pos(x, y, z));
+                return g != null ? g.z() : z;
+            }
+
+            @Override
+            public boolean reachable(Pos from, Pos to) {
+                return true; // simplified for newbie spawn
+            }
+
+            @Override
+            public boolean passable(int x, int y, int z) {
+                return true; // simplified for newbie spawn
+            }
+
+            @Override
+            public boolean water(int x, int y, int z) {
+                return false; // simplified for newbie spawn
+            }
+        };
+        final Scatter.Result sc = Scatter.pick(n.gremlins, occupiedNearGremlins, groundInterface, rnd);
         if (sc.fallback()) {
-            ctx.log().warn("newbie: no room near gremlins " + n.gremlins + " for character " + n.charId);
+            note(now, "newbie: WARN no room near gremlins " + n.gremlins + " for character " + n.charId);
             noSpot++;
             return null;
         }

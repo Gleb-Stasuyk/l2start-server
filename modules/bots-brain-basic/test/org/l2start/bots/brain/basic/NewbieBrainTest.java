@@ -13,7 +13,7 @@ import org.l2start.bots.api.Pos;
 import org.l2start.bots.testkit.BrainHarness;
 import org.l2start.bots.testkit.FakeWorld;
 
-/** S6 (docs/STARTER_ZONES_PLAN.md): a newbie companion hunts the gremlins next to the new player, 10-15 kills, then goes home. */
+/** S6 improvements: a newbie companion hunts the gremlins next to the new player until level 3, then runs home. */
 class NewbieBrainTest {
     static final Pos GREMLINS = new Pos(-90610, 248293, -3548);
     static final Pos HOME = new Pos(-84500, 244300, -3730);
@@ -34,10 +34,9 @@ class NewbieBrainTest {
         final Assignment a = new Assignment(11, Assignment.Kind.NEWBIE, "newbie:talking_island:9001", GREMLINS, 8000, 1, 3, List.of(GREMLINS), List.of(), HOME);
         h.setAssignment(a);
         h.run(40 * MIN);
-        final int want = Assignment.newbieKills(11, 1);
-        assertEquals(want, b.newbieKills(), "kills before home " + h.notes());
-        assertEquals(want, w.kills, "no more kills after its target");
+        // Changed: companions now farm until level 3, not a fixed kill count
+        assertTrue(w.level >= 3, "reached level 3 before going home, level=" + w.level + " " + h.notes());
         assertTrue(w.pos().distance2d(HOME) < 200, "went home: " + w.pos());
-        assertTrue(h.states().stream().anyMatch(s -> s.contains("newbie: back to the village")), h.states().toString());
+        assertTrue(h.states().stream().anyMatch(s -> s.contains("newbie: level 3, back to the village")), h.states().toString());
     }
 }
