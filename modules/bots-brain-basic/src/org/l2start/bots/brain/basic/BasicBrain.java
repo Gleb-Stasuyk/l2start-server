@@ -164,9 +164,7 @@ public final class BasicBrain implements Brain {
                 case BotEvent.Teleported t -> revived = true;
                 case BotEvent.Idle i -> unstick(ctx, me, now, i);
                 case BotEvent.Killed k -> {
-                    if ((order != null) && (order.kind() == Assignment.Kind.NEWBIE)) {
-                        newbieKillCount++;
-                    }
+                    // Newbie companions now hunt until level 3, not a fixed kill count
                 }
                 case BotEvent.Attacked at -> {
                     if (at.byPlayer()) {
@@ -1150,9 +1148,9 @@ public final class BasicBrain implements Brain {
     private int newbieKillCount;
     private int newbieTarget;
 
-    /** Run to the gremlins, hunt them (10-15 kills), then run to its village; there the director takes over. */
+    /** Run to the gremlins, hunt them until reaching level 3, then run to its village; there the director takes over. */
     private long newbie(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
-        if (newbieKillCount >= newbieTarget) {
+        if (me.level() >= 3) {
             if (fightId != 0) {
                 final long d = fight(ctx, w, me, now);
                 if (d > 0) {
@@ -1164,7 +1162,7 @@ public final class BasicBrain implements Brain {
             }
             standIfSitting(ctx, me);
             if (phase != Phase.LEVEL) {
-                enter(ctx, Phase.LEVEL, "newbie: back to the village");
+                enter(ctx, Phase.LEVEL, "newbie: level 3, back to the village");
             }
             detail = "newbie: back to the village";
             if ((a.exit() == null) || (me.pos().distance2d(a.exit()) < 150)) {
@@ -1247,9 +1245,8 @@ public final class BasicBrain implements Brain {
             zone = null;
             mobBelow = 3;
             mobAbove = 2;
-            newbieKillCount = 0;
-            newbieTarget = Assignment.newbieKills(a.seq(), botId);
-            enter(ctx, Phase.LEVEL, "newbie: to the gremlins, " + newbieTarget + " kills");
+            // No longer track kill count - companions hunt until level 3
+            enter(ctx, Phase.LEVEL, "newbie: to the gremlins, hunting until level 3");
         } else if (a.kind() == Assignment.Kind.HUNT) {
             mobBelow = 8;
             mobAbove = 1;
