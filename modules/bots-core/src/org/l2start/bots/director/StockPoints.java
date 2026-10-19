@@ -5,8 +5,10 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -22,20 +24,31 @@ import org.w3c.dom.NodeList;
  * templates ({@code stats/players/templates}) and the respawn points of the map regions ({@code mapregion}, chaotic
  * ones aside). Bots used to pile up on them.
  */
-public record StockPoints(List<Pos> creation, List<Pos> respawn) {
+public record StockPoints(List<Pos> creation, List<Pos> respawn, Map<Pos, Integer> starts) {
+
+    public StockPoints(List<Pos> creation, List<Pos> respawn) {
+        this(creation, respawn, Map.of());
+    }
 
     /** @param data the datapack {@code data} folder */
     public static StockPoints load(Path data) throws Exception {
         final Set<Pos> creation = new LinkedHashSet<>();
         final Set<Pos> respawn = new LinkedHashSet<>();
+        final Map<Pos, Integer> starts = new LinkedHashMap<>();
         for (Path f : xml(data.resolve("stats/players/templates"))) {
             final Document d = parse(f);
+            final NodeList ids = d.getElementsByTagName("classId");
+            final int race = ids.getLength() == 0 ? -1 : StarterZones.raceOfStartClass(Integer.parseInt(ids.item(0).getTextContent().trim()));
             final NodeList cps = d.getElementsByTagName("creationPoints");
             for (int i = 0; i < cps.getLength(); i++) {
                 final NodeList nodes = ((Element) cps.item(i)).getElementsByTagName("node");
                 for (int k = 0; k < nodes.getLength(); k++) {
                     final Element n = (Element) nodes.item(k);
-                    creation.add(new Pos(num(n, "x"), num(n, "y"), num(n, "z")));
+                    final Pos p = new Pos(num(n, "x"), num(n, "y"), num(n, "z"));
+                    creation.add(p);
+                    if (race >= 0) {
+                        starts.put(p, race); // a starting class: where new characters of that race appear
+                    }
                 }
             }
         }
@@ -48,7 +61,56 @@ public record StockPoints(List<Pos> creation, List<Pos> respawn) {
                 }
             }
         }
-        return new StockPoints(List.copyOf(creation), List.copyOf(respawn));
+        return new StockPoints(List.copyOf(creation), List.copyOf(respawn), Map.copyOf(starts));
+    }
+
+    /** Gremlin (stock npc 18342, level 1) spawn territories of the datapack: their centres (S6: newbie companions hunt there). */
+    public static final int GREMLIN = 18342;
+
+    public static List<Pos> gremlins(Path data) throws Exception {
+        final List<Pos> out = new ArrayList<>();
+        for (Path f : xml(data.resolve("spawns"))) {
+            if (!Files.readString(f).contains("\"" + GREMLIN + "\"")) {
+                continue;
+            }
+            final NodeList spawns = parse(f).getElementsByTagName("spawn");
+            for (int i = 0; i < spawns.getLength(); i++) {
+                final Element s = (Element) spawns.item(i);
+                boolean gremlin = false;
+                final NodeList npcs = s.getElementsByTagName("npc");
+                for (int k = 0; k < npcs.getLength(); k++) {
+                    gremlin |= String.valueOf(GREMLIN).equals(((Element) npcs.item(k)).getAttribute("id"));
+                }
+                final NodeList terr = s.getElementsByTagName("territory");
+                if (!gremlin || (terr.getLength() == 0)) {
+                    continue;
+                }
+                final Element t = (Element) terr.item(0);
+                final NodeList nodes = t.getElementsByTagName("node");
+                long sx = 0;
+                long sy = 0;
+                for (int k = 0; k < nodes.getLength(); k++) {
+                    sx += num((Element) nodes.item(k), "x");
+                    sy += num((Element) nodes.item(k), "y");
+                }
+                if (nodes.getLength() > 0) {
+                    final int z = (num(t, "minZ") + num(t, "maxZ")) / 2;
+                    out.add(new Pos((int) (sx / nodes.getLength()), (int) (sy / nodes.getLength()), z));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** The nearest of {@code spots} to {@code p} within {@code max}, or null. */
+    public static Pos nearest(List<Pos> spots, Pos p, int max) {
+        Pos best = null;
+        for (Pos s : spots) {
+            if ((s.distance2d(p) <= max) && ((best == null) || (s.distance2d(p) < best.distance2d(p)))) {
+                best = s;
+            }
+        }
+        return best;
     }
 
     private static List<Path> xml(Path dir) throws IOException {

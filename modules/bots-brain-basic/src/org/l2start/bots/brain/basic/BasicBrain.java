@@ -163,6 +163,11 @@ public final class BasicBrain implements Brain {
                 }
                 case BotEvent.Teleported t -> revived = true;
                 case BotEvent.Idle i -> unstick(ctx, me, now, i);
+                case BotEvent.Killed k -> {
+                    if ((order != null) && (order.kind() == Assignment.Kind.NEWBIE)) {
+                        newbieKillCount++;
+                    }
+                }
                 case BotEvent.Attacked at -> {
                     if (at.byPlayer()) {
                         playerHits.put(at.attackerId(), now);
@@ -1109,7 +1114,7 @@ public final class BasicBrain implements Brain {
             if (blacklist.containsKey(n.objectId()) || claims.takenByOther(n.objectId(), botId, now)) {
                 continue;
             }
-            if (nearRealPlayer(w, n)) {
+            if (nearRealPlayer(w, n, playerMobRadius)) {
                 continue; // a real player's monster: never steal it
             }
             if (!w.geo().canMoveTo(me.pos(), n.pos())) {
@@ -1126,12 +1131,57 @@ public final class BasicBrain implements Brain {
 
     /** A real (not bot) player stands next to this monster, or the monster fights one. */
     static boolean nearRealPlayer(WorldView w, NpcView n) {
+        return nearRealPlayer(w, n, PLAYER_MOB_RADIUS);
+    }
+
+    /** @param radius "next to": a newbie companion hunts the gremlins of its new player too, only not the one he fights */
+    static boolean nearRealPlayer(WorldView w, NpcView n, int radius) {
         for (PlayerView p : w.players()) {
-            if (!p.bot() && ((p.pos().distance2d(n.pos()) <= PLAYER_MOB_RADIUS) || (p.targetId() == n.objectId()) || (n.targetId() == p.objectId()))) {
+            if (!p.bot() && ((p.pos().distance2d(n.pos()) <= radius) || (p.targetId() == n.objectId()) || (n.targetId() == p.objectId()))) {
                 return true;
             }
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ newbie companion (docs/STARTER_ZONES_PLAN.md S6)
+
+    private int playerMobRadius = PLAYER_MOB_RADIUS;
+    private int newbieKillCount;
+    private int newbieTarget;
+
+    /** Run to the gremlins, hunt them (10-15 kills), then run to its village; there the director takes over. */
+    private long newbie(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (newbieKillCount >= newbieTarget) {
+            if (fightId != 0) {
+                final long d = fight(ctx, w, me, now);
+                if (d > 0) {
+                    return d;
+                }
+            }
+            if (attacker != null) {
+                return startFight(ctx, me, attacker, now);
+            }
+            standIfSitting(ctx, me);
+            if (phase != Phase.LEVEL) {
+                enter(ctx, Phase.LEVEL, "newbie: back to the village");
+            }
+            detail = "newbie: back to the village";
+            if ((a.exit() == null) || (me.pos().distance2d(a.exit()) < 150)) {
+                return 3000; // home: the director gives it town life or lets it vanish
+            }
+            return walk(ctx, w, me, a.exit(), now);
+        }
+        playerMobRadius = 120;
+        try {
+            return hunt(ctx, w, me, now, new Assignment(a.seq(), Assignment.Kind.HUNT, a.place(), a.center(), 500, a.minLevel(), a.maxLevel(), a.spots(), List.of(), null), attacker);
+        } finally {
+            playerMobRadius = PLAYER_MOB_RADIUS;
+        }
+    }
+
+    public int newbieKills() {
+        return newbieKillCount;
     }
 
     // ------------------------------------------------------------------ presence director orders
@@ -1150,6 +1200,7 @@ public final class BasicBrain implements Brain {
             case LEAVE_SOE -> escapeHome(ctx, w, me, now, a, attacker);
             case LEAVE_SPOT -> logoutHere(ctx, w, me, now, attacker);
             case ERRANDS -> errands(ctx, w, me, now, a, attacker);
+            case NEWBIE -> newbie(ctx, w, me, now, a, attacker);
             case TRANSIT -> transit(ctx, me, now);
             case TOWN -> town(ctx, w, me, now, a, attacker);
             case HUNT -> hunt(ctx, w, me, now, a, attacker);
@@ -1192,6 +1243,13 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             transitUntil = now + 3000 + ctx.rnd().nextInt(7000);
             enter(ctx, Phase.TOWN_IDLE, "transit at the gatekeeper of " + a.place());
+        } else if (a.kind() == Assignment.Kind.NEWBIE) {
+            zone = null;
+            mobBelow = 3;
+            mobAbove = 2;
+            newbieKillCount = 0;
+            newbieTarget = Assignment.newbieKills(a.seq(), botId);
+            enter(ctx, Phase.LEVEL, "newbie: to the gremlins, " + newbieTarget + " kills");
         } else if (a.kind() == Assignment.Kind.HUNT) {
             mobBelow = 8;
             mobAbove = 1;

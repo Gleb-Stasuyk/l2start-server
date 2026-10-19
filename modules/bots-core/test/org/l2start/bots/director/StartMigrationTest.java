@@ -27,6 +27,13 @@ class StartMigrationTest {
         final List<Pos> nodes = new ArrayList<>(stock.creation());
         nodes.addAll(stock.respawn());
         zones.setAvoid(nodes);
+        zones.setStarts(stock.starts());
+    }
+
+    @Test
+    void everyStartingCreatePointIsInItsRacesZone() {
+        assertTrue(stock.starts().size() >= 9, "create points of the 9 starting classes: " + stock.starts());
+        stock.starts().forEach((p, race) -> assertEquals(race, zones.raceAt(p), "create point " + p));
     }
 
     static StartMigration.Placer placer(long seed) {

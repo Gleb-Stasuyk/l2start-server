@@ -24,6 +24,7 @@ class EnterPointTest {
         final List<Pos> nodes = new ArrayList<>(stock.creation());
         nodes.addAll(stock.respawn());
         zones.setAvoid(nodes);
+        zones.setStarts(stock.starts());
     }
 
     @Test

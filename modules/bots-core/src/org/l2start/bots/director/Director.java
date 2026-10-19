@@ -368,6 +368,16 @@ public final class Director {
                 }
                 continue;
             }
+            if ((a != null) && (a.kind() == Assignment.Kind.NEWBIE)) {
+                // S6: a newbie companion back in its village after its gremlins: town life there, or it vanishes unseen
+                if ((a.exit() != null) && !b.dead() && (b.pos().distance2d(a.exit()) < NEWBIE_HOME) && ((now - t.since) > 60_000)) {
+                    final Command home = newbieHome(c, now, b, live, terrain);
+                    if (home != null) {
+                        out.add(home);
+                    }
+                }
+                continue; // not one of any place's bots: no "away" or linger rules
+            }
             if ((a == null) || leaving || b.dead()) {
                 continue;
             }
@@ -529,9 +539,124 @@ public final class Director {
                 nextLeave.put(place, now + c.leaveIntervalMs());
             }
         }
+        // 5. newbie companions (S6): beginners of a new live character's race come out of sight and run to its gremlins
+        for (java.util.Iterator<Newbie> it = newbies.iterator(); it.hasNext();) {
+            final Newbie n = it.next();
+            if (now < n.due) {
+                continue;
+            }
+            if ((n.left <= 0) || (++n.tries > 30)) {
+                it.remove();
+                continue;
+            }
+            if (total >= c.maxInWorld()) {
+                break;
+            }
+            final Command.Materialize m = newbie(c, now, n, live, pool, terrain, createdThisTick);
+            if (m != null) {
+                out.add(m);
+                total++;
+                createdThisTick |= m.botId() == 0;
+                if (--n.left <= 0) {
+                    it.remove();
+                }
+            }
+        }
         together(out, bots, live);
         places = List.copyOf(states);
         return out;
+    }
+
+    // ------------------------------------------------------------------ newbie companions (docs/STARTER_ZONES_PLAN.md S6)
+
+    /** A companion this close to its village point is back home. */
+    static final int NEWBIE_HOME = 400;
+
+    private static final class Newbie {
+        final int charId;
+        final int race;
+        final Pos gremlins;
+        final String townId;
+        final Pos exit;
+        final long due;
+        int left;
+        int tries;
+
+        Newbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
+            this.charId = charId;
+            this.race = race;
+            this.left = count;
+            this.gremlins = gremlins;
+            this.townId = townId;
+            this.exit = exit;
+            this.due = due;
+        }
+    }
+
+    private final List<Newbie> newbies = new ArrayList<>();
+    private final Set<Integer> newbieServed = new HashSet<>();
+    private long newbieCompanions;
+    private long newbieHomes;
+
+    /**
+     * A new live character entered a starting zone: {@code count} beginners (level 1-3) of {@code race} come at
+     * {@code due} out of its sight and hunt the gremlins at {@code gremlins}, then go to {@code exit} in {@code townId}.
+     * Once per character.
+     * @return false when this character had its companions already
+     */
+    public synchronized boolean requestNewbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
+        if ((count <= 0) || (gremlins == null) || !newbieServed.add(charId)) {
+            return false;
+        }
+        newbies.add(new Newbie(charId, race, count, gremlins, townId, exit, due));
+        note(due, "newbie companions for character " + charId + ": " + count + " of race " + race + " to the gremlins at " + gremlins);
+        return true;
+    }
+
+    public synchronized long newbieCompanions() {
+        return newbieCompanions;
+    }
+
+    private Command.Materialize newbie(DirectorConfig c, long now, Newbie n, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+        final WorldCatalog.Town t = catalog.town(n.townId);
+        if (t == null) {
+            n.left = 0;
+            return null;
+        }
+        final WorldCatalog.Ground g = new WorldCatalog.Ground("newbie:" + n.charId, t.id(), n.gremlins, 600, 1, 3, 10, 0, false, List.of(n.gremlins));
+        final Pos at = hiddenPoint(c, g, live, terrain);
+        if (at == null) {
+            noSpot++;
+            return null;
+        }
+        final int[] who = persona(c, now, pool, 1, 3, n.race, createdThisTick);
+        if (who == null) {
+            return null;
+        }
+        final Pos exit = n.exit != null ? n.exit : t.center();
+        final int radius = (int) Math.max(600, n.gremlins.distance2d(exit) + 600);
+        final Assignment a = new Assignment(++seq, Assignment.Kind.NEWBIE, "newbie:" + t.id() + ":" + n.charId, n.gremlins, radius, 1, 3, List.of(n.gremlins), t.anchors(), exit);
+        pending.put(who[0] == 0 ? --newKey : who[0], new Pending(a.place(), a.seq(), now));
+        newbieCompanions++;
+        materialized++;
+        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> NEWBIE companion of character " + n.charId + " at " + at + ", gremlins " + n.gremlins);
+        return new Command.Materialize(who[0], Math.max(1, Math.min(3, who[1])), at, a, n.race);
+    }
+
+    /** Back in its village: town life there (counted in the town from now on) or it runs off out of sight. */
+    private Command newbieHome(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain) {
+        final WorldCatalog.Town t = catalog.townAt(b.pos(), c.townMargin());
+        final Pos away = ((t == null) || rnd.nextBoolean()) ? runOutPoint(c, b.pos(), live, terrain) : null;
+        newbieHomes++;
+        if (away != null) {
+            note(now, "newbie companion " + b.botId() + " back in its village: runs off out of sight");
+            return new Command.Assign(b.botId(), b.assignment().leave(++seq, Assignment.Kind.LEAVE_RUN, away));
+        }
+        if (t == null) {
+            return null;
+        }
+        note(now, "newbie companion " + b.botId() + " back in " + t.id() + ": town life");
+        return new Command.Assign(b.botId(), new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), t.anchors(), null));
     }
 
     /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
@@ -1151,6 +1276,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " newbies=" + newbieCompanions + "/" + newbieHomes + (density < 1 ? " density=" + density : "");
     }
 }

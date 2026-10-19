@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 import org.l2start.bots.api.Assignment;
@@ -64,8 +65,21 @@ public final class StarterZones {
         };
     }
 
+    /** Around the stock create points of the starting classes (often far from the village: elves ~8500): part of the zone. */
+    public static final int START_RADIUS = 3000;
+    private volatile Map<Pos, Integer> starts = Map.of();
+
+    public void setStarts(Map<Pos, Integer> createPointRaces) {
+        starts = Map.copyOf(createPointRaces);
+    }
+
     /** Race of the starting zone at {@code p}, -1 = not in a starting zone. */
     public int raceAt(Pos p) {
+        for (Map.Entry<Pos, Integer> s : starts.entrySet()) {
+            if (s.getKey().distance2d(p) <= START_RADIUS) {
+                return s.getValue();
+            }
+        }
         final WorldCatalog.Town t = catalog.townAt(p, TOWN_MARGIN);
         if (t != null) {
             return VILLAGES.indexOf(t.id());
