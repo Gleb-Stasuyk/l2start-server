@@ -50,6 +50,9 @@ public final class BotsCoreModule implements GameModule {
     private Random seeds;
     private volatile PersonaGenerator personas;
     private DirectorRunner director;
+    /** The five starting zones (docs/STARTER_ZONES_PLAN.md), in both presence modes. */
+    private volatile org.l2start.bots.director.StarterZones zones;
+    private volatile org.l2start.bots.director.StockPoints stockPoints;
     private PkLedger pkLedger;
     private org.l2start.bots.clan.ClanService clans;
     private org.l2start.bots.clan.ClanHallBids clanHallBids;
@@ -101,6 +104,17 @@ public final class BotsCoreModule implements GameModule {
                 }
             }
         });
+        zones = new org.l2start.bots.director.StarterZones(WorldCatalog.load(ctx.resources().path("data/world.xml")));
+        try {
+            stockPoints = org.l2start.bots.director.StockPoints.load(org.l2jmobius.gameserver.config.ServerConfig.DATAPACK_ROOT.toPath().resolve("data"));
+        } catch (Exception e) {
+            stockPoints = new org.l2start.bots.director.StockPoints(List.of(), List.of());
+            ctx.log().warn("stock creation/respawn points not read: " + e.getMessage());
+        }
+        final List<Pos> nodes = new ArrayList<>(stockPoints.creation());
+        nodes.addAll(stockPoints.respawn());
+        zones.setAvoid(nodes);
+        factory.setHomePicker(race -> zones.villagePoint(race, List.of(), 0, terrain(), new java.util.Random()));
         if ("director".equals(ctx.config().getString("Presence"))) {
             // bad catalogue or gear table: the module fails to enable with a clear message
             final List<String> unreachable = new ArrayList<>();
@@ -316,6 +330,7 @@ public final class BotsCoreModule implements GameModule {
         if (!geo && ctx.config().getBoolean("RequireGeodata")) {
             ctx.log().warn("no geodata: bots cannot enter the world (RequireGeodata=true). See docs/GEODATA.md");
         }
+        relocateStarters();
         ctx.scheduler().fixedRate("teleports", Duration.ofMillis(500), Duration.ofMillis(500), () -> {
             final int n = world.completeTeleports(registry.all());
             if (n > 0) {
@@ -410,6 +425,50 @@ public final class BotsCoreModule implements GameModule {
             }
         } else {
             ctx.scheduler().schedule("startup", Duration.ofSeconds(1), this::startup);
+        }
+    }
+
+    org.l2start.bots.director.StarterZones zones() {
+        return zones;
+    }
+
+    /** Ground with geodata (RequireGeodata: no point without geodata), for village points. */
+    org.l2start.bots.director.Director.Terrain terrain() {
+        return p -> DirectorRunner.ground(p, world.requireGeodata());
+    }
+
+    /**
+     * Start-up relocation (docs/STARTER_ZONES_PLAN.md S2, S5): bots out of the world that logged out on a stock creation or
+     * respawn node, or live in the starting zone of another race, get a spread position and home (stored).
+     */
+    private void relocateStarters() {
+        try {
+            final List<org.l2start.bots.director.StartMigration.Row> rows = new ArrayList<>();
+            for (org.l2start.bots.director.StartMigration.Row r : repo.relocationRows()) {
+                final BotRecord b = registry.byBotId(r.botId());
+                if ((b == null) || !b.inWorld()) {
+                    rows.add(r);
+                }
+            }
+            final List<org.l2start.bots.director.StartMigration.Move> moves = org.l2start.bots.director.StartMigration.plan(rows, stockPoints.creation(), stockPoints.respawn(), zones,
+                org.l2start.bots.director.StartMigration.placer(zones, terrain(), WorldScatter.GROUND, new Random()));
+            int creates = 0;
+            int respawns = 0;
+            int foreign = 0;
+            for (org.l2start.bots.director.StartMigration.Move m : moves) {
+                repo.relocate(m.row().botId(), m.row().charId(), m.loc(), m.home());
+                final BotRecord b = registry.byBotId(m.row().botId());
+                if (b != null) {
+                    b.setHome(m.home().x(), m.home().y(), m.home().z());
+                }
+                creates += m.why().contains("create node") ? 1 : 0;
+                respawns += m.why().contains("respawn node") ? 1 : 0;
+                foreign += m.why().contains("foreign") ? 1 : 0;
+            }
+            ctx.log().info("relocate: " + moves.size() + " of " + rows.size() + " bots moved (" + creates + " at create nodes, " + respawns + " at respawn nodes, " + foreign
+                + " in a foreign starting zone); stock points: " + stockPoints.creation().size() + " creation, " + stockPoints.respawn().size() + " respawn");
+        } catch (Exception e) {
+            ctx.log().warn("relocate: " + e.getMessage(), e);
         }
     }
 

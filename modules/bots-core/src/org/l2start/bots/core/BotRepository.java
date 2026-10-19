@@ -90,6 +90,22 @@ public final class BotRepository {
         db.update("UPDATE " + state + " SET in_world = ? WHERE bot_id = ?", inWorld ? 1 : 0, botId);
     }
 
+    /** Active (not trader, not retired) bots: start class, where they logged out, home (start-up relocation). */
+    public List<org.l2start.bots.director.StartMigration.Row> relocationRows() throws SQLException {
+        return db.query("SELECT i.bot_id, i.char_id, i.class_id, c.x, c.y, c.z, COALESCE(s.home_x, 0), COALESCE(s.home_y, 0), COALESCE(s.home_z, 0)"
+            + " FROM " + identity + " i JOIN characters c ON c.charId = i.char_id LEFT JOIN " + state + " s ON s.bot_id = i.bot_id"
+            + " WHERE i.status = 'ACTIVE' ORDER BY i.bot_id",
+            rs -> new org.l2start.bots.director.StartMigration.Row(rs.getInt(1), rs.getInt(2), org.l2start.bots.director.StarterZones.raceOfStartClass(rs.getInt(3)),
+                new org.l2start.bots.api.Pos(rs.getInt(4), rs.getInt(5), rs.getInt(6)), new org.l2start.bots.api.Pos(rs.getInt(7), rs.getInt(8), rs.getInt(9))));
+    }
+
+    /** New saved position and home of a bot that is out of the world. */
+    public void relocate(int botId, int charId, org.l2start.bots.api.Pos loc, org.l2start.bots.api.Pos home) throws SQLException {
+        db.update("UPDATE characters SET x = ?, y = ?, z = ? WHERE charId = ?", loc.x(), loc.y(), loc.z(), charId);
+        db.update("INSERT INTO " + state + " (bot_id, home_x, home_y, home_z) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE home_x = VALUES(home_x), home_y = VALUES(home_y), home_z = VALUES(home_z)",
+            botId, home.x(), home.y(), home.z());
+    }
+
     /** Position stored in characters (where the bot logged out). */
     public java.util.Optional<int[]> position(int charId) throws SQLException {
         return db.queryOne("SELECT x, y, z FROM characters WHERE charId = ?", rs -> new int[] { rs.getInt(1), rs.getInt(2), rs.getInt(3) }, charId);

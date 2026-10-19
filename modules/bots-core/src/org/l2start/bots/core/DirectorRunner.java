@@ -216,14 +216,7 @@ public final class DirectorRunner {
 
     /** Race of a starting class (0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf), -1 = not a starting class. */
     static int race(int startClass) {
-        return switch (startClass) {
-            case 0, 10 -> 0;
-            case 18, 25 -> 1;
-            case 31, 38 -> 2;
-            case 44, 49 -> 3;
-            case 53 -> 4;
-            default -> -1;
-        };
+        return org.l2start.bots.director.StarterZones.raceOfStartClass(startClass);
     }
 
     /**
