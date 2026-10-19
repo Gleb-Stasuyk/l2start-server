@@ -1,18 +1,33 @@
 # Smoke test overlay (used by tools/smoke.sh only):
-#   docker compose --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml ...
-# The game runs the "smoke" image (runtime + test modules from platform/test/fixtures) on its OWN database
-# volume, so the normal l2s-db-data (accounts, characters) is never touched. Same container names and ports
-# as the normal stack: the smoke run replaces the running l2s-* containers.
+#   docker compose -p l2s-smoke --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml ...
+# A separate compose project with its own containers (l2s-smoke-*), network, volumes and image tags, no host ports:
+# the smoke run never touches the solo/online stack (l2s-* containers, l2s-db-data) and can run next to it.
 services:
   db:
+    container_name: l2s-smoke-db
     volumes:
       - l2s-smoke-db-data:/var/lib/mysql
+    networks: !override [l2s-smoke-net]
+  db-init:
+    image: l2start-server:smoke-runtime
+    container_name: l2s-smoke-db-init
+    networks: !override [l2s-smoke-net]
+  login:
+    image: l2start-server:smoke-runtime
+    container_name: l2s-smoke-login
+    ports: !reset []
+    volumes:
+      - l2s-smoke-login-logs:/opt/l2/login/log
+    networks: !override [l2s-smoke-net]
   game:
     image: l2start-server:smoke
+    container_name: l2s-smoke-game
     build:
       context: ..
       dockerfile: docker/Dockerfile
       target: smoke
+    ports: !reset []
+    networks: !override [l2s-smoke-net]
     environment:
       L2_PROFILE: "${SMOKE_PROFILE:-solo}"
       L2_PLATFORM__DISABLEALL: "${SMOKE_DISABLE_ALL:-false}"
@@ -51,5 +66,11 @@ services:
 volumes:
   l2s-smoke-db-data:
     name: l2s-smoke-db-data
+  l2s-smoke-login-logs:
+    name: l2s-smoke-login-logs
   l2s-smoke-game-logs:
     name: l2s-smoke-game-logs
+
+networks:
+  l2s-smoke-net:
+    name: l2s-smoke-net

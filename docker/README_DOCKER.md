@@ -87,5 +87,6 @@ Docker Desktop сейчас ~3,8 ГБ. Профиль `solo` держит игр
 - Профиль платформы = `L2S_PROFILE` (`solo` / `online`), передаётся в контейнер как `L2_PROFILE`.
 - Переключатели без правки файлов: скопируй `modules.env.example` в `modules.env` (`L2_MODULE_<ID>=on|off`, `L2_MOD_<ID>__<KEY>=...`, `L2_PLATFORM__<KEY>=...`), затем `start.bat solo`.
 - Файлы: `overrides/<profile>/game/config/platform.local.ini`, `modules.local.ini`, `modules/<id>.ini` (см. `docs/MODULES.md`).
-- Smoke-тест: `"C:\Program Files\Git\bin\bash.exe" tools/smoke.sh --build` (из корня репо). Работает на своей БД `l2s-smoke-db-data`
-  (удаляется в конце), основную БД не трогает, но заменяет запущенные контейнеры `l2s-*`; после него снова `start.bat solo`.
+- Smoke-тест: `"C:\Program Files\Git\bin\bash.exe" tools/smoke.sh --build` (из корня репо). Отдельный compose-проект `l2s-smoke`:
+  контейнеры `l2s-smoke-*`, сеть `l2s-smoke-net`, тома `l2s-smoke-*` (удаляются в конце), образы `l2start-server:smoke-runtime`/`:smoke`,
+  без портов хоста. Стек solo/online (`l2s-*`, `l2s-db-data`) не трогает и может работать параллельно. Перед smoke — `backup-db.bat`.

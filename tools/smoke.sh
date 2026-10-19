@@ -3,9 +3,10 @@
 #
 #   bash tools/smoke.sh [--build]
 #
-# --build  builds l2start-server:dev (target runtime) and l2start-server:smoke (target smoke) first.
-# Uses its own database volume (l2s-smoke-db-data), removed at the end; the normal l2s-db-data is never touched.
-# It REPLACES the running l2s-* containers (same names/ports). Start the normal stack afterwards (start.bat solo).
+# --build  builds l2start-server:smoke-runtime (target runtime) and l2start-server:smoke (target smoke) first.
+# Runs as its own compose project "l2s-smoke" (containers l2s-smoke-*, network l2s-smoke-net, volumes l2s-smoke-*,
+# images l2start-server:smoke-runtime and :smoke, no host ports), removed at the end. The solo/online stack (l2s-*
+# containers, l2s-db-data) is never touched and may keep running.
 #
 # Scenarios:
 # The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market: on in both profiles; bots-core,
@@ -34,7 +35,9 @@ ENVF=profiles/solo.env
 # shellcheck disable=SC1090
 . "./$ENVF"
 DBN=${L2S_DB_NAME:-l2start}
-C=(docker compose --env-file "$ENVF" -f docker-compose.yml -f compose.smoke.yml)
+C=(docker compose -p l2s-smoke --env-file "$ENVF" -f docker-compose.yml -f compose.smoke.yml)
+DBC=l2s-smoke-db
+GAMEC=l2s-smoke-game
 BASE="$ROOT/tools/smoke/baseline.txt"
 OUT=${SMOKE_OUT:-$ROOT/build/smoke}
 mkdir -p "$OUT"
@@ -46,8 +49,8 @@ say() { echo "$*" | tee -a "$SUMMARY"; }
 ok() { say "  PASS  $*"; }
 ko() { say "  FAIL  $*"; fails=$((fails + 1)); }
 check() { local d="$1"; shift; if "$@"; then ok "$d"; else ko "$d"; fi; }
-sql() { docker exec l2s-db mariadb -uroot -p"$L2S_DB_PASSWORD" -N -B "$DBN" -e "$1" 2>/dev/null | tr -d '\r'; }
-gamelog() { docker logs l2s-game 2>&1 | tr -d '\r'; }
+sql() { docker exec "$DBC" mariadb -uroot -p"$L2S_DB_PASSWORD" -N -B "$DBN" -e "$1" 2>/dev/null | tr -d '\r'; }
+gamelog() { docker logs "$GAMEC" 2>&1 | tr -d '\r'; }
 has() { grep -qF -- "$1" "$2"; }
 hasnt() { ! grep -qF -- "$1" "$2"; }
 counts() { sed -E 's/^\[[^]]*\] //' "$1" | grep -iE 'loaded|spawn files parsed|spawns have been initialized' | grep -v 'Server loaded in' | grep -vE '^(Platform|Module\[)' | grep -v 'FIXTURE'; }
@@ -64,11 +67,11 @@ rates_items() {
 wait_game() { # wait_game healthy|exited TIMEOUT_S
   local want=$1 limit=$2 t=0 st
   while [ $t -lt "$limit" ]; do
-    st=$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{end}}' l2s-game 2>/dev/null || echo missing/)
+    st=$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$GAMEC" 2>/dev/null || echo missing/)
     case "$want/$st" in
       healthy/running/healthy) return 0 ;;
       exited/exited/*) return 0 ;;
-      healthy/exited/*) echo "game exited (code $(docker inspect -f '{{.State.ExitCode}}' l2s-game))"; return 1 ;;
+      healthy/exited/*) echo "game exited (code $(docker inspect -f '{{.State.ExitCode}}' "$GAMEC"))"; return 1 ;;
     esac
     sleep 5; t=$((t + 5))
   done
@@ -84,16 +87,16 @@ start_game() { # start_game PROFILE DISABLE_ALL FIXTURES(on|off) [BOTS_CREATE BO
 
 cleanup() {
   "${C[@]}" down --remove-orphans >/dev/null 2>&1 || true
-  docker volume rm -f l2s-smoke-db-data l2s-smoke-game-logs >/dev/null 2>&1 || true
+  docker volume rm -f l2s-smoke-db-data l2s-smoke-login-logs l2s-smoke-game-logs >/dev/null 2>&1 || true
 }
 
 if [ "${1:-}" = "--build" ]; then
   say "building images ..."
   # relative paths from the repo root (absolute /f/... paths would break docker.exe under Git Bash)
-  (cd "$ROOT" && docker build -f docker/Dockerfile --target runtime -t l2start-server:dev .) || exit 2
+  (cd "$ROOT" && docker build -f docker/Dockerfile --target runtime -t l2start-server:smoke-runtime .) || exit 2
   (cd "$ROOT" && docker build -f docker/Dockerfile --target smoke -t l2start-server:smoke .) || exit 2
 fi
-docker image inspect l2start-server:dev l2start-server:smoke >/dev/null 2>&1 || { echo "images missing: run with --build"; exit 2; }
+docker image inspect l2start-server:smoke-runtime l2start-server:smoke >/dev/null 2>&1 || { echo "images missing: run with --build"; exit 2; }
 
 say "== smoke $(date '+%Y-%m-%d %H:%M:%S %Z'), output in $OUT"
 cleanup
@@ -162,7 +165,7 @@ MIG=$(sql "SELECT COUNT(*) FROM platform_module_migrations")
 
 # ---- 3 restart: nothing is migrated twice
 say "-- 3 restart"
-docker restart -t 120 l2s-game >/dev/null
+docker restart -t 120 "$GAMEC" >/dev/null
 sleep 10
 if wait_game healthy 900; then ok "game healthy after restart"; else ko "game healthy after restart"; fi
 gamelog > "$OUT/3-restart.log"
@@ -176,7 +179,7 @@ say "-- 4 online + fixtures (FailurePolicy=abort)"
 start_game online false on
 if wait_game exited 900; then ok "game stopped"; else ko "game stopped"; fi
 gamelog > "$OUT/4-online-abort.log"
-check "exit code 1" test "$(docker inspect -f '{{.State.ExitCode}}' l2s-game)" = 1
+check "exit code 1" test "$(docker inspect -f '{{.State.ExitCode}}' "$GAMEC")" = 1
 check "FailurePolicy=abort logged" grep -qE 'Platform: FailurePolicy=abort \(profile online\)' "$OUT/4-online-abort.log"
 check "no client port opened" hasnt "GameServer: Started" "$OUT/4-online-abort.log"
 
@@ -288,8 +291,8 @@ INWORLD="SELECT i.char_name FROM mod_bots_core_identity i JOIN mod_bots_core_sta
 sql "$INWORLD" > "$OUT/7-inworld-before.txt"
 sql "SELECT i.char_name, i.class_id, c.x, c.y, c.z, c.online, a.accessLevel FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN accounts a ON a.login=i.account_name ORDER BY i.bot_id" > "$OUT/7-bots.txt"
 POS="SELECT i.char_name, c.x, c.y, c.z FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN mod_bots_core_state s ON s.bot_id=i.bot_id WHERE s.in_world=1 AND c.curHp > 0 ORDER BY 1"
-docker stop -t 120 l2s-game >/dev/null
-docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/7-bots-stop.log"
+docker stop -t 120 "$GAMEC" >/dev/null
+docker logs "$GAMEC" 2>&1 | tr -d '\r' > "$OUT/7-bots-stop.log"
 check "clean shutdown: the 10 bots logged out" grep -qE 'Module\[bots-core\]: logged out 10 bots \((server shutdown|module stopped)\)' "$OUT/7-bots-stop.log"
 sql "$POS" > "$OUT/7-pos-before.txt"
 # restart with brain "none": restored bots stand still, so their places can be compared at the next stop
@@ -304,7 +307,7 @@ check "still 20 bots, 20 accounts" test "$(sql "SELECT COUNT(*) FROM mod_bots_co
 check "ready line sees 20 bots, 10 to restore" grep -qE 'Module\[bots-core\]: ready: 20 bots known \(0 retired, 0 given a persona\), to restore 10' "$OUT/7-bots-restart.log"
 sql "$INWORLD" > "$OUT/7-inworld-after.txt"
 check "the same 10 bots are in the world after the restart" diff -q "$OUT/7-inworld-before.txt" "$OUT/7-inworld-after.txt"
-docker stop -t 120 l2s-game >/dev/null
+docker stop -t 120 "$GAMEC" >/dev/null
 sql "$POS" > "$OUT/7-pos-after.txt"
 # a bot that was dead at the 1st stop goes to town after the restart: compare the ones alive at the 1st stop
 cut -f1 "$OUT/7-pos-before.txt" > "$OUT/7-pos-names.txt"
@@ -313,7 +316,7 @@ check "same places: positions saved at the 2nd stop == positions at the 1st stop
 
 # ---- 8 presence director: two test players (Anchors) - one in Giran, one on a level 39-40 ground (Field of Silence)
 say "-- 8 presence director (Anchors: Giran + Field of Silence)"
-docker stop -t 120 l2s-game >/dev/null 2>&1 || true
+docker stop -t 120 "$GAMEC" >/dev/null 2>&1 || true
 export SMOKE_BOTS_PRESENCE=director SMOKE_BOTS_ANCHORS="82800;148500;-3450,88659;189101;-3610" SMOKE_MARKET_SELFTEST=true SMOKE_MARKET_STORES=Giran:120
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
@@ -365,8 +368,8 @@ say "   economy-market error lines (first 20):"; grep -v 'slow call' "$OUT/8-tra
 say "   trader bag items while they stand: $(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN (SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER')")"
 TRADERS="SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER'"
 check "traders: personas kept per place (>= 55, no progress rows)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity i WHERE status='TRADER' AND NOT EXISTS (SELECT 1 FROM mod_bots_core_progress g WHERE g.bot_id=i.bot_id)")" -ge 55
-docker stop -t 120 l2s-game >/dev/null
-docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
+docker stop -t 120 "$GAMEC" >/dev/null
+docker logs "$GAMEC" 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
 check "director: bots logged out on shutdown, nobody marked to come back" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_state WHERE in_world<>0")" = 0
 sleep 1
 check "traders: stores on paper after the stop (>= 10 places with lines)" test "$(sql "SELECT COUNT(DISTINCT s.bot_id) FROM mod_economy_market_store s JOIN mod_economy_market_store_item i ON i.bot_id=s.bot_id WHERE s.town='Giran'")" -ge 10
