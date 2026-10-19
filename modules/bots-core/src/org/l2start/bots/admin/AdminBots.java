@@ -146,6 +146,12 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "near":
                     showNear(gm);
                     return true;
+                case "spots": {
+                    final String arg = st.hasMoreTokens() ? st.nextToken() : "1500";
+                    final int radius = isNumber(arg) ? Math.max(50, Math.min(20_000, Integer.parseInt(arg))) : 1500;
+                    showSpots(gm, radius);
+                    return true;
+                }
                 case "goto": {
                     final BotRecord r = core.registry().byName(st.hasMoreTokens() ? st.nextToken() : "");
                     if ((r == null) || !r.inWorld()) {
@@ -156,7 +162,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | clans | clan <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | spots [radius] | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | clans | clan <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -164,6 +170,26 @@ public final class AdminBots implements IAdminCommandHandler {
             gm.sendMessage("//bots " + sub + " failed: " + e.getMessage());
             return true;
         }
+    }
+
+    /** //bots spots [radius]: bots around the GM with activity, goal, time without moving, and the piles; the same lines go to the log. */
+    private void showSpots(Player gm, int radius) {
+        final List<String> lines = core.brains().spotsDump(new org.l2start.bots.api.Pos(gm.getX(), gm.getY(), gm.getZ()), radius);
+        for (String l : lines) {
+            core.ctx().log().info("//bots spots by " + gm.getName() + ": " + l);
+        }
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: spots</title><body>");
+        int shown = 0;
+        for (String l : lines) {
+            if (sb.length() > 7000) { // client html limit: the rest is in the log
+                sb.append("... ").append(lines.size() - shown).append(" more lines in the log<br>");
+                break;
+            }
+            sb.append(escape(l)).append("<br>");
+            shown++;
+        }
+        sb.append("</body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 
     /** Small visible actions, to check that players around a bot see what it does (hook P3-BOT-CHARINFO). */

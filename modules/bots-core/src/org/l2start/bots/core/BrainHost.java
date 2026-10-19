@@ -471,6 +471,46 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         }
     }
 
+    /**
+     * //bots spots [radius] (docs/STARTER_ZONES_PLAN.md S4): every bot within {@code radius} of {@code center}: position,
+     * activity, goal, time without moving; then the piles (bots within 50 of each other).
+     */
+    public List<String> spotsDump(Pos center, int radius) {
+        final long now = clock.now();
+        final List<BotRecord> near = new java.util.ArrayList<>();
+        final List<Pos> pts = new java.util.ArrayList<>();
+        for (BotRecord r : registry.sorted()) {
+            final Player p = r.player();
+            if ((p == null) || (Math.hypot(p.getX() - center.x(), p.getY() - center.y()) > radius)) {
+                continue;
+            }
+            near.add(r);
+            pts.add(new Pos(p.getX(), p.getY(), p.getZ()));
+        }
+        final List<String> out = new java.util.ArrayList<>();
+        out.add("spots: " + near.size() + " bots within " + radius + " of " + center);
+        for (int i = 0; i < near.size(); i++) {
+            final BotRecord r = near.get(i);
+            final Player p = r.player();
+            final Mind m = minds.get(r.charId());
+            final org.l2start.bots.api.Activity a = m == null ? null : m.activity;
+            final org.l2start.bots.api.Assignment as = r.assignment();
+            out.add(String.format(Locale.ROOT, "%s lv %d %s %s | %s | %s | still %ds", r.name(), p == null ? 0 : p.getLevel(), pts.get(i),
+                r.status() == BotRecord.Status.TRADER ? "TRADER" : (a == null ? "?" : a.kind() + (a.wantsToMove() ? "+move" : "") + " " + ((now - a.since()) / 1000) + "s"),
+                as == null ? "-" : as.kind() + " " + as.place(), r.goal(), m == null ? 0 : m.idle.stillFor(now) / 1000));
+        }
+        final List<List<Integer>> piles = org.l2start.bots.runtime.Piles.of(pts, 50);
+        out.add("piles (within 50): " + piles.size());
+        for (List<Integer> g : piles) {
+            final StringBuilder sb = new StringBuilder("pile of " + g.size() + " at " + pts.get(g.get(0)) + ":");
+            for (int i : g) {
+                sb.append(' ').append(near.get(i).name());
+            }
+            out.add(sb.toString());
+        }
+        return out;
+    }
+
     /** Closer than 50 to another bot (its party / pair: 90): a short step away, in any state. */
     private void separate(Mind m, Player p, long now) {
         if (p.isMoving() || ((now - m.separatedAt) < 3000)) {
