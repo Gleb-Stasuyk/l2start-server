@@ -249,7 +249,7 @@ public final class Director {
     }
 
     /** Farm witness bots: keep at least this many fitting bots near each hunting player (bots-core FarmWitnessBots). */
-    private volatile int farmWitnessBots = 1;
+    private volatile int farmWitnessBots = 0; // default 0 = off
 
     public void setFarmWitnessBots(int count) {
         farmWitnessBots = Math.max(0, Math.min(3, count));
@@ -547,7 +547,73 @@ public final class Director {
                 nextLeave.put(place, now + c.leaveIntervalMs());
             }
         }
-        // 5. newbie companions (S6): beginners of a new live character's race come out of sight and run to its gremlins
+        
+        // 5. farm witness bots: for each hunting player, ensure at least FarmWitnessBots bots of fitting level farm nearby
+        if (farmWitnessBots > 0) {
+            for (Live player : live) {
+                // Skip if player is in town (not hunting)
+                final WorldCatalog.Town town = catalog.townAt(player.pos(), c.townMargin());
+                if (town != null) {
+                    continue;
+                }
+                
+                // Find hunting ground the player is on
+                final List<WorldCatalog.Ground> playerGrounds = catalog.groundsNear(player.pos(), 0);
+                WorldCatalog.Ground spot = null;
+                for (WorldCatalog.Ground g : playerGrounds) {
+                    if (player.pos().distance2d(g.center()) <= g.radius()) {
+                        spot = g;
+                        break;
+                    }
+                }
+                if (spot == null) {
+                    continue; // player not at a hunting spot
+                }
+                
+                // Count fitting bots within ~1500 of this player
+                int fittingNearby = 0;
+                for (BotNow b : bots) {
+                    if (b.assignment() == null || b.assignment().kind() != Assignment.Kind.HUNT) {
+                        continue;
+                    }
+                    if (b.pos().distance2d(player.pos()) > 1500) {
+                        continue;
+                    }
+                    // Check if bot level fits (within spot's level band ±5)
+                    final int botLevel = (b.assignment().minLevel() + b.assignment().maxLevel()) / 2;
+                    if (botLevel >= (spot.minLevel() - 5) && botLevel <= (spot.maxLevel() + 5)) {
+                        fittingNearby++;
+                    }
+                }
+                
+                // Need to spawn witness bot(s)?
+                if (fittingNearby < farmWitnessBots && total < c.maxInWorld()) {
+                    // Check starting zone race rules
+                    final StarterZones z = starterZones;
+                    if (z != null) {
+                        final int spotRace = StarterZones.raceOfGround(spot);
+                        if (spotRace >= 0) {
+                            // Starting zone: only spawn bots of the right race
+                            // We'll let spawn() handle this via the pool filtering
+                        }
+                    }
+                    
+                    // Try to spawn a witness bot
+                    final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, bots, pool, terrain, createdThisTick);
+                    if (m != null) {
+                        out.add(m);
+                        total++;
+                        createdThisTick |= ((Command.Materialize) m).botId() == 0;
+                        witnessSpawns++;
+                        note(now, "farm witness bot for hunting player near " + spot.id());
+                        break; // only one per tick to avoid flooding
+                    }
+                }
+            }
+        }
+        
+        // 6. newbie companions (S6): beginners of a new live character's race come out of sight and run to its gremlins
         for (java.util.Iterator<Newbie> it = newbies.iterator(); it.hasNext();) {
             final Newbie n = it.next();
             if (now < n.due) {
@@ -605,6 +671,7 @@ public final class Director {
     private final Set<Integer> newbieServed = new HashSet<>();
     private long newbieCompanions;
     private long newbieHomes;
+    private long witnessSpawns;
 
     /**
      * A new live character entered a starting zone: {@code count} beginners (level 1-3) of {@code race} come at
