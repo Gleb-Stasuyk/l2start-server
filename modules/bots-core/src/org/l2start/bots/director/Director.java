@@ -623,12 +623,25 @@ public final class Director {
             n.left = 0;
             return null;
         }
-        final WorldCatalog.Ground g = new WorldCatalog.Ground("newbie:" + n.charId, t.id(), n.gremlins, 600, 1, 3, 10, 0, false, List.of(n.gremlins));
-        final Pos at = hiddenPoint(c, g, live, terrain);
-        if (at == null) {
+        // Spawn near the gremlins, scattered around them (not hidden far away)
+        final List<Pos> occupiedNearGremlins = new ArrayList<>();
+        for (Live p : live) {
+            if (p.pos().distance2d(n.gremlins) < 2000) {
+                occupiedNearGremlins.add(p.pos());
+            }
+        }
+        for (BotNow b : bots.values()) {
+            if (b.pos().distance2d(n.gremlins) < 2000) {
+                occupiedNearGremlins.add(b.pos());
+            }
+        }
+        final Scatter.Result sc = Scatter.pick(n.gremlins, occupiedNearGremlins, terrain.ground(), rnd);
+        if (sc.fallback()) {
+            ctx.log().warn("newbie: no room near gremlins " + n.gremlins + " for character " + n.charId);
             noSpot++;
             return null;
         }
+        final Pos at = sc.pos();
         final int[] who = persona(c, now, pool, 1, 3, n.race, createdThisTick);
         if (who == null) {
             return null;
@@ -639,7 +652,7 @@ public final class Director {
         pending.put(who[0] == 0 ? --newKey : who[0], new Pending(a.place(), a.seq(), now));
         newbieCompanions++;
         materialized++;
-        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> NEWBIE companion of character " + n.charId + " at " + at + ", gremlins " + n.gremlins);
+        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> NEWBIE companion of character " + n.charId + " near gremlins " + n.gremlins + " at " + at);
         return new Command.Materialize(who[0], Math.max(1, Math.min(3, who[1])), at, a, n.race);
     }
 

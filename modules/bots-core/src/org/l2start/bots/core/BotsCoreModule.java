@@ -473,7 +473,7 @@ public final class BotsCoreModule implements GameModule {
         });
     }
 
-    /** First login of a character made here, in a starting zone: 1-2 beginners of its race come in 1-3 minutes (once). */
+    /** First login of a character in a starting zone: 1-3 beginners of its race appear immediately, already farming gremlins (once per character). */
     private void onPlayerLogin(org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLogin e) {
         final Player p = e.getPlayer();
         final DirectorRunner d = director;
@@ -490,9 +490,8 @@ public final class BotsCoreModule implements GameModule {
                 ctx.log().warn("newbie: " + ex.getMessage());
                 return;
             }
-            final long delay = 60_000 + ThreadLocalRandom.current().nextLong(120_000);
-            ctx.log().info("newbie: " + p.getName() + " is new here, companions in " + (delay / 1000) + " s");
-            ctx.scheduler().schedule("newbie companions " + charId, Duration.ofMillis(delay), () -> newbieCompanions(p));
+            ctx.log().info("newbie: " + p.getName() + " is new here, spawning companions immediately");
+            newbieCompanions(p);
         });
     }
 
