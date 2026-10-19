@@ -1151,20 +1151,28 @@ public final class BasicBrain implements Brain {
     /** Run to the gremlins, hunt them until reaching level 3, then run to its village; there the director takes over. */
     private long newbie(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
         if (me.level() >= 3) {
+            // On the way home: fight only when a live player can see the bot
+            final boolean anyLivePlayerNear = w.players().stream().anyMatch(p -> !p.bot() && p.pos().distance2d(me.pos()) < 1500);
             if (fightId != 0) {
-                final long d = fight(ctx, w, me, now);
-                if (d > 0) {
-                    return d;
+                if (!anyLivePlayerNear) {
+                    // No live player sees us: abandon fight and just run
+                    fightId = 0;
+                    fightStart = 0;
+                } else {
+                    final long d = fight(ctx, w, me, now);
+                    if (d > 0) {
+                        return d;
+                    }
                 }
             }
-            if (attacker != null) {
+            if ((attacker != null) && anyLivePlayerNear) {
                 return startFight(ctx, me, attacker, now);
             }
             standIfSitting(ctx, me);
             if (phase != Phase.LEVEL) {
                 enter(ctx, Phase.LEVEL, "newbie: level 3, back to the village");
             }
-            detail = "newbie: back to the village";
+            detail = "newbie: back to the village" + (anyLivePlayerNear ? "" : " (unseen)");
             if ((a.exit() == null) || (me.pos().distance2d(a.exit()) < 150)) {
                 return 3000; // home: the director gives it town life or lets it vanish
             }
