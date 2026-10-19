@@ -29,5 +29,5 @@
     "AfkShare": { "type": "string", "default": "0.15", "reloadable": true, "description": "Phase 4d: share of hunts with one 'away from the keyboard' of 1-10 min (stands still, never sits); in town half of it at each NPC visit." },
     "Summons": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4c: summoners call their servitor on the hunting ground (crystals come with them), send it at their target, heal it with Servitor Heal and keep their MP while it tanks; the servitor goes when the bot dies or leaves." }
   },
-  "dependencies": [ { "id": "bots-core", "version": "^0.6" } ]
+  "dependencies": [ { "id": "bots-core", "version": "^0.7" } ]
 }
