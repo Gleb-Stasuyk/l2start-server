@@ -115,7 +115,8 @@ public final class StarterZones {
 
     /**
      * A spread point in the starting village of {@code race}: near its gatekeeper, shops, warehouse or trainers (never at
-     * the stock create/respawn nodes), at least {@code clear} from {@code occupied} when possible, on the ground.
+     * the stock create/respawn nodes), at least {@code clear} from {@code occupied} when possible, on the ground,
+     * inside the village polygon.
      * @return null when the village or the ground is unknown
      */
     public Pos villagePoint(int race, Collection<Pos> occupied, int clear, Director.Terrain terrain, Random rnd) {
@@ -142,7 +143,7 @@ public final class StarterZones {
                 final int r = 120 + rnd.nextInt(281);
                 final Pos approx = new Pos(s.x() + (int) (Math.cos(ang) * r), s.y() + (int) (Math.sin(ang) * r), s.z());
                 final Pos p = terrain.ground(approx);
-                if ((p == null) || (Scatter.nearest(p, avoid) <= StartMigration.NEAR) || (raceAt(p) != race)) {
+                if ((p == null) || (Scatter.nearest(p, avoid) <= StartMigration.NEAR) || (raceAt(p) != race) || !t.contains(p.x(), p.y())) {
                     continue;
                 }
                 if (Scatter.nearest(p, occupied) >= clear) {

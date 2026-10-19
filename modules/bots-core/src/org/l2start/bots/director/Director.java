@@ -1074,7 +1074,7 @@ public final class Director {
     /**
      * Near the gatekeeper / shops / trainers (or restart in big towns), not under a player's nose or on another bot.
      * Starting villages never use {@code restart} anchors: those often are the stock create/SOE node piles
-     * (Einhovant four points, Cedric, etc.).
+     * (Einhovant four points, Cedric, etc.). For towns, checks that the point is inside the town polygon.
      */
     Pos townPoint(WorldCatalog.Town t, List<Live> live, List<Pos> bots, Terrain terrain) {
         final boolean starter = raceOf(t.id()) >= 0;
@@ -1101,7 +1101,8 @@ public final class Director {
                 continue;
             }
             final Pos p = terrain.ground(approx);
-            if (p != null) {
+            // Check that town points are inside the town polygon
+            if (p != null && t.contains(p.x(), p.y())) {
                 return p;
             }
         }
