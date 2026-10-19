@@ -1,7 +1,6 @@
 package org.l2start.bots.core;
 
 import org.l2jmobius.gameserver.config.GeoEngineConfig;
-import org.l2jmobius.gameserver.data.xml.MapRegionData;
 import org.l2jmobius.gameserver.data.xml.TeleporterData;
 import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
@@ -10,7 +9,6 @@ import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.actor.Summon;
 import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportType;
-import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportWhereType;
 import org.l2jmobius.gameserver.entity.actor.instance.Teleporter;
 import org.l2jmobius.gameserver.entity.item.enums.ItemLocation;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
@@ -566,7 +564,7 @@ final class MobiusActuators implements Actuators {
             world.returnToTown(r);
             return done("returnToTown", "dead", ActionResult.OK);
         }
-        final Location loc = MapRegionData.getInstance().getTeleToLocation(p, TeleportWhereType.TOWN);
+        final Location loc = world.townPoint(r, p);
         if (loc == null) {
             return done("returnToTown", "", ActionResult.NOT_REACHABLE);
         }

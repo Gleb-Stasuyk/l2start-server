@@ -218,6 +218,13 @@ public final class Director {
         clanMixedPartyChance = Math.max(0, Math.min(1, chance));
     }
 
+    /** Town activity bots in a starting village at most (bots-core DirectorStarterTownMax); companions and hunters aside. */
+    private volatile int starterTownMax = 8;
+
+    public void setStarterTownMax(int max) {
+        starterTownMax = Math.max(0, max);
+    }
+
     public double clanMixedPartyChance() {
         return clanMixedPartyChance;
     }
@@ -392,7 +399,10 @@ public final class Director {
             int townSum = 0;
             for (Demand d : demand.values()) {
                 if (d.town()) {
-                    final int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density * wander);
+                    int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density * wander);
+                    if (raceOf(d.id()) >= 0) {
+                        t = Math.min(t, starterTownMax);
+                    }
                     target.put(d.id(), t);
                     townSum += t;
                 }
@@ -427,7 +437,7 @@ public final class Director {
                 if ((have < want) && (now >= nextSpawn.getOrDefault(d.id(), 0L)) && (total < c.maxInWorld())) {
                     spawnRoom = Math.min(want - have, c.maxInWorld() - total);
                     partners.clear();
-                    final Command m = spawn(c, now, d, cluster, live, pool, terrain, createdThisTick);
+                    final Command m = spawn(c, now, d, cluster, live, bots, pool, terrain, createdThisTick);
                     if (m != null) {
                         out.add(m);
                         total++;
@@ -594,7 +604,7 @@ public final class Director {
         return new int[] { lo, hi };
     }
 
-    private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+    private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, List<BotNow> bots, Pool pool, Terrain terrain, boolean createdThisTick) {
         final int lo;
         final int hi;
         if (d.town()) {
@@ -605,7 +615,7 @@ public final class Director {
             lo = band[0];
             hi = band[1];
         }
-        final Pos at = d.town() ? townPoint(d.townRef(), live, terrain) : hiddenPoint(c, d.groundRef(), live, terrain);
+        final Pos at = d.town() ? townPoint(d.townRef(), live, botPositions(bots), terrain) : hiddenPoint(c, d.groundRef(), live, terrain);
         if (at == null) {
             noSpot++;
             return null;
@@ -870,23 +880,33 @@ public final class Director {
         return false;
     }
 
-    /** At the gatekeeper (as after a teleport) or a restart point (as after a scroll of escape), not under a player's nose. */
-    Pos townPoint(WorldCatalog.Town t, List<Live> live, Terrain terrain) {
+    /**
+     * Near the gatekeeper / shops / trainers (or restart in big towns), not under a player's nose or on another bot.
+     * Starting villages never use {@code restart} anchors: those often are the stock create/SOE node piles
+     * (Einhovant four points, Cedric, etc.).
+     */
+    Pos townPoint(WorldCatalog.Town t, List<Live> live, List<Pos> bots, Terrain terrain) {
+        final boolean starter = raceOf(t.id()) >= 0;
         final List<Pos> spots = new ArrayList<>();
         for (Assignment.Anchor a : t.anchors()) {
             if (a.kind().equals("gk")) {
                 spots.add(a.pos());
                 spots.add(a.pos());
-            } else if (a.kind().equals("restart")) {
+            } else if (!starter && a.kind().equals("restart")) {
+                spots.add(a.pos());
+            } else if (a.kind().equals("shop") || a.kind().equals("wh") || a.kind().equals("trainer")) {
                 spots.add(a.pos());
             }
         }
         Collections.shuffle(spots, rnd);
         for (Pos s : spots) {
             final double ang = rnd.nextDouble() * Math.PI * 2;
-            final int r = 80 + rnd.nextInt(171);
+            final int r = 120 + rnd.nextInt(281); // 120..400
             final Pos approx = new Pos(s.x() + (int) (Math.cos(ang) * r), s.y() + (int) (Math.sin(ang) * r), s.z());
             if (nearest(live, approx) < 300) {
+                continue;
+            }
+            if (nearestPos(bots, approx) < 200) {
                 continue;
             }
             final Pos p = terrain.ground(approx);
@@ -895,6 +915,22 @@ public final class Director {
             }
         }
         return null;
+    }
+
+    static List<Pos> botPositions(List<BotNow> bots) {
+        final List<Pos> out = new ArrayList<>(bots.size());
+        for (BotNow b : bots) {
+            out.add(b.pos());
+        }
+        return out;
+    }
+
+    static double nearestPos(List<Pos> pts, Pos p) {
+        double best = Double.POSITIVE_INFINITY;
+        for (Pos x : pts) {
+            best = Math.min(best, x.distance2d(p));
+        }
+        return best;
     }
 
     // ------------------------------------------------------------------ out

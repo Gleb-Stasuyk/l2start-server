@@ -392,6 +392,10 @@ public final class BotsCoreModule implements GameModule {
                     if ((director.director().pendingCount() > 0) || (registry.inWorld() > 0) || !director.live().isEmpty()) {
                         ctx.log().info(director.statsLine());
                     }
+                    final int traders = world.drainTraderEnters();
+                    if (traders > 0) {
+                        ctx.log().info("enter: " + traders + " store traders at their store places");
+                    }
                 });
             }
             ctx.log().info("presence: director (" + cleared + " old in-world marks cleared, anchors " + director.anchors().size() + ")");
@@ -625,6 +629,7 @@ public final class BotsCoreModule implements GameModule {
             director.setGradeLag(lag[0], lag[1]);
             director.setConfig(directorConfig());
             director.director().setLife(life());
+            director.director().setStarterTownMax(ctx.config().getInt("DirectorStarterTownMax"));
             try {
                 director.director().setPartyShare(Double.parseDouble(ctx.config().getString("PartyShare").trim()));
             } catch (NumberFormatException e) {

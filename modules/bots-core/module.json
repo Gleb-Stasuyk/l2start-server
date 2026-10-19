@@ -44,6 +44,7 @@
     "DirectorHuntPerCluster": { "type": "list", "default": "6,3", "reloadable": true, "description": "Hunting bots around a group of players: base, plus this many per extra player." },
     "DirectorTownNight": { "type": "list", "default": "2,4", "reloadable": true, "description": "Bots in a town with a player in it at night (min,max)." },
     "DirectorTownDay": { "type": "list", "default": "5,10", "reloadable": true, "description": "... in the day (min,max)." },
+    "DirectorStarterTownMax": { "type": "int", "default": 8, "min": 0, "max": 100, "reloadable": true, "description": "Town activity bots in a starting village (Talking Island, elven, dark elven, orc, dwarven) at most; newbie companions and hunters are not counted." },
     "DirectorTownEvening": { "type": "list", "default": "10,20", "reloadable": true, "description": "... in the evening peak (min,max)." },
     "DirectorGround": { "type": "list", "default": "2,5", "reloadable": true, "description": "Bots on one hunting ground (min,max; by its size; indoor grounds get half)." },
     "DirectorHidden": { "type": "list", "default": "3200,4200", "reloadable": true, "description": "Bots appear this far from every player (min,max) and run in." },

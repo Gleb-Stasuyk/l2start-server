@@ -1,6 +1,8 @@
 package org.l2start.bots.core;
 
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.l2jmobius.gameserver.data.sql.CharSummonTable;
 import org.l2jmobius.gameserver.data.xml.MapRegionData;
@@ -11,6 +13,8 @@ import org.l2jmobius.gameserver.entity.actor.Summon;
 import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportWhereType;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
 import org.l2jmobius.gameserver.network.Disconnection;
+import org.l2start.bots.api.Pos;
+import org.l2start.bots.director.Scatter;
 import org.l2start.platform.api.ModuleLog;
 
 /**
@@ -22,6 +26,7 @@ public final class BotWorld {
     private final ModuleLog log;
     private volatile boolean requireGeodata = true;
     private volatile Listener listener;
+    private final AtomicInteger traderEnters = new AtomicInteger();
 
     /** Told about bots entering and leaving the world (the brain runtime). */
     public interface Listener {
@@ -91,19 +96,17 @@ public final class BotWorld {
         if (p == null) {
             return "cannot load character " + r.charId();
         }
-        int x = p.getX();
-        int y = p.getY();
-        int z = p.getZ();
-        if (near != null) {
-            final Location spot = spotNear(near);
-            x = spot.getX();
-            y = spot.getY();
-            z = spot.getZ();
-        } else if (exact != null) {
-            x = exact.getX();
-            y = exact.getY();
-            z = exact.getZ();
+        final String source = near != null ? "near" : exact != null ? "exact" : "saved";
+        final Pos from = near != null ? WorldScatter.pos(near) : exact != null ? WorldScatter.pos(exact) : new Pos(p.getX(), p.getY(), p.getZ());
+        final boolean store = r.status() == BotRecord.Status.TRADER; // a store place is laid out by economy-market
+        final List<Pos> occupied = WorldScatter.occupied(from, p);
+        final Scatter.Result placed = store ? new Scatter.Result(from, false, 0) : WorldScatter.pick(from, occupied, ThreadLocalRandom.current());
+        if (placed.fallback()) {
+            log.warn("enter: " + r.name() + ": no free spot around " + from + " (" + source + "), at the centre");
         }
+        final int x = placed.pos().x();
+        final int y = placed.pos().y();
+        final int z = placed.pos().z();
         if (requireGeodata && !GeoEngine.getInstance().hasGeo(x, y)) {
             return r.name() + ": no geodata at " + x + "," + y + " (RequireGeodata)";
         }
@@ -141,6 +144,14 @@ public final class BotWorld {
             final Listener l = listener;
             if (l != null) {
                 l.entered(r);
+            }
+            if (store) {
+                traderEnters.incrementAndGet();
+            } else {
+                final org.l2start.bots.api.Assignment a = r.assignment();
+                log.info("enter: " + r.name() + " lv " + p.getLevel() + " class " + p.getPlayerClass().getId() + " " + source + " " + from + " -> "
+                    + (placed.fallback() ? "fallback " : "scatter ") + placed.pos() + " (" + (int) placed.pos().distance2d(from) + " away, try " + placed.tries()
+                    + "), nearest " + nearestText(Scatter.nearest(placed.pos(), occupied)) + ", " + (a == null ? "goal " + r.goal() : a.kind() + " " + a.place()));
             }
             return null;
         } catch (Exception e) {
@@ -230,7 +241,7 @@ public final class BotWorld {
             return;
         }
         // same as RequestRestartPoint (stock "To Village"): pending revive + teleport; the revive happens in teleToLocation
-        final Location loc = MapRegionData.getInstance().getTeleToLocation(p, TeleportWhereType.TOWN);
+        final Location loc = townPoint(r, p);
         if (loc == null) {
             return;
         }
@@ -267,15 +278,29 @@ public final class BotWorld {
         return n;
     }
 
-    private static Location spotNear(Location c) {
-        final ThreadLocalRandom rnd = ThreadLocalRandom.current();
-        for (int i = 0; i < 10; i++) {
-            final int x = c.getX() + rnd.nextInt(-200, 201);
-            final int y = c.getY() + rnd.nextInt(-200, 201);
-            if (GeoEngine.getInstance().canMoveToTarget(c.getX(), c.getY(), c.getZ(), x, y, c.getZ(), 0)) {
-                return new Location(x, y, GeoEngine.getInstance().getHeight(x, y, c.getZ()));
-            }
+    /**
+     * Where "To village" / a scroll of escape takes a bot: the stock town point (a few fixed respawn nodes, e.g. the four
+     * of Einhovant's School), scattered so bots do not pile up on them.
+     */
+    Location townPoint(BotRecord r, Player p) {
+        final Location stock = MapRegionData.getInstance().getTeleToLocation(p, TeleportWhereType.TOWN);
+        if (stock == null) {
+            return null;
         }
-        return new Location(c.getX(), c.getY(), c.getZ());
+        final Pos at = WorldScatter.pos(stock);
+        final Scatter.Result s = WorldScatter.pick(at, p);
+        if (s.fallback()) {
+            log.warn("town: " + r.name() + ": no free spot around " + at + ", at the town point");
+        }
+        return WorldScatter.loc(s.pos());
+    }
+
+    /** Store traders entered since the last call (one summary line instead of one per trader). */
+    int drainTraderEnters() {
+        return traderEnters.getAndSet(0);
+    }
+
+    private static String nearestText(double d) {
+        return Double.isInfinite(d) ? "nobody" : ((int) d) + "";
     }
 }
