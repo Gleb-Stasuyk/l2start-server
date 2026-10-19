@@ -9,7 +9,10 @@ import org.l2jmobius.gameserver.config.GeoEngineConfig;
 import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.actor.Player;
+import org.l2jmobius.gameserver.entity.zone.ZoneId;
+import org.l2jmobius.gameserver.entity.zone.ZoneManager;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
+import org.l2jmobius.gameserver.geoengine.geodata.Cell;
 import org.l2jmobius.gameserver.geoengine.pathfinding.PathFinding;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.director.Scatter;
@@ -37,6 +40,27 @@ final class WorldScatter {
                 return true;
             }
             return (GeoEngineConfig.PATHFINDING > 0) && (PathFinding.getInstance().findPath(from.x(), from.y(), from.z(), to.x(), to.y(), to.z(), 0, true) != null);
+        }
+
+        @Override
+        public boolean passable(int x, int y, int z) {
+            final GeoEngine geo = GeoEngine.getInstance();
+            if (!geo.hasGeo(x, y)) {
+                return true;
+            }
+            final int geoX = GeoEngine.getGeoX(x);
+            final int geoY = GeoEngine.getGeoY(y);
+            final int nearestZ = geo.getNearestZ(geoX, geoY, z);
+            if (Math.abs(nearestZ - z) > 100) {
+                return false;
+            }
+            return geo.checkNearestNswe(geoX, geoY, nearestZ, Cell.NSWE_ALL) || geo.checkNearestNswe(geoX, geoY, nearestZ, Cell.NSWE_NORTH) || geo.checkNearestNswe(geoX, geoY, nearestZ, Cell.NSWE_SOUTH) || geo.checkNearestNswe(geoX, geoY, nearestZ, Cell.NSWE_EAST)
+                || geo.checkNearestNswe(geoX, geoY, nearestZ, Cell.NSWE_WEST);
+        }
+
+        @Override
+        public boolean water(int x, int y, int z) {
+            return ZoneManager.getInstance().getZones(x, y, z).stream().anyMatch(zone -> zone.getId() instanceof ZoneId && zone.checkDynamicConditions(null) && ((ZoneId) zone.getId()) == ZoneId.WATER);
         }
     };
 

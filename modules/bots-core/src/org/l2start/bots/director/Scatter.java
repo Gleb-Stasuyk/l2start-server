@@ -16,8 +16,8 @@ public final class Scatter {
     public static final int MAX = 600;
     public static final int CLEAR = 150;
     public static final int TRIES = 30;
-    /** Another floor (a building, a bridge): not the same place. */
-    static final int MAX_DZ = 300;
+    /** Another floor (a building, a bridge): not the same place. Tightened from 300 to avoid roofs/under bridges. */
+    static final int MAX_DZ = 100;
 
     /** Geodata for the scatter (stock GeoEngine in the game, a fake in tests). */
     public interface Ground {
@@ -27,6 +27,12 @@ public final class Scatter {
 
         /** One can walk there from the centre (straight or by stock pathfinding). */
         boolean reachable(Pos from, Pos to);
+
+        /** The cell is passable (not a wall, not blocked). */
+        boolean passable(int x, int y, int z);
+
+        /** The point is in water. */
+        boolean water(int x, int y, int z);
     }
 
     /** @param fallback nothing fitted: the centre itself */
@@ -51,7 +57,7 @@ public final class Scatter {
                     continue;
                 }
                 p = new Pos(x, y, z);
-                if (!clear(p, occupied) || !ground.reachable(center, p)) {
+                if (!ground.passable(x, y, z) || ground.water(x, y, z) || !clear(p, occupied) || !ground.reachable(center, p)) {
                     continue;
                 }
             } else {

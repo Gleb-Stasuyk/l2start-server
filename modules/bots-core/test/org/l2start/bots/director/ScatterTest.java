@@ -31,6 +31,16 @@ class ScatterTest {
             public boolean reachable(Pos from, Pos to) {
                 return true;
             }
+
+            @Override
+            public boolean passable(int x, int y, int z) {
+                return true;
+            }
+
+            @Override
+            public boolean water(int x, int y, int z) {
+                return false;
+            }
         };
     }
 
@@ -83,6 +93,16 @@ class ScatterTest {
             public boolean reachable(Pos from, Pos to) {
                 return true;
             }
+
+            @Override
+            public boolean passable(int x, int y, int z) {
+                return true;
+            }
+
+            @Override
+            public boolean water(int x, int y, int z) {
+                return false;
+            }
         };
         final Random rnd = new Random(3);
         for (int i = 0; i < 200; i++) {
@@ -109,6 +129,16 @@ class ScatterTest {
             public boolean reachable(Pos from, Pos to) {
                 return to.y() < from.y(); // north of the centre is behind a wall
             }
+
+            @Override
+            public boolean passable(int x, int y, int z) {
+                return true;
+            }
+
+            @Override
+            public boolean water(int x, int y, int z) {
+                return false;
+            }
         };
         final Random rnd = new Random(5);
         for (int i = 0; i < 200; i++) {
@@ -131,6 +161,16 @@ class ScatterTest {
 
             @Override
             public boolean reachable(Pos from, Pos to) {
+                return false;
+            }
+
+            @Override
+            public boolean passable(int x, int y, int z) {
+                return true;
+            }
+
+            @Override
+            public boolean water(int x, int y, int z) {
                 return false;
             }
         };
