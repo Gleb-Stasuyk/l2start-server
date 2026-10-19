@@ -37,6 +37,17 @@ public final class StarterZones {
         return avoid;
     }
 
+    /** Stock nodes within {@code radius} of {@code p} (a login keeps {@link Scatter#CLEAR} from them like from a bot). */
+    public List<Pos> nodesNear(Pos p, int radius) {
+        final List<Pos> out = new ArrayList<>();
+        for (Pos n : avoid) {
+            if ((Math.abs(n.x() - p.x()) <= radius) && (Math.abs(n.y() - p.y()) <= radius)) {
+                out.add(n);
+            }
+        }
+        return out;
+    }
+
     public WorldCatalog catalog() {
         return catalog;
     }
@@ -117,7 +128,7 @@ public final class StarterZones {
                 final int r = 120 + rnd.nextInt(281);
                 final Pos approx = new Pos(s.x() + (int) (Math.cos(ang) * r), s.y() + (int) (Math.sin(ang) * r), s.z());
                 final Pos p = terrain.ground(approx);
-                if ((p == null) || (Scatter.nearest(p, avoid) <= StartMigration.NEAR)) {
+                if ((p == null) || (Scatter.nearest(p, avoid) <= StartMigration.NEAR) || (raceAt(p) != race)) {
                     continue;
                 }
                 if (Scatter.nearest(p, occupied) >= clear) {

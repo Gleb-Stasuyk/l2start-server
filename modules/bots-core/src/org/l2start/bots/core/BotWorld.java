@@ -96,11 +96,19 @@ public final class BotWorld {
         if (p == null) {
             return "cannot load character " + r.charId();
         }
-        final String source = near != null ? "near" : exact != null ? "exact" : "saved";
-        final Pos from = near != null ? WorldScatter.pos(near) : exact != null ? WorldScatter.pos(exact) : new Pos(p.getX(), p.getY(), p.getZ());
+        final Pos wanted = near != null ? WorldScatter.pos(near) : exact != null ? WorldScatter.pos(exact) : new Pos(p.getX(), p.getY(), p.getZ());
         final boolean store = r.status() == BotRecord.Status.TRADER; // a store place is laid out by economy-market
-        final List<Pos> occupied = WorldScatter.occupied(from, p);
-        final Scatter.Result placed = store ? new Scatter.Result(from, false, 0) : WorldScatter.pick(from, occupied, ThreadLocalRandom.current());
+        final org.l2start.bots.director.StarterZones sz = zones;
+        final int race = raceOf(r);
+        final Pos around = (sz != null) && sz.foreign(race, wanted) ? sz.village(race).center() : wanted;
+        final List<Pos> occupied = WorldScatter.occupied(around, p);
+        final org.l2start.bots.director.EnterPoint placed = org.l2start.bots.director.EnterPoint.decide(wanted, near != null ? "near" : exact != null ? "exact" : "saved", store, race, sz,
+            occupied, terrain, WorldScatter.GROUND, ThreadLocalRandom.current());
+        final String source = placed.source();
+        final Pos from = placed.from();
+        if (placed.raceMoved()) {
+            log.info("enter: " + r.name() + " (race " + race + ") not in the starting zone at " + wanted + " (race " + sz.raceAt(wanted) + "): to its own village");
+        }
         if (placed.fallback()) {
             log.warn("enter: " + r.name() + ": no free spot around " + from + " (" + source + "), at the centre");
         }
@@ -302,7 +310,11 @@ public final class BotWorld {
             return null;
         }
         final Pos at = WorldScatter.pos(stock);
-        final Scatter.Result s = WorldScatter.pick(at, p);
+        final List<Pos> occupied = WorldScatter.occupied(at, p);
+        if (z != null) {
+            occupied.addAll(z.nodesNear(at, 3000)); // off the stock respawn nodes themselves, like off another bot
+        }
+        final Scatter.Result s = WorldScatter.pick(at, occupied, ThreadLocalRandom.current());
         if (s.fallback()) {
             log.warn("town: " + r.name() + ": no free spot around " + at + ", at the town point");
         }

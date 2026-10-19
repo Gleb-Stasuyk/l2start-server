@@ -691,6 +691,7 @@ public final class BotsCoreModule implements GameModule {
             director.setConfig(directorConfig());
             director.director().setLife(life());
             director.director().setStarterTownMax(ctx.config().getInt("DirectorStarterTownMax"));
+            director.director().setStarterZones(zones);
             try {
                 director.director().setPartyShare(Double.parseDouble(ctx.config().getString("PartyShare").trim()));
             } catch (NumberFormatException e) {

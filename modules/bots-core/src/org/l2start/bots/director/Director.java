@@ -218,6 +218,28 @@ public final class Director {
         clanMixedPartyChance = Math.max(0, Math.min(1, chance));
     }
 
+    /** The starting zones: only bots of their race live there (docs/STARTER_ZONES_PLAN.md S5); null = no zones (tests). */
+    private volatile StarterZones starterZones;
+
+    public void setStarterZones(StarterZones z) {
+        starterZones = z;
+    }
+
+    /** A passer-by through a starting zone is of its race; elsewhere any (-1). */
+    int passRace(Pos player, Pos from, Pos to) {
+        final StarterZones z = starterZones;
+        if (z == null) {
+            return -1;
+        }
+        for (Pos p : new Pos[] { player, from, to }) {
+            final int r = z.raceAt(p);
+            if (r >= 0) {
+                return r;
+            }
+        }
+        return -1;
+    }
+
     /** Town activity bots in a starting village at most (bots-core DirectorStarterTownMax); companions and hunters aside. */
     private volatile int starterTownMax = 8;
 
@@ -621,14 +643,15 @@ public final class Director {
             return null;
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
-        final int race = d.town() ? raceOf(d.townRef().id()) : -1;
+        // starting village or one of its grounds up to level 20: only its race (S5); elsewhere any
+        final int race = d.town() ? raceOf(d.townRef().id()) : StarterZones.raceOfGround(d.groundRef());
         Candidate back = null;
         if (!d.town()) {
             // back from town (restock): the same persona on the same ground, from its edge, before anybody else
             comebacks.values().removeIf(x -> now > (x.due() + 30 * 60_000L));
             for (Candidate x : cands) {
                 final Comeback cb = comebacks.get(x.botId());
-                if ((cb != null) && cb.place().equals(d.id()) && (now >= cb.due()) && !pending.containsKey(x.botId())) {
+                if ((cb != null) && cb.place().equals(d.id()) && (now >= cb.due()) && !pending.containsKey(x.botId()) && ((race < 0) || (x.race() == race))) {
                     back = x;
                     break;
                 }
@@ -799,7 +822,8 @@ public final class Director {
             if ((from == null) || (to == null) || (nearest(live, from) < c.hiddenMin())) {
                 continue;
             }
-            final int[] who = persona(c, now, pool, lo, hi, -1, createdThisTick);
+            final int race = passRace(p0.pos(), from, to);
+            final int[] who = persona(c, now, pool, lo, hi, race, createdThisTick);
             if (who == null) {
                 return null;
             }
@@ -807,7 +831,7 @@ public final class Director {
             pending.put(who[0] == 0 ? --newKey : who[0], new Pending("road", a.seq(), now));
             passers++;
             note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> PASS by player " + p0.id() + " from " + from + " to " + to);
-            return new Command.Materialize(who[0], who[1], from, a, -1);
+            return new Command.Materialize(who[0], who[1], from, a, race);
         }
         noSpot++;
         return null;
