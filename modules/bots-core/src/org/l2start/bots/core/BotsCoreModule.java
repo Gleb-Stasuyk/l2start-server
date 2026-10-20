@@ -412,8 +412,7 @@ public final class BotsCoreModule implements GameModule {
                         // Separate per-minute presence summary
                         final org.l2start.bots.director.Director.PresenceSummary ps = director.director().presenceSummary();
                         if (ps != null) {
-                            ctx.log().info(String.format("presence: players=%d field=%d town=%d inCombatNearPlayers=%d",
-                                ps.players(), ps.field(), ps.town(), ps.inCombatNearPlayers()));
+                            ctx.log().info(ps.line());
                         }
                     }
                     final int traders = world.drainTraderEnters();

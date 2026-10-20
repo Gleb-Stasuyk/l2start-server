@@ -292,4 +292,41 @@ class SurvivalBrainTest {
         }
         assertTrue(noted(new Run(w, h, b), "no safe way out") || noted(new Run(w, h, b), "runs"), h.notes().toString());
     }
+
+    @Test
+    void neverRestsWhileBeingHit() {
+        // live test 2026-10-20: a monster hit the bot and it sat down. Here the monster's stock target is not set
+        // (aggro list only), the bot only sees its HP falling: it must stand up / stay up and fight, never sit.
+        final FakeWorld w = ground(31, false, 5, 0);
+        final FakeWorld.Mob mob = w.addMob(2, 5, new Pos(40, 4000, 0));
+        w.teleport(new Pos(0, 4000, 0));
+        w.setHp(w.maxHp() * 0.3); // wants to rest
+        final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());
+        final BrainHarness h = new BrainHarness(b, BasicBrainTest.info(false), w, 31);
+        h.setAssignment(PresenceBrainTest.hunt(1));
+        int sitWhileHit = 0;
+        for (int i = 0; i < 40 && !mob.dead() && !w.dead(); i++) {
+            h.run(500);
+            final boolean beingHit = !mob.dead() && (mob.pos.distance2d(w.pos()) <= 200); // in its reach
+            if (beingHit) {
+                w.setHp(Math.max(1, w.hp() - (w.maxHp() * 0.03))); // the blow
+            }
+            if (i >= 4 && beingHit && w.sitting()) {
+                sitWhileHit++;
+            }
+        }
+        assertEquals(0, sitWhileHit, "sat while being hit: " + h.notes());
+    }
+
+    @Test
+    void threatFoundWithoutStockTargetWhenHpFalls() {
+        final FakeWorld w = ground(32, false, 5, 0);
+        final FakeWorld.Mob mob = w.addMob(2, 5, new Pos(60, 4000, 0));
+        w.teleport(new Pos(0, 4000, 0));
+        final org.l2start.bots.api.SelfView me = w.self();
+        assertNull(BasicBrain.threat(w.view(), me, false), "nothing on it, HP steady: no threat");
+        assertNotNull(BasicBrain.threat(w.view(), me, true), "HP falling, a monster in reach: that is the attacker");
+        mob.targetId = me.objectId();
+        assertNotNull(BasicBrain.threat(w.view(), w.self(), false), "a monster on the bot is a threat");
+    }
 }

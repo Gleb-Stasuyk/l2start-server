@@ -138,7 +138,7 @@ public final class DirectorRunner {
             if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
                 && !withPlayer(p) // phase 6b: in a real player's party it is his companion, the director leaves it be
                 && !module.isAcademyRecruiter(r.botId())) { // phase 7f: recruiters stay at GK
-                bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
+                bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group(), p.isInCombat()));
             }
         }
         if (live.isEmpty() && bots.isEmpty() && forceEnter.isEmpty()) {
@@ -354,6 +354,11 @@ public final class DirectorRunner {
                     return;
                 }
                 final Player p = bot.player();
+                if ((p != null) && !p.isDead()) {
+                    // presence top-ups and every other arrival: full HP/MP/CP on entering (never rest right after arrival)
+                    p.setCurrentHpMp(p.getMaxHp(), p.getMaxMp());
+                    p.setCurrentCp(p.getMaxCp());
+                }
                 if (p != null) {
                     what[0] = what[0] + ", " + Materializer.arrivalBuffs(p, ArrivalBuffs.shares(ctx.config().getString("ArrivalBuffs")), java.util.concurrent.ThreadLocalRandom.current());
                 }

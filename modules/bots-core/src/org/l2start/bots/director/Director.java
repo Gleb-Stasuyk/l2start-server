@@ -29,14 +29,25 @@ public final class Director {
     }
 
     /** Presence summary for per-minute INFO logging. */
-    public record PresenceSummary(int players, int field, int town, int inCombatNearPlayers) {
+    public record PresenceSummary(int players, int fieldVisible, int fieldTarget, int townVisible, int townTarget, int pending, long topups,
+        long noPersona, int inCombatNearPlayers) {
+        /** The per-minute INFO line. */
+        public String line() {
+            return "presence: players=" + players + " field=" + fieldVisible + "/" + fieldTarget + " town=" + townVisible + "/" + townTarget
+                + " pending=" + pending + " topups=" + topups + " noPersona=" + noPersona + " inCombatNearPlayers=" + inCombatNearPlayers;
+        }
     }
 
     /** A bot in the world right now. */
     /** @param group the pair/trio it came in with (phase 4g), 0 = alone */
-    public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group) {
+    /** @param inCombat in a fight right now (stock combat stance: hit or hitting) */
+    public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group, boolean inCombat) {
+        public BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group) {
+            this(botId, pos, assignment, dead, seed, group, false);
+        }
+
         public BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed) {
-            this(botId, pos, assignment, dead, seed, 0);
+            this(botId, pos, assignment, dead, seed, 0, false);
         }
     }
 
@@ -326,6 +337,7 @@ public final class Director {
         }
         pending.entrySet().removeIf(e -> inWorld.contains(e.getKey()) || arrived.contains(e.getValue().seq()) || ((now - e.getValue().since()) > c.pendingTimeoutMs()));
         tracks.keySet().retainAll(inWorld);
+        inCombatNearPlayers = countInCombatNear(bots, live, c.unseenRadius());
 
         // 2. who sees whom: unseen bots leave, leaving bots vanish once unseen, lingering bots get a leave order
         final Map<String, List<BotNow>> byPlace = new HashMap<>();
@@ -599,6 +611,39 @@ public final class Director {
     // ------------------------------------------------------------------ visible presence guarantee
     
     private long presenceFieldTopups;
+    private volatile int inCombatNearPlayers;
+    private volatile int[] presenceCounts = new int[5]; // fieldVisible, fieldTarget, townVisible, townTarget, pending
+
+    /** Living non-trader bots in a fight within sight of any live player (each bot once). */
+    static int countInCombatNear(Collection<BotNow> bots, List<Live> live, int radius) {
+        int n = 0;
+        for (BotNow b : bots) {
+            if (!b.inCombat() || b.dead()) {
+                continue;
+            }
+            final Assignment a = b.assignment();
+            if ((a != null) && (a.place() != null) && a.place().startsWith("trader:")) {
+                continue;
+            }
+            for (Live p : live) {
+                if (p.pos().distance2d(b.pos()) <= radius) {
+                    n++;
+                    break;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** The ground a presence field top-up for this player goes to: the predefined ground around it, else its ad-hoc one. */
+    private String fieldPlaceId(Live player) {
+        for (WorldCatalog.Ground g : catalog.groundsNear(player.pos(), 0)) {
+            if (player.pos().distance2d(g.center()) <= g.radius()) {
+                return g.id();
+            }
+        }
+        return "adhoc_" + player.id();
+    }
     private long presenceTownTopups;
     private long presenceLeaves;
     
@@ -642,21 +687,45 @@ public final class Director {
         
         // Build player positions
         final List<Pos> playerPositions = new ArrayList<>();
+        final List<Integer> playerIds = new ArrayList<>();
+        final Map<Pos, String> fieldPlace = new HashMap<>();
         for (Live p : live) {
             playerPositions.add(p.pos());
+            playerIds.add(p.id());
+            fieldPlace.putIfAbsent(p.pos(), fieldPlaceId(p));
+        }
+        // bots on their way (not in the world yet) count for the place they were sent to
+        final Map<String, Integer> pendingByPlace = new HashMap<>();
+        for (Pending p : pending.values()) {
+            pendingByPlace.merge(p.place(), 1, Integer::sum);
         }
         
         // Calculate deficits using pure functions
         final PresencePlan.Plan plan = PresencePlan.calculateDeficits(
-            playerPositions, botSummaries, c.unseenRadius(),
+            playerPositions, playerIds, botSummaries, c.unseenRadius(),
             p -> {
                 final WorldCatalog.Town t = catalog.townAt(p, c.townMargin());
                 return t == null ? null : t.id();
             },
+            fieldPlace::get, pendingByPlace,
             presenceFieldMin, presenceFieldMax, townRanges
         );
+        final int[] pc = new int[5];
+        for (PresencePlan.PlayerCount k : plan.counts()) {
+            if (k.inTown()) {
+                pc[2] += k.visible();
+                pc[3] += k.target();
+            } else {
+                pc[0] += k.visible();
+                pc[1] += k.target();
+            }
+            pc[4] += k.pending();
+        }
+        presenceCounts = pc;
         
         int topups = 0;
+        boolean presenceCreated = false; // presence may create one persona per tick of its own (pool lacks a match)
+        final Set<String> servedPlaces = new HashSet<>(); // one top-up per place per tick (players at one place share it)
         for (PresencePlan.Deficit deficit : plan.deficits()) {
             try {
                 if (currentTotal + topups >= c.maxInWorld()) {
@@ -669,13 +738,14 @@ public final class Director {
                     final WorldCatalog.Town town = catalog.town(deficit.townId());
                     if (town == null) continue;
                     
+                    if (!servedPlaces.add(town.id())) continue;
                     final Demand d = new Demand(town.id(), true, town, null, 1, 0);
-                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, presenceCreated);
                     if (m != null) {
                         out.add(m);
                         topups++;
                         presenceTownTopups++;
-                        if (topups >= deficit.needed()) break;
+                        presenceCreated |= isNewPersona(m);
                     }
                 } else {
                     // Field top-up - spawn on the ground where player is (mobs are at spots within ground's radius)
@@ -740,13 +810,14 @@ public final class Director {
                     
                     // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
                     // which are within the ground's radius from center, hence within player's visibility
+                    if (!servedPlaces.add(spot.id())) continue;
                     final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
-                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, presenceCreated);
                     if (m != null) {
                         out.add(m);
                         topups++;
                         presenceFieldTopups++;
-                        if (topups >= deficit.needed()) break;
+                        presenceCreated |= isNewPersona(m);
                     }
                 }
             } catch (Exception e) {
@@ -757,6 +828,10 @@ public final class Director {
         }
         
         return topups;
+    }
+
+    private static boolean isNewPersona(Command m) {
+        return (m instanceof Command.Materialize mm) && (mm.botId() == 0);
     }
 
     /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
@@ -1387,8 +1462,7 @@ public final class Director {
         if (livePlayers == 0) {
             return null;
         }
-        // field: bots in HUNT assignment; town: bots in TOWN assignment; exclude TRADER/TRANSIT/PASS/LEAVE*
-        // inCombatNearPlayers counted by countBotsInCombatNearPlayers (field bots actually fighting near live players)
-        return new PresenceSummary(livePlayers, (int) presenceFieldTopups, (int) presenceTownTopups, 0); // TODO: track inCombatNearPlayers
+        final int[] k = presenceCounts;
+        return new PresenceSummary(livePlayers, k[0], k[1], k[2], k[3], k[4], presenceFieldTopups + presenceTownTopups, noPersona, inCombatNearPlayers);
     }
 }

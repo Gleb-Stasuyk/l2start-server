@@ -75,6 +75,8 @@ public final class BasicBrain implements Brain {
     private int detourSide;
     private boolean far;
     private double restTo;
+    /** HP seen at the last rest tick (0 = not resting): falling HP while resting = it is being hit. */
+    private double restLastHp;
     private final Map<Integer, Long> blacklist = new HashMap<>();
     /** (skill, monster type) pairs the game refused (e.g. undead-only Might of Heaven on a living monster), skipped until then. */
     static final long BAD_SKILL_MS = 10 * 60_000L;
@@ -908,7 +910,19 @@ public final class BasicBrain implements Brain {
     // ------------------------------------------------------------------ REST
 
     private long rest(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
+        final boolean hpFalling = (restLastHp > 0) && (me.hp() < (restLastHp - 0.5));
+        restLastHp = me.hp();
+        if (attacker == null) {
+            attacker = threat(w, me, hpFalling);
+        }
+        if (hpFalling && (attacker == null)) {
+            // something hits it and it cannot see what (stock AI target not set yet): never sit down under blows
+            standIfSitting(ctx, me);
+            detail = "hit while resting";
+            return 800;
+        }
         if (attacker != null) {
+            restLastHp = 0;
             standIfSitting(ctx, me);
             enter(ctx, Phase.LEVEL, "attacked while resting");
             return startFight(ctx, me, attacker, now);
@@ -925,6 +939,10 @@ public final class BasicBrain implements Brain {
             return away > 0 ? away : 1500;
         }
         if (!me.sitting()) {
+            if (me.inCombat()) {
+                detail = "waits out the fight"; // combat stance still on: a monster may still be on it, no sitting yet
+                return 1000;
+            }
             if (me.moving() || me.attacking() || me.casting()) {
                 ctx.act().stop();
                 return 1000;
@@ -935,7 +953,32 @@ public final class BasicBrain implements Brain {
             ctx.act().sit();
             detail = "sit";
         }
-        return 3000;
+        return 1000; // looks up every second: a monster that comes at it gets an answer at once, not after 3 s on the ground
+    }
+
+    /**
+     * A monster on the bot even when its stock target is not the bot: the attacker, else (in combat or HP falling) the
+     * nearest monster swinging within its reach that fights nobody else.
+     */
+    static NpcView threat(WorldView w, SelfView me, boolean hpFalling) {
+        final NpcView a = attacker(w, me);
+        if (a != null) {
+            return a;
+        }
+        if (!me.inCombat() && !hpFalling) {
+            return null;
+        }
+        NpcView best = null;
+        for (NpcView n : w.npcs()) {
+            if (n.dead() || !n.monster() || !n.attackable() || n.engagedByOther() || ((n.targetId() != 0) && (n.targetId() != me.objectId()))) {
+                continue;
+            }
+            final int reach = Math.max(n.attackRange(), NpcView.MELEE) + 150;
+            if ((n.attackingNow() || hpFalling) && (n.distance() <= reach) && ((best == null) || (n.distance() < best.distance()))) {
+                best = n;
+            }
+        }
+        return best;
     }
 
     private boolean needsRest(SelfView me) {
@@ -984,6 +1027,7 @@ public final class BasicBrain implements Brain {
         }
         if (needsRest(me)) {
             restTo = 80 + (ctx.info().patience() * 15);
+            restLastHp = 0;
             enter(ctx, Phase.REST, String.format(java.util.Locale.ROOT, "hp %.0f%%, mp %.0f%%", me.hpPct(), me.mpPct()));
             return rest(ctx, w, me, now, null);
         }
@@ -1727,6 +1771,7 @@ public final class BasicBrain implements Brain {
                 return away;
             }
             restTo = 80 + (ctx.info().patience() * 15);
+            restLastHp = 0;
             enter(ctx, Phase.REST, String.format(java.util.Locale.ROOT, "hp %.0f%%, mp %.0f%%", me.hpPct(), me.mpPct()));
             return rest(ctx, w, me, now, null);
         }
@@ -3539,7 +3584,7 @@ public final class BasicBrain implements Brain {
         }
         // rest: when its mate sits, when told to, or when it needs it (Living Worlds PhantomPartyDowntime)
         final boolean restNow = (ptMode == PartyMode.SIT) || (mate.sitting() && (mate.distance() < 600)) || needsRest(me);
-        if (restNow && (aggroNear(w, me, AGGRO_NEAR) == null) && (mate.distance() < 900)) {
+        if (restNow && (aggroNear(w, me, AGGRO_NEAR) == null) && (threat(w, me, false) == null) && !me.inCombat() && (mate.distance() < 900)) {
             if (!me.sitting()) {
                 if (me.moving() || me.attacking() || me.casting()) {
                     ctx.act().stop();
