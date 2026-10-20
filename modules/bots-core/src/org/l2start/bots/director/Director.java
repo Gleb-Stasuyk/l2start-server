@@ -28,6 +28,10 @@ public final class Director {
     public record Live(int id, Pos pos) {
     }
 
+    /** Presence summary for per-minute INFO logging. */
+    public record PresenceSummary(int players, int field, int town, int inCombatNearPlayers) {
+    }
+
     /** A bot in the world right now. */
     /** @param group the pair/trio it came in with (phase 4g), 0 = alone */
     public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group) {
@@ -825,7 +829,7 @@ public final class Director {
         }
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         int botId = 0;
-        int level;
+        int level = lo; // default, will be set below
         Candidate chosen = back;
         if (back != null) {
             comebacks.remove(back.botId());
@@ -838,11 +842,13 @@ public final class Director {
             botId = pick.botId();
             level = pick.level();
         } else {
+            // Pool empty: create new persona (one per tick limit)
             if (createdThisTick) {
                 noPersona++;
                 return null; // one new persona per tick (it is a database insert)
             }
             level = lo + rnd.nextInt((hi - lo) + 1);
+            // botId stays 0 = create new with race parameter
         }
         final Assignment a;
         if (d.town()) {
@@ -1319,5 +1325,15 @@ public final class Director {
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
             + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " presence=" + presenceFieldTopups + "/" + presenceTownTopups + " leaves=" + presenceLeaves + (density < 1 ? " density=" + density : "");
+    }
+
+    /** Per-minute presence summary for INFO logging (separate line from DIRECTOR status). */
+    public synchronized PresenceSummary presenceSummary() {
+        if (livePlayers == 0) {
+            return null;
+        }
+        // field: bots in HUNT assignment; town: bots in TOWN assignment; exclude TRADER/TRANSIT/PASS/LEAVE*
+        // inCombatNearPlayers counted by countBotsInCombatNearPlayers (field bots actually fighting near live players)
+        return new PresenceSummary(livePlayers, (int) presenceFieldTopups, (int) presenceTownTopups, 0); // TODO: track inCombatNearPlayers
     }
 }

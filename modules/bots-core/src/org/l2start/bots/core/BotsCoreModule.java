@@ -409,6 +409,12 @@ public final class BotsCoreModule implements GameModule {
                 ctx.scheduler().fixedRate("director stats", every, every, () -> {
                     if ((director.director().pendingCount() > 0) || (registry.inWorld() > 0) || !director.live().isEmpty()) {
                         ctx.log().info(director.statsLine());
+                        // Separate per-minute presence summary
+                        final org.l2start.bots.director.Director.PresenceSummary ps = director.director().presenceSummary();
+                        if (ps != null) {
+                            ctx.log().info(String.format("presence: players=%d field=%d town=%d inCombatNearPlayers=%d",
+                                ps.players(), ps.field(), ps.town(), ps.inCombatNearPlayers()));
+                        }
                     }
                     final int traders = world.drainTraderEnters();
                     if (traders > 0) {

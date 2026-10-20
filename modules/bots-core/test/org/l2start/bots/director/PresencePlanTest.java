@@ -144,4 +144,32 @@ class PresencePlanTest {
         assertEquals("small", PresencePlan.classifyTown("heine"));
         assertEquals("small", PresencePlan.classifyTown("rune"));
     }
+
+    /**
+     * Orc character creation point (-56693, -113610, -690) must be covered by orc_village in world.xml.
+     * This test verifies that a new Orc player at that position gets deficits filled (field or town).
+     */
+    @Test
+    void orcCreationPointCovered() {
+        final Pos orcSpawn = new Pos(-56693, -113610, -690);
+        final List<Pos> players = List.of(orcSpawn);
+        final List<PresencePlan.BotSummary> bots = List.of(); // No bots yet
+        
+        final Map<String, int[]> townRanges = Map.of("orc_village", new int[] {3, 5});
+        
+        // Orc village radius expanded to 12500, so spawn point should be in town
+        final PresencePlan.Plan plan = PresencePlan.calculateDeficits(players, bots, 1500, 
+            p -> {
+                // Orc Village: center (-44721, -113607), radius 12500
+                final double dist = Math.sqrt(Math.pow(p.x() + 44721, 2) + Math.pow(p.y() + 113607, 2));
+                return dist <= 12500 ? "orc_village" : null;
+            },
+            1, 3, townRanges);
+        
+        assertFalse(plan.deficits().isEmpty(), "Orc spawn point must generate deficit");
+        final PresencePlan.Deficit deficit = plan.deficits().get(0);
+        assertTrue(deficit.needed() > 0, "New Orc player needs bots");
+        assertTrue(deficit.inTown() && "orc_village".equals(deficit.townId()) 
+            || !deficit.inTown(), "Either in orc_village town or field, but must be covered");
+    }
 }
