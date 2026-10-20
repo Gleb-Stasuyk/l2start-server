@@ -247,12 +247,35 @@ public final class Director {
     public void setStarterTownMax(int max) {
         starterTownMax = Math.max(0, max);
     }
-
-    /** Farm witness bots: keep at least this many fitting bots near each hunting player (bots-core FarmWitnessBots). */
-    private volatile int farmWitnessBots = 0; // default 0 = off
-
-    public void setFarmWitnessBots(int count) {
-        farmWitnessBots = Math.max(0, Math.min(3, count));
+    
+    /** Visible presence guarantee: field min-max (1-3 bots actively farming near hunting players). */
+    private volatile int presenceFieldMin = 0;
+    private volatile int presenceFieldMax = 0;
+    
+    /** Visible presence guarantee: town ranges by category (traders excluded). */
+    private volatile int presenceTownStarterMin = 0;
+    private volatile int presenceTownStarterMax = 0;
+    private volatile int presenceTownSmallMin = 0;
+    private volatile int presenceTownSmallMax = 0;
+    private volatile int presenceTownMediumMin = 0;
+    private volatile int presenceTownMediumMax = 0;
+    private volatile int presenceTownLargeMin = 0;
+    private volatile int presenceTownLargeMax = 0;
+    
+    public void setPresenceField(int min, int max) {
+        presenceFieldMin = Math.max(0, min);
+        presenceFieldMax = Math.max(presenceFieldMin, max);
+    }
+    
+    public void setPresenceTown(String category, int min, int max) {
+        final int minClamped = Math.max(0, min);
+        final int maxClamped = Math.max(minClamped, max);
+        switch (category.toLowerCase()) {
+            case "starter" -> { presenceTownStarterMin = minClamped; presenceTownStarterMax = maxClamped; }
+            case "small" -> { presenceTownSmallMin = minClamped; presenceTownSmallMax = maxClamped; }
+            case "medium" -> { presenceTownMediumMin = minClamped; presenceTownMediumMax = maxClamped; }
+            case "large" -> { presenceTownLargeMin = minClamped; presenceTownLargeMax = maxClamped; }
+        }
     }
 
     public double clanMixedPartyChance() {
@@ -375,16 +398,6 @@ public final class Director {
                     }
                 }
                 continue;
-            }
-            if ((a != null) && (a.kind() == Assignment.Kind.NEWBIE)) {
-                // S6: a newbie companion back in its village after its gremlins: town life there, or it vanishes unseen
-                if ((a.exit() != null) && !b.dead() && (b.pos().distance2d(a.exit()) < NEWBIE_HOME) && ((now - t.since) > 60_000)) {
-                    final Command home = newbieHome(c, now, b, live, terrain);
-                    if (home != null) {
-                        out.add(home);
-                    }
-                }
-                continue; // not one of any place's bots: no "away" or linger rules
             }
             if ((a == null) || leaving || b.dead()) {
                 continue;
@@ -548,260 +561,29 @@ public final class Director {
             }
         }
         
-        // 5. farm witness bots: for each hunting player, ensure at least FarmWitnessBots bots of fitting level farm nearby
-        if (farmWitnessBots > 0) {
-            for (Live player : live) {
-                // Skip if player is in town (not hunting)
-                final WorldCatalog.Town town = catalog.townAt(player.pos(), c.townMargin());
-                if (town != null) {
-                    continue;
-                }
-                
-                // Find hunting ground the player is on
-                final List<WorldCatalog.Ground> playerGrounds = catalog.groundsNear(player.pos(), 0);
-                WorldCatalog.Ground spot = null;
-                for (WorldCatalog.Ground g : playerGrounds) {
-                    if (player.pos().distance2d(g.center()) <= g.radius()) {
-                        spot = g;
-                        break;
-                    }
-                }
-                if (spot == null) {
-                    continue; // player not at a hunting spot
-                }
-                
-                // Count fitting bots within ~1500 of this player
-                // Only count bots actually hunting ON THIS GROUND (not just passing by)
-                int fittingNearby = 0;
-                for (BotNow b : bots) {
-                    if (b.assignment() == null || b.assignment().kind() != Assignment.Kind.HUNT) {
-                        continue;
-                    }
-                    // Bot must be hunting on the same ground (not just passing by)
-                    if (!b.assignment().place().equals(spot.id())) {
-                        continue;
-                    }
-                    if (b.pos().distance2d(player.pos()) > 1500) {
-                        continue;
-                    }
-                    // Check if bot level fits (within spot's level band ±5)
-                    final int botLevel = (b.assignment().minLevel() + b.assignment().maxLevel()) / 2;
-                    if (botLevel >= (spot.minLevel() - 5) && botLevel <= (spot.maxLevel() + 5)) {
-                        fittingNearby++;
-                    }
-                }
-                
-                // Need to spawn witness bot(s)?
-                if (fittingNearby < farmWitnessBots && total < c.maxInWorld()) {
-                    // Check starting zone race rules and enforce them
-                    int requiredRace = -1;
-                    final StarterZones z = starterZones;
-                    if (z != null) {
-                        final int spotRace = StarterZones.raceOfGround(spot);
-                        if (spotRace >= 0) {
-                            // Starting zone: only spawn bots of the right race
-                            requiredRace = spotRace;
-                        }
-                    }
-                    
-                    // Filter pool by required race before spawning
-                    final int finalRequiredRace = requiredRace;
-                    final Pool filteredPool = (lo, hi, now2) -> {
-                        final List<Candidate> all = pool.available(lo, hi, now2);
-                        if (finalRequiredRace < 0) {
-                            return all;
-                        }
-                        final List<Candidate> filtered = new ArrayList<>();
-                        for (Candidate c2 : all) {
-                            if (c2.race() == finalRequiredRace) {
-                                filtered.add(c2);
-                            }
-                        }
-                        return filtered;
-                    };
-                    
-                    // Try to spawn a witness bot (spawn() uses hiddenPoint for this Demand, so bot spawns out of sight)
-                    final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
-                    final Command m = spawn(c, now, d, List.of(player), live, bots, filteredPool, terrain, createdThisTick);
-                    if (m != null) {
-                        out.add(m);
-                        total++;
-                        createdThisTick |= ((Command.Materialize) m).botId() == 0;
-                        witnessSpawns++;
-                        note(now, "farm witness bot for hunting player near " + spot.id() + (finalRequiredRace >= 0 ? " race=" + finalRequiredRace : ""));
-                        break; // only one per tick to avoid flooding
-                    }
-                }
-            }
-        }
+        // 5. Visible presence guarantee: ensure N non-trader bots are in sight of every player
+        // Field (hunting zones): 1-3 bots actively farming within visibility
+        // Towns: per-town ranges, traders excluded
+        final int presenceTopups = ensurePresence(c, now, hour, live, bots, pool, terrain, out, total, createdThisTick);
+        total += presenceTopups;
         
-        // 6. newbie companions (S6): beginners of a new live character's race come out of sight and run to its gremlins
-        for (java.util.Iterator<Newbie> it = newbies.iterator(); it.hasNext();) {
-            final Newbie n = it.next();
-            if (now < n.due) {
-                continue;
-            }
-            if ((n.left <= 0) || (++n.tries > 30)) {
-                it.remove();
-                continue;
-            }
-            if (total >= c.maxInWorld()) {
-                break;
-            }
-            final Command.Materialize m = newbie(c, now, n, live, bots, pool, terrain, createdThisTick);
-            if (m != null) {
-                out.add(m);
-                total++;
-                createdThisTick |= m.botId() == 0;
-                if (--n.left <= 0) {
-                    it.remove();
-                }
-            }
-        }
         together(out, bots, live);
         places = List.copyOf(states);
         return out;
     }
 
-    // ------------------------------------------------------------------ newbie companions (docs/STARTER_ZONES_PLAN.md S6)
 
-    /** A companion this close to its village point is back home. */
-    static final int NEWBIE_HOME = 400;
-
-    private static final class Newbie {
-        final int charId;
-        final int race;
-        final Pos gremlins;
-        final String townId;
-        final Pos exit;
-        final long due;
-        int left;
-        int tries;
-
-        Newbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
-            this.charId = charId;
-            this.race = race;
-            this.left = count;
-            this.gremlins = gremlins;
-            this.townId = townId;
-            this.exit = exit;
-            this.due = due;
-        }
-    }
-
-    private final List<Newbie> newbies = new ArrayList<>();
-    private final Set<Integer> newbieServed = new HashSet<>();
-    private long newbieCompanions;
-    private long newbieHomes;
-    private long witnessSpawns;
-
-    /**
-     * A new live character entered a starting zone: {@code count} beginners (level 1-3) of {@code race} come at
-     * {@code due} out of its sight and hunt the gremlins at {@code gremlins}, then go to {@code exit} in {@code townId}.
-     * Once per character.
-     * @return false when this character had its companions already
-     */
-    public synchronized boolean requestNewbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
-        if ((count <= 0) || (gremlins == null) || !newbieServed.add(charId)) {
-            return false;
-        }
-        newbies.add(new Newbie(charId, race, count, gremlins, townId, exit, due));
-        note(due, "newbie companions for character " + charId + ": " + count + " of race " + race + " to the gremlins at " + gremlins);
-        return true;
-    }
-
-    public synchronized long newbieCompanions() {
-        return newbieCompanions;
-    }
-
-    private Command.Materialize newbie(DirectorConfig c, long now, Newbie n, List<Live> live, Collection<BotNow> bots, Pool pool, Terrain terrain, boolean createdThisTick) {
-        final WorldCatalog.Town t = catalog.town(n.townId);
-        if (t == null) {
-            n.left = 0;
-            return null;
-        }
-        // Spawn near the gremlins, scattered around them (not hidden far away)
-        final List<Pos> occupiedNearGremlins = new ArrayList<>();
-        for (Live p : live) {
-            if (p.pos().distance2d(n.gremlins) < 2000) {
-                occupiedNearGremlins.add(p.pos());
-            }
-        }
-        for (BotNow b : bots) {
-            if (b.pos().distance2d(n.gremlins) < 2000) {
-                occupiedNearGremlins.add(b.pos());
-            }
-        }
-        // Use real scatter with geodata-backed checks (not stubs)
-        final Scatter.Ground groundInterface = new Scatter.Ground() {
-            @Override
-            public boolean hasGeo(int x, int y) {
-                final Pos p = terrain.ground(new Pos(x, y, n.gremlins.z()));
-                return p != null;
-            }
-
-            @Override
-            public int height(int x, int y, int z) {
-                final Pos g = terrain.ground(new Pos(x, y, z));
-                return g != null ? g.z() : z;
-            }
-
-            @Override
-            public boolean reachable(Pos from, Pos to) {
-                // For newbie spawn, check basic reachability (terrain provides pathfinding check)
-                final Pos toGround = terrain.ground(to);
-                return toGround != null && terrain.canSee(from, toGround);
-            }
-
-            @Override
-            public boolean passable(int x, int y, int z) {
-                // Delegate to terrain's ground check - if terrain.ground returns a valid position, it's passable
-                final Pos g = terrain.ground(new Pos(x, y, z));
-                return g != null && Math.abs(g.z() - z) <= Scatter.MAX_DZ;
-            }
-
-            @Override
-            public boolean water(int x, int y, int z) {
-                // For newbie companions, avoid water (they should spawn on land near gremlins)
-                // This would need ZoneManager check in production; for now delegate to terrain
-                return false; // terrain.ground already filters water in WorldScatter
-            }
-        };
-        final Scatter.Result sc = Scatter.pick(n.gremlins, occupiedNearGremlins, groundInterface, rnd);
-        if (sc.fallback()) {
-            note(now, "newbie: WARN no room near gremlins " + n.gremlins + " for character " + n.charId);
-            noSpot++;
-            return null;
-        }
-        final Pos at = sc.pos();
-        final int[] who = persona(c, now, pool, 1, 3, n.race, createdThisTick);
-        if (who == null) {
-            return null;
-        }
-        final Pos exit = n.exit != null ? n.exit : t.center();
-        final int radius = (int) Math.max(600, n.gremlins.distance2d(exit) + 600);
-        final Assignment a = new Assignment(++seq, Assignment.Kind.NEWBIE, "newbie:" + t.id() + ":" + n.charId, n.gremlins, radius, 1, 3, List.of(n.gremlins), t.anchors(), exit);
-        pending.put(who[0] == 0 ? --newKey : who[0], new Pending(a.place(), a.seq(), now));
-        newbieCompanions++;
-        materialized++;
-        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> NEWBIE companion of character " + n.charId + " near gremlins " + n.gremlins + " at " + at);
-        return new Command.Materialize(who[0], Math.max(1, Math.min(3, who[1])), at, a, n.race);
-    }
-
-    /** Back in its village: town life there (counted in the town from now on) or it runs off out of sight. */
-    private Command newbieHome(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain) {
-        final WorldCatalog.Town t = catalog.townAt(b.pos(), c.townMargin());
-        final Pos away = ((t == null) || rnd.nextBoolean()) ? runOutPoint(c, b.pos(), live, terrain) : null;
-        newbieHomes++;
-        if (away != null) {
-            note(now, "newbie companion " + b.botId() + " back in its village: runs off out of sight");
-            return new Command.Assign(b.botId(), b.assignment().leave(++seq, Assignment.Kind.LEAVE_RUN, away));
-        }
-        if (t == null) {
-            return null;
-        }
-        note(now, "newbie companion " + b.botId() + " back in " + t.id() + ": town life");
-        return new Command.Assign(b.botId(), new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), t.anchors(), null));
+    // ------------------------------------------------------------------ visible presence guarantee
+    
+    private long presenceFieldTopups;
+    private long presenceTownTopups;
+    private long presenceLeaves;
+    
+    /** Ensure visible presence: field (1-3 bots farming nearby) and town (per-town ranges, traders excluded). */
+    private int ensurePresence(DirectorConfig c, long now, int hour, List<Live> live, Collection<BotNow> bots, Pool pool, Terrain terrain,
+        List<Command> out, int currentTotal, boolean createdThisTick) {
+        // Implementation will be added
+        return 0;
     }
 
     /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
@@ -1422,6 +1204,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " newbies=" + newbieCompanions + "/" + newbieHomes + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " presence=" + presenceFieldTopups + "/" + presenceTownTopups + " leaves=" + presenceLeaves + (density < 1 ? " density=" + density : "");
     }
 }

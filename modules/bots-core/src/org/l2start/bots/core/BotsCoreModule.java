@@ -204,8 +204,6 @@ public final class BotsCoreModule implements GameModule {
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerCreate> onPlayers(EventType.ON_PLAYER_CREATE, this::onPlayerCreate);
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLogin> onPlayers(EventType.ON_PLAYER_LOGIN, this::onPlayerLogin);
         ctx.events().<OnAttackableKill> onMonsters(EventType.ON_ATTACKABLE_KILL, this::onKill);
         ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanJoin> onPlayers(
             EventType.ON_PLAYER_CLAN_JOIN, e -> {
@@ -435,85 +433,6 @@ public final class BotsCoreModule implements GameModule {
 
     org.l2start.bots.director.StarterZones zones() {
         return zones;
-    }
-
-    // ------------------------------------------------------------------ newbie companions (docs/STARTER_ZONES_PLAN.md S6)
-
-    private volatile List<Pos> gremlinSpots = List.of();
-
-    /** NewbieCompanions "min-max" (or "n"; 0 = off). */
-    static int[] newbieRange(String v) {
-        try {
-            final String[] p = v.trim().split("-");
-            final int lo = Math.max(0, Integer.parseInt(p[0].trim()));
-            final int hi = p.length > 1 ? Math.max(lo, Integer.parseInt(p[1].trim())) : lo;
-            return new int[] { lo, Math.min(hi, 5) };
-        } catch (RuntimeException e) {
-            return new int[] { 0, 0 };
-        }
-    }
-
-    /** A live player made a character (bots are made without a client). */
-    private void onPlayerCreate(org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerCreate e) {
-        if (e.getClient() == null) {
-            return;
-        }
-        final int charId = e.getObjectId();
-        ctx.scheduler().schedule("newbie " + charId, Duration.ZERO, () -> {
-            try {
-                repo.newbieCreated(charId, System.currentTimeMillis());
-            } catch (Exception ex) {
-                ctx.log().warn("newbie: cannot note character " + charId + ": " + ex.getMessage());
-            }
-        });
-    }
-
-    /** First login of a character in a starting zone: 1-3 beginners of its race appear immediately, already farming gremlins (once per character). */
-    private void onPlayerLogin(org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLogin e) {
-        final Player p = e.getPlayer();
-        final DirectorRunner d = director;
-        if ((p == null) || (d == null) || registry.isBot(p) || (newbieRange(ctx.config().getString("NewbieCompanions"))[1] <= 0)) {
-            return;
-        }
-        final int charId = p.getObjectId();
-        ctx.scheduler().schedule("newbie " + charId, Duration.ZERO, () -> {
-            try {
-                if (!repo.newbieTake(charId, System.currentTimeMillis())) {
-                    return; // not made here, or had them already
-                }
-            } catch (Exception ex) {
-                ctx.log().warn("newbie: " + ex.getMessage());
-                return;
-            }
-            ctx.log().info("newbie: " + p.getName() + " is new here, spawning companions immediately");
-            newbieCompanions(p);
-        });
-    }
-
-    private void newbieCompanions(Player p) {
-        final DirectorRunner d = director;
-        final org.l2start.bots.director.StarterZones z = zones;
-        if ((d == null) || (z == null) || !p.isOnline() || (p.getObjectId() == 0)) {
-            return;
-        }
-        final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
-        final int race = p.getRace().ordinal();
-        if ((race > 4) || (z.raceAt(at) < 0)) {
-            ctx.log().info("newbie: " + p.getName() + " is not in a starting zone any more: no companions");
-            return;
-        }
-        final Pos gremlins = org.l2start.bots.director.StockPoints.nearest(gremlinSpots, at, 8000);
-        if (gremlins == null) {
-            ctx.log().info("newbie: no gremlins near " + p.getName() + " at " + at);
-            return;
-        }
-        final int[] range = newbieRange(ctx.config().getString("NewbieCompanions"));
-        final int count = range[0] + ThreadLocalRandom.current().nextInt((range[1] - range[0]) + 1);
-        final org.l2start.bots.director.WorldCatalog.Town town = z.village(race);
-        final Pos home = z.villagePoint(race, List.of(), 0, terrain(), new Random());
-        if (d.director().requestNewbie(p.getObjectId(), race, count, gremlins, town.id(), home, System.currentTimeMillis())) {
-            ctx.log().info("newbie: " + count + " companion(s) of race " + race + " for " + p.getName() + " at " + at + ", gremlins " + gremlins);
-        }
     }
 
     /** Ground with geodata (RequireGeodata: no point without geodata), for village points. */
@@ -773,7 +692,11 @@ public final class BotsCoreModule implements GameModule {
             director.setConfig(directorConfig());
             director.director().setLife(life());
             director.director().setStarterTownMax(ctx.config().getInt("DirectorStarterTownMax"));
-            director.director().setFarmWitnessBots(ctx.config().getInt("FarmWitnessBots"));
+            director.director().setPresenceField(ctx.config().getInt("PresenceFieldMin"), ctx.config().getInt("PresenceFieldMax"));
+            director.director().setPresenceTown("starter", ctx.config().getInt("PresenceTownStarterMin"), ctx.config().getInt("PresenceTownStarterMax"));
+            director.director().setPresenceTown("small", ctx.config().getInt("PresenceTownSmallMin"), ctx.config().getInt("PresenceTownSmallMax"));
+            director.director().setPresenceTown("medium", ctx.config().getInt("PresenceTownMediumMin"), ctx.config().getInt("PresenceTownMediumMax"));
+            director.director().setPresenceTown("large", ctx.config().getInt("PresenceTownLargeMin"), ctx.config().getInt("PresenceTownLargeMax"));
             director.director().setStarterZones(zones);
             try {
                 director.director().setPartyShare(Double.parseDouble(ctx.config().getString("PartyShare").trim()));

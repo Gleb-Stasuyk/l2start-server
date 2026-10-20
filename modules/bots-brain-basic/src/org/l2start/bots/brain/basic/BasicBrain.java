@@ -1205,7 +1205,7 @@ public final class BasicBrain implements Brain {
             case LEAVE_SOE -> escapeHome(ctx, w, me, now, a, attacker);
             case LEAVE_SPOT -> logoutHere(ctx, w, me, now, attacker);
             case ERRANDS -> errands(ctx, w, me, now, a, attacker);
-            case NEWBIE -> newbie(ctx, w, me, now, a, attacker);
+            // case NEWBIE removed - treated as HUNT
             case TRANSIT -> transit(ctx, me, now);
             case TOWN -> town(ctx, w, me, now, a, attacker);
             case HUNT -> hunt(ctx, w, me, now, a, attacker);
@@ -1248,13 +1248,6 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             transitUntil = now + 3000 + ctx.rnd().nextInt(7000);
             enter(ctx, Phase.TOWN_IDLE, "transit at the gatekeeper of " + a.place());
-        } else if (a.kind() == Assignment.Kind.NEWBIE) {
-            zone = null;
-            mobBelow = 3;
-            mobAbove = 2;
-            // No longer track kill count - companions hunt until level 3
-            enter(ctx, Phase.LEVEL, "newbie: to the gremlins, hunting until level 3");
-        } else if (a.kind() == Assignment.Kind.HUNT) {
             mobBelow = 8;
             mobAbove = 1;
             zone = new LevelZone(a.place(), "", a.center(), a.radius(), a.minLevel(), a.maxLevel(), a.spots().size(), false, java.util.Set.of());
