@@ -600,6 +600,8 @@ public final class Director {
     
     /** Ensure visible presence: field (1-3 bots farming nearby) and town (per-town ranges, traders excluded). 
      * Field bots: spawn() creates Assignment.Kind.HUNT with ground spots → BasicBrain.hunt() farms mobs near player.
+     * HUNT assignment targets the ground where the player is, with spots within that ground's radius.
+     * Brain walks to spots and fights mobs there - mobs spawn at spots, so bot is within player's visibility.
      * Town bots: spawn() creates Assignment.Kind.TOWN with anchors → BasicBrain.town() walks/sits/visits NPCs.
      * Both spawn outside visibility (hiddenPoint/townPoint) and enter naturally.
      */
@@ -610,52 +612,68 @@ public final class Director {
         }
         
         final List<BotNow> botsList = new ArrayList<>(bots);
-        int topups = 0;
-        final java.util.Set<Integer> traderBots = new java.util.HashSet<>();
-        // Mark trader bots (economy-market TOWN assignment with "trader:" prefix placeholder)
+        
+        // Build town ranges map
+        final Map<String, int[]> townRanges = new HashMap<>();
+        for (WorldCatalog.Town t : catalog.towns()) {
+            final String category = PresencePlan.classifyTown(t.id());
+            final int[] range = switch (category) {
+                case "starter" -> new int[] {presenceTownStarterMin, presenceTownStarterMax};
+                case "small" -> new int[] {presenceTownSmallMin, presenceTownSmallMax};
+                case "medium" -> new int[] {presenceTownMediumMin, presenceTownMediumMax};
+                case "large" -> new int[] {presenceTownLargeMin, presenceTownLargeMax};
+                default -> new int[] {0, 0};
+            };
+            townRanges.put(t.id(), range);
+        }
+        
+        // Build bot summaries
+        final List<PresencePlan.BotSummary> botSummaries = new ArrayList<>();
         for (BotNow b : botsList) {
             final Assignment a = b.assignment();
-            if ((a != null) && (a.kind() == Assignment.Kind.TOWN) && a.place().startsWith("trader:")) {
-                traderBots.add(b.botId());
+            if (a != null) {
+                botSummaries.add(new PresencePlan.BotSummary(b.botId(), b.pos(), a.kind(), a.place()));
             }
         }
         
-        // For each live player, count visible non-trader bots and spawn top-ups if needed
-        for (Live player : live) {
-            final WorldCatalog.Town town = catalog.townAt(player.pos(), c.townMargin());
-            final boolean inTown = town != null;
+        // Build player positions
+        final List<Pos> playerPositions = new ArrayList<>();
+        for (Live p : live) {
+            playerPositions.add(p.pos());
+        }
+        
+        // Calculate deficits using pure functions
+        final PresencePlan.Plan plan = PresencePlan.calculateDeficits(
+            playerPositions, botSummaries, c.unseenRadius(),
+            p -> {
+                final WorldCatalog.Town t = catalog.townAt(p, c.townMargin());
+                return t == null ? null : t.id();
+            },
+            presenceFieldMin, presenceFieldMax, townRanges
+        );
+        
+        int topups = 0;
+        for (PresencePlan.Deficit deficit : plan.deficits()) {
+            if (currentTotal + topups >= c.maxInWorld()) {
+                break;
+            }
             
-            if (inTown) {
-                // Town presence
-                final int[] range = townPresenceRange(town.id());
-                if (range[1] <= 0) {
-                    continue;
-                }
-                int visible = 0;
-                for (BotNow b : botsList) {
-                    if (traderBots.contains(b.botId())) {
-                        continue;
-                    }
-                    if (player.pos().distance2d(b.pos()) <= c.unseenRadius()) {
-                        visible++;
-                    }
-                }
-                final int target = range[0] + rnd.nextInt((range[1] - range[0]) + 1);
-                if ((visible < target) && (currentTotal + topups < c.maxInWorld())) {
-                    // Spawn a town bot out of sight
-                    final Demand d = new Demand(town.id(), true, town, null, 1, 0);
-                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
-                    if (m != null) {
-                        out.add(m);
-                        topups++;
-                        presenceTownTopups++;
-                    }
+            final Live player = live.get(deficit.playerId());
+            if (deficit.inTown()) {
+                // Town top-up
+                final WorldCatalog.Town town = catalog.town(deficit.townId());
+                if (town == null) continue;
+                
+                final Demand d = new Demand(town.id(), true, town, null, 1, 0);
+                final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
+                if (m != null) {
+                    out.add(m);
+                    topups++;
+                    presenceTownTopups++;
+                    if (topups >= deficit.needed()) break;
                 }
             } else {
-                // Field presence
-                if (presenceFieldMax <= 0) {
-                    continue;
-                }
+                // Field top-up - spawn on the ground where player is (mobs are at spots within ground's radius)
                 final List<WorldCatalog.Ground> playerGrounds = catalog.groundsNear(player.pos(), 0);
                 WorldCatalog.Ground spot = null;
                 for (WorldCatalog.Ground g : playerGrounds) {
@@ -664,53 +682,22 @@ public final class Director {
                         break;
                     }
                 }
-                if (spot == null) {
-                    continue;
-                }
+                if (spot == null) continue;
                 
-                int visible = 0;
-                for (BotNow b : botsList) {
-                    if (traderBots.contains(b.botId())) {
-                        continue;
-                    }
-                    final Assignment a = b.assignment();
-                    if ((a == null) || (a.kind() != Assignment.Kind.HUNT)) {
-                        continue;
-                    }
-                    if (player.pos().distance2d(b.pos()) <= c.unseenRadius()) {
-                        visible++;
-                    }
-                }
-                final int target = presenceFieldMin + rnd.nextInt((presenceFieldMax - presenceFieldMin) + 1);
-                if ((visible < target) && (currentTotal + topups < c.maxInWorld())) {
-                    // Spawn a hunting bot out of sight
-                    final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
-                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
-                    if (m != null) {
-                        out.add(m);
-                        topups++;
-                        presenceFieldTopups++;
-                    }
+                // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
+                // which are within the ground's radius from center, hence within player's visibility
+                final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
+                final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
+                if (m != null) {
+                    out.add(m);
+                    topups++;
+                    presenceFieldTopups++;
+                    if (topups >= deficit.needed()) break;
                 }
             }
         }
         
         return topups;
-    }
-    
-    /** Get presence range for a town by id (starter/small/medium/large). */
-    private int[] townPresenceRange(String townId) {
-        // Classify towns by id (simplified - real catalog should have categories)
-        final String id = townId.toLowerCase();
-        if (id.contains("village") || id.equals("talking_island") || id.equals("dark_elven") || id.equals("orc") || id.equals("dwarven") || id.equals("kamael")) {
-            return new int[] { presenceTownStarterMin, presenceTownStarterMax };
-        } else if (id.equals("gludio") || id.equals("dion")) {
-            return new int[] { presenceTownMediumMin, presenceTownMediumMax };
-        } else if (id.equals("giran") || id.equals("aden") || id.equals("goddard")) {
-            return new int[] { presenceTownLargeMin, presenceTownLargeMax };
-        } else {
-            return new int[] { presenceTownSmallMin, presenceTownSmallMax };
-        }
     }
 
     /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
