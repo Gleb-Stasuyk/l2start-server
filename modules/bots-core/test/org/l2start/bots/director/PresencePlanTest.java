@@ -2,6 +2,7 @@ package org.l2start.bots.director;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -146,30 +147,68 @@ class PresencePlanTest {
     }
 
     /**
-     * Orc character creation point (-56693, -113610, -690) must be covered by orc_village in world.xml.
-     * This test verifies that a new Orc player at that position gets deficits filled (field or town).
+     * All races' character creation points must generate field deficits even when not in a predefined ground.
+     * Uses actual creation coordinates from game data (core/dist/game/data/stats/players/templates/1stClass/*.xml).
      */
     @Test
-    void orcCreationPointCovered() {
-        final Pos orcSpawn = new Pos(-56693, -113610, -690);
-        final List<Pos> players = List.of(orcSpawn);
-        final List<PresencePlan.BotSummary> bots = List.of(); // No bots yet
+    void allRaceCreationPointsCovered() {
+        // Actual creation coordinates from game data
+        final Map<String, Pos> creationPoints = Map.of(
+            "human", new Pos(-71338, 258271, -3104),      // HumanFighter
+            "elf", new Pos(46045, 41251, -3440),          // ElvenFighter
+            "dark_elf", new Pos(28295, 11063, -4224),     // DarkFighter
+            "orc", new Pos(-56693, -113610, -690),        // OrcFighter/Shaman
+            "dwarf", new Pos(108512, -174026, -408)       // DwarvenFighter
+        );
         
-        final Map<String, int[]> townRanges = Map.of("orc_village", new int[] {3, 5});
+        final Map<String, int[]> townRanges = Map.of(
+            "talking_island", new int[] {3, 5},
+            "elven_village", new int[] {3, 5},
+            "dark_elven_village", new int[] {3, 5},
+            "orc_village", new int[] {3, 5},
+            "dwarven_village", new int[] {3, 5}
+        );
         
-        // Orc village radius expanded to 12500, so spawn point should be in town
-        final PresencePlan.Plan plan = PresencePlan.calculateDeficits(players, bots, 1500, 
-            p -> {
-                // Orc Village: center (-44721, -113607), radius 12500
-                final double dist = Math.sqrt(Math.pow(p.x() + 44721, 2) + Math.pow(p.y() + 113607, 2));
-                return dist <= 12500 ? "orc_village" : null;
-            },
-            1, 3, townRanges);
-        
-        assertFalse(plan.deficits().isEmpty(), "Orc spawn point must generate deficit");
-        final PresencePlan.Deficit deficit = plan.deficits().get(0);
-        assertTrue(deficit.needed() > 0, "New Orc player needs bots");
-        assertTrue(deficit.inTown() && "orc_village".equals(deficit.townId()) 
-            || !deficit.inTown(), "Either in orc_village town or field, but must be covered");
+        for (Map.Entry<String, Pos> entry : creationPoints.entrySet()) {
+            final String race = entry.getKey();
+            final Pos spawn = entry.getValue();
+            final List<Pos> players = List.of(spawn);
+            final List<PresencePlan.BotSummary> bots = List.of(); // No bots yet
+            
+            // Town lookup: check if inside any village (with correct radii from world.xml)
+            final PresencePlan.Plan plan = PresencePlan.calculateDeficits(players, bots, 1500, 
+                p -> {
+                    // Village centers and radii from world.xml
+                    final Map<String, double[]> villages = Map.of(
+                        "talking_island", new double[] {-84331, 242962, 8500},
+                        "elven_village", new double[] {45365, 49721, 3191},
+                        "dark_elven_village", new double[] {11423, 16857, 4685},
+                        "orc_village", new double[] {-44721, -113607, 4482},  // REVERTED radius
+                        "dwarven_village", new double[] {115348, -180507, 4020}
+                    );
+                    
+                    for (Map.Entry<String, double[]> v : villages.entrySet()) {
+                        final double dist = Math.sqrt(Math.pow(p.x() - v.getValue()[0], 2) + Math.pow(p.y() - v.getValue()[1], 2));
+                        if (dist <= v.getValue()[2]) {
+                            return v.getKey();
+                        }
+                    }
+                    return null; // Not in town = field
+                },
+                1, 3, townRanges);
+            
+            assertFalse(plan.deficits().isEmpty(), race + " creation point must generate deficit");
+            final PresencePlan.Deficit deficit = plan.deficits().get(0);
+            assertTrue(deficit.needed() > 0, race + " player needs bots");
+            
+            // Most creation points are in field (not town), but test accepts both
+            if (deficit.inTown()) {
+                // In town (e.g. if a village covers the creation point)
+                assertTrue(deficit.townId() != null, race + " in town should have townId");
+            } else {
+                // In field (expected for most creation points)
+                assertNull(deficit.townId(), race + " in field should have no townId");
+            }
+        }
     }
 }

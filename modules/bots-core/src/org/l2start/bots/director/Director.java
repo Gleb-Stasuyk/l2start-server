@@ -686,7 +686,21 @@ public final class Director {
                         break;
                     }
                 }
-                if (spot == null) continue;
+                
+                // Fallback: if not in a predefined ground, create ad-hoc ground from player position
+                // (handles character creation points and other areas without explicit ground definitions)
+                if (spot == null) {
+                    // Ad-hoc ground: center at player, radius = unseenRadius, level 1-10 (starter), spots = player pos
+                    spot = new WorldCatalog.Ground(
+                        "adhoc_" + player.id(),
+                        null,  // Not tied to a specific town
+                        player.pos(),
+                        c.unseenRadius(),
+                        1, 10,  // Assume low-level starter area
+                        10, 0.0, false,  // monsters=10, aggressive=0, indoor=false
+                        List.of(player.pos())  // Bot will hunt right at player location
+                    );
+                }
                 
                 // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
                 // which are within the ground's radius from center, hence within player's visibility
