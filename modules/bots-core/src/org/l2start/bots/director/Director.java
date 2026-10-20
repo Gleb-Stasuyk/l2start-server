@@ -572,6 +572,25 @@ public final class Director {
         return out;
     }
 
+    
+    /** Count bots in combat (fightId != 0) within visibility of any live player. */
+    private static int countBotsInCombatNearPlayers(Collection<BotNow> bots, List<Live> live, DirectorConfig c) {
+        int count = 0;
+        for (BotNow b : bots) {
+            final Assignment a = b.assignment();
+            if ((a == null) || (a.kind() != Assignment.Kind.HUNT)) {
+                continue;
+            }
+            // Check if bot is near any live player (within visibility)
+            for (Live p : live) {
+                if (p.pos().distance2d(b.pos()) <= c.unseenRadius()) {
+                    count++;
+                    break;
+                }
+            }
+        }
+        return count;
+    }
 
     // ------------------------------------------------------------------ visible presence guarantee
     
@@ -579,7 +598,11 @@ public final class Director {
     private long presenceTownTopups;
     private long presenceLeaves;
     
-    /** Ensure visible presence: field (1-3 bots farming nearby) and town (per-town ranges, traders excluded). */
+    /** Ensure visible presence: field (1-3 bots farming nearby) and town (per-town ranges, traders excluded). 
+     * Field bots: spawn() creates Assignment.Kind.HUNT with ground spots → BasicBrain.hunt() farms mobs near player.
+     * Town bots: spawn() creates Assignment.Kind.TOWN with anchors → BasicBrain.town() walks/sits/visits NPCs.
+     * Both spawn outside visibility (hiddenPoint/townPoint) and enter naturally.
+     */
     private int ensurePresence(DirectorConfig c, long now, int hour, List<Live> live, Collection<BotNow> bots, Pool pool, Terrain terrain,
         List<Command> out, int currentTotal, boolean createdThisTick) {
         if ((presenceFieldMax <= 0) && (presenceTownStarterMax <= 0) && (presenceTownSmallMax <= 0) && (presenceTownMediumMax <= 0) && (presenceTownLargeMax <= 0)) {

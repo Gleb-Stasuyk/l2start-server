@@ -1248,6 +1248,7 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             transitUntil = now + 3000 + ctx.rnd().nextInt(7000);
             enter(ctx, Phase.TOWN_IDLE, "transit at the gatekeeper of " + a.place());
+        } else if (a.kind() == Assignment.Kind.HUNT) {
             mobBelow = 8;
             mobAbove = 1;
             zone = new LevelZone(a.place(), "", a.center(), a.radius(), a.minLevel(), a.maxLevel(), a.spots().size(), false, java.util.Set.of());
