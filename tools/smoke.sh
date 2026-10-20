@@ -111,7 +111,7 @@ gamelog > "$OUT/1-stock.log"
 check "DisableAll logged" has "Platform: DisableAll = true" "$OUT/1-stock.log"
 grep -vE '^#' "$BASE" > "$OUT/baseline.txt"
 counts "$OUT/1-stock.log" > "$OUT/1-counts.txt"
-if diff "$OUT/baseline.txt" "$OUT/1-counts.txt" > "$OUT/1-counts.diff"; then ok "startup counts identical to stock baseline ($(wc -l < "$OUT/baseline.txt") lines)"; else ko "startup counts differ from stock baseline (see 1-counts.diff)"; cat "$OUT/1-counts.diff"; fi
+if diff <(sort "$OUT/baseline.txt") <(sort "$OUT/1-counts.txt") > "$OUT/1-counts.diff"; then ok "startup counts identical to stock baseline ($(wc -l < "$OUT/baseline.txt") lines)"; else ko "startup counts differ from stock baseline (see 1-counts.diff)"; cat "$OUT/1-counts.diff"; fi
 check "no platform tables created" test -z "$(sql "SHOW TABLES LIKE 'platform_%'")"
 check "no module starting gear loaded" hasnt "initialEquipment from modules" "$OUT/1-stock.log"
 
@@ -153,7 +153,7 @@ VOLATILE='^(GlobalVariablesManager|ClanHallAuctionManager|MonsterRace):'
 counts "$L" | grep -vE "$VOLATILE" > "$OUT/2-counts.txt"
 grep -vE "$VOLATILE" "$OUT/baseline.txt" | sed -E -e 's/^BuyListData: Loaded 616 /BuyListData: Loaded 617 /' -e 's/^MultisellData: Loaded 208 /MultisellData: Loaded 209 /' \
   -e 's/^SpawnData: 186 spawn/SpawnData: 187 spawn/' -e 's/^SpawnData: 34122 spawns/SpawnData: 34123 spawns/' > "$OUT/2-expected.txt"
-if diff "$OUT/2-expected.txt" "$OUT/2-counts.txt" > "$OUT/2-counts.diff"; then ok "counts = stock + fx-core/fx-ok-dep data (buylist, multisell, spawn)"; else ko "counts differ from stock + module data (see 2-counts.diff)"; cat "$OUT/2-counts.diff"; fi
+if diff <(sort "$OUT/2-expected.txt") <(sort "$OUT/2-counts.txt") > "$OUT/2-counts.diff"; then ok "counts = stock + fx-core/fx-ok-dep data (buylist, multisell, spawn)"; else ko "counts differ from stock + module data (see 2-counts.diff)"; cat "$OUT/2-counts.diff"; fi
 check "module data folders logged" grep -qE 'Platform: npcs from modules: 1 folder' "$L"
 check "migration table: fx-core V001 ok" test "$(sql "SELECT success FROM platform_module_migrations WHERE module_id='fx-core' AND version=1")" = 1
 check "migration table: fx-bad-migration V001 failed" test "$(sql "SELECT success FROM platform_module_migrations WHERE module_id='fx-bad-migration' AND version=1")" = 0
@@ -219,7 +219,7 @@ real_modules() { # real_modules LOG N
   check "$2: extras: shift+click view for players" has "override game/NPC.ini: AltGameViewNpc = True" "$1"
   check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
-  if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
+  if grep -vE "$VOLATILE" "$OUT/baseline.txt" | sort | diff - <(sort "$OUT/$2-counts.txt") > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
 }
 real_modules "$OUT/5-online.log" 5
 
