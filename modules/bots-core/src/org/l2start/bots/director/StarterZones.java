@@ -110,6 +110,9 @@ public final class StarterZones {
 
     /** Is this ground part of a starting zone (and of which race), -1 = no. */
     public static int raceOfGround(WorldCatalog.Ground g) {
+        if (g.town() == null) {
+            return -1; // Ad-hoc or unknown ground
+        }
         return g.maxLevel() <= MAX_LEVEL ? VILLAGES.indexOf(g.town()) : -1;
     }
 

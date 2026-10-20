@@ -658,60 +658,101 @@ public final class Director {
         
         int topups = 0;
         for (PresencePlan.Deficit deficit : plan.deficits()) {
-            if (currentTotal + topups >= c.maxInWorld()) {
-                break;
-            }
-            
-            final Live player = live.get(deficit.playerId());
-            if (deficit.inTown()) {
-                // Town top-up
-                final WorldCatalog.Town town = catalog.town(deficit.townId());
-                if (town == null) continue;
-                
-                final Demand d = new Demand(town.id(), true, town, null, 1, 0);
-                final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
-                if (m != null) {
-                    out.add(m);
-                    topups++;
-                    presenceTownTopups++;
-                    if (topups >= deficit.needed()) break;
+            try {
+                if (currentTotal + topups >= c.maxInWorld()) {
+                    break;
                 }
-            } else {
-                // Field top-up - spawn on the ground where player is (mobs are at spots within ground's radius)
-                final List<WorldCatalog.Ground> playerGrounds = catalog.groundsNear(player.pos(), 0);
-                WorldCatalog.Ground spot = null;
-                for (WorldCatalog.Ground g : playerGrounds) {
-                    if (player.pos().distance2d(g.center()) <= g.radius()) {
-                        spot = g;
-                        break;
+                
+                final Live player = live.get(deficit.playerId());
+                if (deficit.inTown()) {
+                    // Town top-up
+                    final WorldCatalog.Town town = catalog.town(deficit.townId());
+                    if (town == null) continue;
+                    
+                    final Demand d = new Demand(town.id(), true, town, null, 1, 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
+                    if (m != null) {
+                        out.add(m);
+                        topups++;
+                        presenceTownTopups++;
+                        if (topups >= deficit.needed()) break;
+                    }
+                } else {
+                    // Field top-up - spawn on the ground where player is (mobs are at spots within ground's radius)
+                    final List<WorldCatalog.Ground> playerGrounds = catalog.groundsNear(player.pos(), 0);
+                    WorldCatalog.Ground spot = null;
+                    for (WorldCatalog.Ground g : playerGrounds) {
+                        if (player.pos().distance2d(g.center()) <= g.radius()) {
+                            spot = g;
+                            break;
+                        }
+                    }
+                    
+                    // Fallback: if not in a predefined ground, create ad-hoc ground from player position
+                    // (handles character creation points and other areas without explicit ground definitions)
+                    if (spot == null) {
+                        // Derive town from starting zones (for race filtering)
+                        final StarterZones zones = starterZones;
+                        String adHocTown = null;
+                        if (zones != null) {
+                            final int race = zones.raceAt(player.pos());
+                            if (race >= 0) {
+                                adHocTown = StarterZones.VILLAGES.get(race);
+                            }
+                        }
+                        
+                        // Get real mob spots within visibility (catalog.groundsNear with larger radius)
+                        // Use spots from nearby grounds or player position as fallback
+                        final List<Pos> adHocSpots = new ArrayList<>();
+                        for (WorldCatalog.Ground nearby : catalog.groundsNear(player.pos(), c.unseenRadius())) {
+                            if (!nearby.spots().isEmpty() && nearby.minLevel() <= 10) {
+                                for (Pos mobSpot : nearby.spots()) {
+                                    if (player.pos().distance2d(mobSpot) <= c.unseenRadius()) {
+                                        adHocSpots.add(mobSpot);
+                                        if (adHocSpots.size() >= 5) break;
+                                    }
+                                }
+                            }
+                            if (adHocSpots.size() >= 5) break;
+                        }
+                        if (adHocSpots.isEmpty()) {
+                            // Fallback: use player position offset by 300-500 units (don't stack on player)
+                            final double angle = Math.random() * 2 * Math.PI;
+                            final int dist = 300 + (int) (Math.random() * 200);
+                            adHocSpots.add(new Pos(
+                                player.pos().x() + (int) (Math.cos(angle) * dist),
+                                player.pos().y() + (int) (Math.sin(angle) * dist),
+                                player.pos().z()
+                            ));
+                        }
+                        
+                        // Ad-hoc ground: center at player, radius = unseenRadius, level 1-10 (starter)
+                        spot = new WorldCatalog.Ground(
+                            "adhoc_" + player.id(),
+                            adHocTown,  // Starting zone town or null
+                            player.pos(),
+                            c.unseenRadius(),
+                            1, 10,  // Assume low-level starter area
+                            10, 0.0, false,  // monsters=10, aggressive=0, indoor=false
+                            adHocSpots
+                        );
+                    }
+                    
+                    // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
+                    // which are within the ground's radius from center, hence within player's visibility
+                    final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
+                    if (m != null) {
+                        out.add(m);
+                        topups++;
+                        presenceFieldTopups++;
+                        if (topups >= deficit.needed()) break;
                     }
                 }
-                
-                // Fallback: if not in a predefined ground, create ad-hoc ground from player position
-                // (handles character creation points and other areas without explicit ground definitions)
-                if (spot == null) {
-                    // Ad-hoc ground: center at player, radius = unseenRadius, level 1-10 (starter), spots = player pos
-                    spot = new WorldCatalog.Ground(
-                        "adhoc_" + player.id(),
-                        null,  // Not tied to a specific town
-                        player.pos(),
-                        c.unseenRadius(),
-                        1, 10,  // Assume low-level starter area
-                        10, 0.0, false,  // monsters=10, aggressive=0, indoor=false
-                        List.of(player.pos())  // Bot will hunt right at player location
-                    );
-                }
-                
-                // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
-                // which are within the ground's radius from center, hence within player's visibility
-                final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
-                final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, createdThisTick || topups > 0);
-                if (m != null) {
-                    out.add(m);
-                    topups++;
-                    presenceFieldTopups++;
-                    if (topups >= deficit.needed()) break;
-                }
+            } catch (Exception e) {
+                // Per-player exception safety: one bad player can't trip circuit breaker
+                // Log and continue with next player
+                System.err.println("ensurePresence player " + deficit.playerId() + ": " + e.getMessage());
             }
         }
         
