@@ -115,11 +115,6 @@ public final class BotsCoreModule implements GameModule {
         nodes.addAll(stockPoints.respawn());
         zones.setAvoid(nodes);
         zones.setStarts(stockPoints.starts());
-        try {
-            gremlinSpots = org.l2start.bots.director.StockPoints.gremlins(org.l2jmobius.gameserver.config.ServerConfig.DATAPACK_ROOT.toPath().resolve("data"));
-        } catch (Exception e) {
-            ctx.log().warn("gremlin spawns not read: " + e.getMessage());
-        }
         world.setStarterZones(zones, terrain());
         brains.setStarterZones(zones);
         factory.setHomePicker(race -> zones.villagePoint(race, List.of(), 0, terrain(), new java.util.Random()));
