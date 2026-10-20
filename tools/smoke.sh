@@ -240,7 +240,7 @@ check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bot
 check "bots-brain-basic: hunting grounds loaded" grep -qE "Module\[bots-brain-basic\]: brain 'basic' registered: [0-9]+ hunting grounds around 5 starting villages" "$OUT/6-solo.log"
 check "runtime started" grep -qE 'Module\[bots-core\]: runtime: [0-9]+ shards, wave 100 ms, budget 25 ms' "$OUT/6-solo.log"
 check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-core\]: ready: 0 bots known .*geodata in starting villages: NO' "$OUT/6-solo.log"
-check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_academy_reward mod_bots_core_account mod_bots_core_clan mod_bots_core_clan_member mod_bots_core_identity mod_bots_core_memory mod_bots_core_newbie mod_bots_core_persona mod_bots_core_pk_ledger mod_bots_core_player_clan mod_bots_core_progress mod_bots_core_state "
+check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_academy_reward mod_bots_core_account mod_bots_core_clan mod_bots_core_clan_member mod_bots_core_identity mod_bots_core_memory mod_bots_core_persona mod_bots_core_pk_ledger mod_bots_core_player_clan mod_bots_core_progress mod_bots_core_state "
 # phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
 check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify + busy)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" -ge 3
 check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
