@@ -123,15 +123,22 @@ class StarterKitDataTest {
     @Test
     void contentAsOnGlebsBuild() throws Exception {
         final Map<Integer, List<int[]>> eq = equipment(FILE);
-        for (int fighter : new int[] { 0, 18, 31, 44 }) {
+        for (int fighter : new int[] { 0, 18, 31 }) {
             assertTrue(has(eq.get(fighter), 2, 1, true), "Long Sword for " + fighter);
             assertTrue(has(eq.get(fighter), 1835, 1000, false), "1000 Soulshot NG for " + fighter);
             assertTrue(has(eq.get(fighter), 114, 1, true), "Earring of Strength for " + fighter);
         }
+        for (int orc : new int[] { 44, 49 }) {
+            assertTrue(has(eq.get(orc), 256, 1, true), "orc " + orc + ": Cestus (fists)");
+            assertFalse(has(eq.get(orc), 2, 1, true), "orc " + orc + ": no Long Sword");
+            assertFalse(has(eq.get(orc), 177, 1, true), "orc " + orc + ": no Mage Staff");
+        }
+        assertTrue(has(eq.get(44), 1835, 1000, false), "orc fighter: 1000 Soulshot NG");
+        assertTrue(has(eq.get(49), 3947, 1000, false), "orc mystic: 1000 Blessed Spiritshot NG");
         assertTrue(has(eq.get(53), 4221, 1, true), "dwarf: Ubiquitous Axe");
         assertTrue(has(eq.get(53), 1835, 1000, false), "dwarf: 1000 Soulshot NG");
         assertFalse(has(eq.get(53), 2, 1, true), "dwarf has no Long Sword");
-        for (int mystic : new int[] { 10, 25, 38, 49 }) {
+        for (int mystic : new int[] { 10, 25, 38 }) {
             assertTrue(has(eq.get(mystic), 177, 1, true), "Mage Staff for " + mystic);
             assertTrue(has(eq.get(mystic), 3947, 1000, false), "1000 Blessed Spiritshot NG for " + mystic);
             assertTrue(has(eq.get(mystic), 115, 1, true), "Earring of Wisdom for " + mystic);

@@ -146,6 +146,7 @@ public final class DirectorRunner {
             return; // nobody to show anything to: zero cost
         }
         director.setDensity(module.brains().overload().density());
+        director.setCanCreate(module.active().size() < ctx.config().getInt("MaxBots"));
         final boolean needGeo = ctx.config().getBoolean("RequireGeodata");
         final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, new Director.Terrain() {
             @Override
@@ -327,6 +328,7 @@ public final class DirectorRunner {
                 }
                 if (r == null) {
                     if (module.active().size() >= ctx.config().getInt("MaxBots")) {
+                        ctx.log().info("director: MaxBots reached, a new persona for " + m.assignment().place() + " is not created");
                         return;
                     }
                     r = module.createOne(startClass(m.race()));

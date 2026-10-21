@@ -337,6 +337,13 @@ public final class Director {
         }
         pending.entrySet().removeIf(e -> inWorld.contains(e.getKey()) || arrived.contains(e.getValue().seq()) || ((now - e.getValue().since()) > c.pendingTimeoutMs()));
         tracks.keySet().retainAll(inWorld);
+        if (!presenceSeqs.isEmpty()) {
+            final Set<Long> alive = new HashSet<>(arrived);
+            for (Pending p : pending.values()) {
+                alive.add(p.seq());
+            }
+            presenceSeqs.retainAll(alive);
+        }
         inCombatNearPlayers = countInCombatNear(bots, live, c.unseenRadius());
 
         // 2. who sees whom: unseen bots leave, leaving bots vanish once unseen, lingering bots get a leave order
@@ -390,7 +397,8 @@ public final class Director {
             }
             final Assignment a = b.assignment();
             final boolean leaving = (a != null) && a.passing();
-            if ((t.unseenSince != 0) && ((leaving && ((now - t.unseenSince) >= 3000)) || ((now - t.unseenSince) >= c.unseenLogoutMs()))) {
+            final boolean walkingIn = !leaving && isPresenceBot(b) && ((now - t.since) < PRESENCE_WALK_IN_MS) && (d <= (c.hiddenMax() + 2500));
+            if (!walkingIn && (t.unseenSince != 0) && ((leaving && ((now - t.unseenSince) >= 3000)) || ((now - t.unseenSince) >= c.unseenLogoutMs()))) {
                 out.add(new Command.Logout(b.botId(), leaving ? "left unseen" : "nobody around"));
                 unseenLogouts++;
                 tracks.remove(b.botId());
@@ -430,7 +438,7 @@ public final class Director {
                 continue;
             }
             byPlace.computeIfAbsent(a.place(), k -> new ArrayList<>()).add(b);
-            if (!t.lingered && (t.seenSince != 0) && ((now - t.seenSince) > linger(c, b.seed()))) {
+            if (!t.lingered && !isPresenceBot(b) && (t.seenSince != 0) && ((now - t.seenSince) > linger(c, b.seed()))) {
                 lingering.add(b);
             }
         }
@@ -610,7 +618,22 @@ public final class Director {
 
     // ------------------------------------------------------------------ visible presence guarantee
     
+    private volatile boolean canCreate = true;
+
+    /** False when the persona cap (MaxBots) is reached: a create would fail silently, so none is ordered. */
+    public void setCanCreate(boolean v) {
+        canCreate = v;
+    }
+
     private long presenceFieldTopups;
+    /** A presence field bot walks in from out of sight: it is not "unseen" during this time. */
+    static final long PRESENCE_WALK_IN_MS = 180_000;
+    /** Assignment seqs of presence field top-ups: they stay while their player is there (no linger leave). */
+    private final Set<Long> presenceSeqs = new HashSet<>();
+
+    private boolean isPresenceBot(BotNow b) {
+        return (b.assignment() != null) && presenceSeqs.contains(b.assignment().seq());
+    }
     private volatile int inCombatNearPlayers;
     private volatile int[] presenceCounts = new int[5]; // fieldVisible, fieldTarget, townVisible, townTarget, pending
 
@@ -818,6 +841,9 @@ public final class Director {
                         topups++;
                         presenceFieldTopups++;
                         presenceCreated |= isNewPersona(m);
+                        if (m instanceof Command.Materialize mm) {
+                            presenceSeqs.add(mm.assignment().seq());
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -957,7 +983,13 @@ public final class Director {
                 }
             }
         }
+        final List<Candidate> all = new ArrayList<>(cands);
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
+        if (cands.isEmpty() && (back == null) && !d.town()) {
+            // live test 2026-10-21: the pool was full (MaxBots) and every field top-up asked for a new persona that never
+            // came. An existing persona of a near level (any race outside the starting zones) beats a create that fails.
+            cands.addAll(relaxed(c, now, pool, all, lo, hi, race));
+        }
         int botId = 0;
         int level = lo; // default, will be set below
         Candidate chosen = back;
@@ -972,8 +1004,8 @@ public final class Director {
             botId = pick.botId();
             level = pick.level();
         } else {
-            // Pool empty: create new persona (one per tick limit)
-            if (createdThisTick) {
+            // Pool empty: create new persona (one per tick limit; never when the persona cap is reached)
+            if (createdThisTick || !canCreate) {
                 noPersona++;
                 return null; // one new persona per tick (it is a database insert)
             }
@@ -1034,6 +1066,23 @@ public final class Director {
         return new Command.Materialize(botId, level, at, a, race);
     }
 
+    /** Personas for a field top-up when none fit exactly: same band ignoring cooldown race-wise, then +-5 levels. */
+    private List<Candidate> relaxed(DirectorConfig c, long now, Pool pool, List<Candidate> band, int lo, int hi, int race) {
+        final List<Candidate> out = new ArrayList<>();
+        final List<Candidate> wide = new ArrayList<>(band);
+        wide.addAll(pool.available(Math.max(1, lo - 5), Math.min(PaperLevel.MAX, hi + 5), now));
+        for (Candidate x : wide) {
+            if (pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || out.contains(x)) {
+                continue;
+            }
+            if ((race >= 0) && (x.race() != race)) {
+                continue; // starting zones stay one race
+            }
+            out.add(x);
+        }
+        return out;
+    }
+
     /** Next transit at this town: evening peak min..max, rarer by the online curve, much rarer in the starting villages. */
     static long transitInterval(DirectorConfig c, String townId, double curve, Random rnd) {
         final long base = c.transitMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.transitMaxMs() - c.transitMinMs()));
@@ -1058,7 +1107,7 @@ public final class Director {
             final Candidate pick = weighted(cands, now);
             return new int[] { pick.botId(), pick.level() };
         }
-        if (createdThisTick) {
+        if (createdThisTick || !canCreate) {
             noPersona++;
             return null;
         }

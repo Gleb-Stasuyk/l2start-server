@@ -66,6 +66,13 @@ public final class AcademyRecruiters {
     private final BotWorld world;
     private final Map<String, List<Slot>> byTown = new ConcurrentHashMap<>();
     private final Set<Integer> activeBotIds = ConcurrentHashMap.newKeySet();
+    /** live player objectId -> object id of the recruiter bot that invited it (for the join payout by trade) */
+    private final Map<Integer, Integer> inviters = new ConcurrentHashMap<>();
+
+    /** Object id of the recruiter bot that last invited this player into an academy, 0 = none. */
+    public int inviterOf(int playerObjectId) {
+        return inviters.getOrDefault(playerObjectId, 0);
+    }
 
     @FunctionalInterface
     public interface ForceEnter {
@@ -434,6 +441,7 @@ public final class AcademyRecruiters {
         }
         ensureAcademy(slot.clanId);
         if (ClanInvites.invite(bot, live, Clan.SUBUNIT_ACADEMY)) {
+            inviters.put(live.getObjectId(), bot.getObjectId());
             ctx.log().info("academy invite " + live.getName() + " <- " + bot.getName());
         }
     }

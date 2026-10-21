@@ -177,7 +177,17 @@ public final class BotsCoreModule implements GameModule {
 
         // phase 6f: party mate gifts shots/potions via P6-BOT-TRADE (bot puts nothing, confirms last)
         final PartyTrades partyTrades = new PartyTrades(ctx, registry, memories);
-        ctx.onBotTradeRequest(partyTrades::onTradeRequest);
+        // academy join reward by trade: the recruiter offers the adena, or takes the trade the player opens later
+        final AcademyTrades academyTrades = new AcademyTrades(ctx);
+        ctx.onBotTradeRequest((requester, bot) -> academyTrades.onTradeRequest(requester, bot) || partyTrades.onTradeRequest(requester, bot));
+        ctx.scheduler().fixedRate("academy trades", Duration.ofMillis(400), Duration.ofMillis(400), academyTrades::tick);
+        if (academyRewards != null) {
+            academyRewards.setJoinPayer((p, clanId, amount, onPaid) -> {
+                final int oid = academyRecruiters == null ? 0 : academyRecruiters.inviterOf(p.getObjectId());
+                final Player bot = oid == 0 ? null : org.l2jmobius.gameserver.entity.World.getPlayer(oid);
+                return academyTrades.offer(bot, p, amount, onPaid);
+            });
+        }
         ctx.scheduler().fixedRate("party trades", Duration.ofMillis(400), Duration.ofMillis(400), partyTrades::tick);
 
         ctx.botPresence(registry::isBot);

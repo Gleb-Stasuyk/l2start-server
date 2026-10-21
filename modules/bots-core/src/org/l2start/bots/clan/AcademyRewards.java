@@ -37,6 +37,17 @@ public final class AcademyRewards {
         this.table = ctx.db().table("academy_reward");
     }
 
+    /** Pays the join reward through a trade window with the recruiter bot; false = cannot (adena go in directly). */
+    public interface JoinPayer {
+        boolean offer(Player p, int botClanId, long amount, Runnable onPaid);
+    }
+
+    private volatile JoinPayer joinPayer;
+
+    public void setJoinPayer(JoinPayer payer) {
+        joinPayer = payer;
+    }
+
     public void configure(long join, long graduate) {
         joinReward = Math.max(0, join);
         graduateReward = Math.max(0, graduate);
@@ -107,6 +118,22 @@ public final class AcademyRewards {
         if (existing.isPresent() && existing.get().joinPaid()) {
             return;
         }
+        final JoinPayer payer = joinPayer;
+        final long amount = joinReward;
+        if ((payer != null) && payer.offer(p, botClanId, amount, () -> ledgerJoin(p, botClanId))) {
+            ctx.log().info("academy join reward " + amount + " adena offered by trade -> " + p.getName());
+            return;
+        }
+        if (ledgerJoin(p, botClanId)) {
+            p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, amount), null, true);
+            ctx.log().info("academy join reward " + amount + " adena -> " + p.getName());
+        }
+    }
+
+    /** Marks the join reward paid. @return false when the ledger could not be written (then nothing is paid) */
+    boolean ledgerJoin(Player p, int botClanId) {
+        final int charId = p.getObjectId();
+        final Optional<Row> existing = find(charId);
         final long now = System.currentTimeMillis();
         try {
             if (existing.isEmpty()) {
@@ -118,10 +145,9 @@ public final class AcademyRewards {
             }
         } catch (Exception ex) {
             ctx.log().warn("academy join ledger " + p.getName() + ": " + ex.getMessage());
-            return;
+            return false;
         }
-        p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, joinReward), null, true);
-        ctx.log().info("academy join reward " + joinReward + " adena -> " + p.getName());
+        return true;
     }
 
     void payGraduate(Player p, int botClanId) {

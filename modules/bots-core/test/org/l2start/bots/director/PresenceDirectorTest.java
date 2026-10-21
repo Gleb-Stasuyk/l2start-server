@@ -1,6 +1,7 @@
 package org.l2start.bots.director;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -96,5 +97,68 @@ class PresenceDirectorTest {
             new Director.BotNow(2, new Pos(300, 0, 0), null, false, 1, 0, false),
             new Director.BotNow(3, new Pos(90000, 0, 0), null, false, 1, 0, true));
         assertEquals(1, Director.countInCombatNear(bots, live, 1500));
+    }
+
+    /** Live test 2026-10-21: field top-ups were ordered, then gone. They walk in unseen and must not be logged out. */
+    @Test
+    void presenceBotWalkingInIsNotLoggedOutUnseen() throws Exception {
+        final Director d = director();
+        final List<Director.Candidate> pool = new ArrayList<>();
+        for (int i = 1; i <= 50; i++) {
+            pool.add(new Director.Candidate(i, 1 + (i % 5), 0, 3));
+        }
+        final Director.Live me = new Director.Live(1, ORC_CREATION);
+        long now = 1_000_000_000L;
+        Director.Command.Materialize top = null;
+        for (int t = 0; (t < 20) && (top == null); t++, now += 2000) {
+            for (Director.Command c : d.tick(now, 20, List.of(me), List.of(), (lo, hi, x) -> pool, p -> p)) {
+                if ((c instanceof Director.Command.Materialize m) && m.assignment().place().startsWith("adhoc_")) {
+                    top = m;
+                }
+            }
+        }
+        assertTrue(top != null, "no field top-up");
+        final int id = top.botId() == 0 ? 999 : top.botId();
+        // in the world 3800 away (out of sight), walking in for 2 minutes: no logout
+        final Pos far = new Pos(ORC_CREATION.x() + 3800, ORC_CREATION.y(), ORC_CREATION.z());
+        for (int t = 0; t < 60; t++, now += 2000) {
+            final Director.BotNow b = new Director.BotNow(id, far, top.assignment(), false, 1);
+            for (Director.Command c : d.tick(now, 20, List.of(me), List.of(b), (lo, hi, x) -> pool, p -> p)) {
+                assertFalse((c instanceof Director.Command.Logout l) && (l.botId() == id), "presence bot logged out while walking in: " + c);
+            }
+        }
+    }
+
+    @Test
+    void noCreateWhenPersonaCapReached() throws Exception {
+        final Director d = director();
+        d.setCanCreate(false);
+        long now = 1_000_000_000L;
+        for (int t = 0; t < 10; t++, now += 2000) {
+            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> List.of(), p -> p)) {
+                assertFalse((c instanceof Director.Command.Materialize m) && (m.botId() == 0), "ordered a new persona over the cap: " + c);
+            }
+        }
+    }
+
+    @Test
+    void nearLevelPersonaUsedWhenBandIsEmpty() throws Exception {
+        final Director d = director();
+        // only personas 3-5 levels outside the exact band: one of them comes instead of a create
+        final List<Director.Candidate> pool = new ArrayList<>();
+        for (int i = 1; i <= 20; i++) {
+            pool.add(new Director.Candidate(i, 6, 0, 3));
+        }
+        long now = 1_000_000_000L;
+        int existing = 0;
+        for (int t = 0; t < 10; t++, now += 2000) {
+            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(),
+                (lo, hi, x) -> pool.stream().filter(k -> (k.level() >= lo) && (k.level() <= hi)).toList(), p -> p)) {
+                if ((c instanceof Director.Command.Materialize m) && m.assignment().place().startsWith("adhoc_") && (m.botId() != 0)) {
+                    existing++;
+                }
+            }
+        }
+        assertTrue(existing >= 1, "a near-level persona should be used, " + d.statsLine());
     }
 }
