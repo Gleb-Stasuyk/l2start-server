@@ -9,11 +9,12 @@ import org.l2start.platform.api.GameModule;
 import org.l2start.platform.api.ModuleContext;
 
 /**
- * Every player (new and old characters, every class) knows skill {@link #SKILL_ID} from login: given on each login
+ * Every player (new and old characters, every class) knows skill {@link #SKILL_ID} from login (stock "Escape: 5 minutes",
+ * overridden by data/skills: the client shows its icon and name, a module-only id had none and the client could not use it): given on each login
  * without storing it (no skill-tree check, nothing in the database).
  */
 public final class ReturnSkillModule implements GameModule {
-    public static final int SKILL_ID = 95100;
+    public static final int SKILL_ID = 2099;
 
     @Override
     public void onEnable(ModuleContext c) throws Exception {

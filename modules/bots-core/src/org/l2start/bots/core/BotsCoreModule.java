@@ -219,13 +219,13 @@ public final class BotsCoreModule implements GameModule {
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
         ctx.events().<OnAttackableKill> onMonsters(EventType.ON_ATTACKABLE_KILL, this::onKill);
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanJoin> onPlayers(
+        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanJoin> onGlobal( // Clan notifies the global container only
             EventType.ON_PLAYER_CLAN_JOIN, e -> {
                 if (academyRewards != null) {
                     academyRewards.onClanJoin(e);
                 }
             });
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanLeft> onPlayers(
+        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanLeft> onGlobal( // Clan notifies the global container only
             EventType.ON_PLAYER_CLAN_LEFT, e -> {
                 if (academyRewards != null) {
                     academyRewards.onClanLeft(e);

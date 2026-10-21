@@ -156,7 +156,21 @@ final class Materializer {
         // stock onPlayerEnter puts HP/MP/CP back to the values loaded from the database 300 ms after entering
         // (of the old, lower level): without this a bot raised to the zone's level arrives at 5-10 % HP and MP
         p.setOriginalCpHpMp(p.getMaxCp(), p.getMaxHp(), p.getMaxMp());
+        persist(p);
         return sb.toString();
+    }
+
+    /**
+     * Class, level and the skills given above go to the database together. Skills are written at once, the class and
+     * level only on a store: a server stop before the bot's logout left the old (base) class with the new class's
+     * skills, and the stock skill check on the next load reported "has invalid skill" to GMs and removed them.
+     */
+    static void persist(Player p) {
+        try {
+            p.store(false);
+        } catch (RuntimeException e) {
+            // the next regular store writes it
+        }
     }
 
     /**

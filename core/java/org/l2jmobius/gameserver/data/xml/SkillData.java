@@ -59,7 +59,6 @@ public class SkillData
 		{
 			processDirectory("data/stats/skills/custom", _skillFiles);
 		}
-		for (File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("skills", null)) { final File[] fs = dir.listFiles(); if (fs != null) for (File f : fs) if (f.isFile() && f.getName().toLowerCase().endsWith(".xml")) _skillFiles.add(f); } // [HOOK:P9-DATA-SKILLS]
 		
 		load();
 	}
@@ -90,6 +89,7 @@ public class SkillData
 	{
 		final Map<Integer, Skill> temp = new ConcurrentHashMap<>();
 		loadAllSkills(temp);
+		for (File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("skills", null)) { final File[] fs = dir.listFiles(); if (fs != null) for (File f : fs) if (f.isFile() && f.getName().toLowerCase().endsWith(".xml")) { final List<Skill> ms = loadSkills(f); if (ms != null) for (Skill s : ms) temp.put(getSkillHashCode(s), s); } } // [HOOK:P9-DATA-SKILLS]
 		
 		_skillsByHash.clear();
 		_skillsByHash.putAll(temp);
