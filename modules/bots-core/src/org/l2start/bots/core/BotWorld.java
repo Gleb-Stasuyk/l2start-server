@@ -118,6 +118,16 @@ public final class BotWorld {
         if (requireGeodata && !GeoEngine.getInstance().hasGeo(x, y)) {
             return r.name() + ": no geodata at " + x + "," + y + " (RequireGeodata)";
         }
+        if (r.status() != BotRecord.Status.TRADER) {
+            try {
+                final int fixed = Materializer.fixGear(p);
+                if (fixed > 0) {
+                    log.info("enter: " + r.name() + " lv " + p.getLevel() + ": " + fixed + " items above its grade/enchant corrected");
+                }
+            } catch (Exception e) {
+                log.warn("gear check " + r.name() + ": " + e.getMessage());
+            }
+        }
         if (prepare != null) {
             try {
                 prepare.accept(p); // not in the world yet: nobody sees level, class or gear change

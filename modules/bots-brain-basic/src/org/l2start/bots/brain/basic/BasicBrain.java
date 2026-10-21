@@ -385,6 +385,8 @@ public final class BasicBrain implements Brain {
     static final long PVP_HIT_MEMORY = 10_000;
     /** After a fight the same player is left alone this long, unless it hits again. */
     static final long PVP_IGNORE_MS = 60_000;
+    /** A PvP engage where nobody hit anybody for this long is over. */
+    static final long PVP_STALL_MS = 10_000;
     /** Below this HP a fight with a player turns into running away (and a scroll of escape). */
     static final double PVP_FLEE_HP = 25;
 
@@ -460,6 +462,11 @@ public final class BasicBrain implements Brain {
             }
             if (v.intent() == PvpDecision.Intent.NONE) {
                 notePvpBlock(ctx, p, initiative, v.why(), now);
+                continue;
+            }
+            if (p.bot() && initiative && (v.intent() == PvpDecision.Intent.FIGHT) && !"pk".equals(v.why()) && !"pk-hunt".equals(v.why())) {
+                // live test 2026-10-21: hunters "fought" each other on the ground (an unflagged attack does nothing) and
+                // stood there instead of farming. Bots never open a fight with a peaceful bot.
                 continue;
             }
             if ((bestV == null) || rank(v.intent()) > rank(bestV.intent())) {
@@ -773,7 +780,7 @@ public final class BasicBrain implements Brain {
         final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY)
             || ((p.targetId() == me.objectId()) && p.inCombat())
             || (planned && (p.pos().distance2d(me.pos()) < 1200)));
-        final String over;
+        String over;
         if (p == null) {
             over = "the player is gone";
         } else if (pvpRefused >= 4) {
@@ -786,6 +793,9 @@ public final class BasicBrain implements Brain {
             over = "no chasing";
         } else {
             over = null;
+        }
+        if ((over == null) && ((now - pvpSince) > PVP_STALL_MS) && !hitByRecently(p.objectId(), now, PVP_STALL_MS) && !me.attacking() && !me.casting()) {
+            over = "nothing happens"; // the attack did not start (no flag, out of reach): back to the hunt
         }
         if (over != null) {
             ctx.note("the fight with a player is over: " + over);

@@ -1070,7 +1070,7 @@ public final class Director {
     private List<Candidate> relaxed(DirectorConfig c, long now, Pool pool, List<Candidate> band, int lo, int hi, int race) {
         final List<Candidate> out = new ArrayList<>();
         final List<Candidate> wide = new ArrayList<>(band);
-        wide.addAll(pool.available(Math.max(1, lo - 5), Math.min(PaperLevel.MAX, hi + 5), now));
+        wide.addAll(pool.available(Math.max(1, lo - 5), Math.min(PaperLevel.MAX, hi + 1), now)); // never far above the ground
         for (Candidate x : wide) {
             if (pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || out.contains(x)) {
                 continue;

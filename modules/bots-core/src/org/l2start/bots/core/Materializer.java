@@ -316,4 +316,42 @@ final class Materializer {
         }
         return n == 0 ? "no buffs" : (n + " buffs");
     }
+
+    /** Highest item grade (0 none, 1 D, ... 5 S) a bot of this level may wear. */
+    static int maxGrade(int level) {
+        return org.l2start.bots.director.GearTable.Grade.of(Math.max(1, level)).ordinal();
+    }
+
+    /** Highest enchant a bot of this level may show: none below 20. */
+    static int maxEnchant(int level) {
+        return level < 20 ? 0 : Integer.MAX_VALUE;
+    }
+
+    /**
+     * Every entry (any path): gear above the bot's grade goes away, low-level bots lose visible enchants. Corrects
+     * personas that kept gear from an earlier, higher paper level (live: a level 8 with a D-grade +4 hammer).
+     * @return how many items were removed or reset
+     */
+    static int fixGear(Player p) {
+        final int lvl = p.getLevel();
+        final int grade = maxGrade(lvl);
+        final int ench = maxEnchant(lvl);
+        int n = 0;
+        for (Item it : new ArrayList<>(p.getInventory().getItems())) {
+            if (!it.getTemplate().isEquipable()) {
+                continue;
+            }
+            if (it.getTemplate().getCrystalType().ordinal() > grade) {
+                if (it.isEquipped()) {
+                    p.getInventory().unEquipItemInSlot(it.getLocationSlot());
+                }
+                p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
+                n++;
+            } else if (it.getEnchantLevel() > ench) {
+                it.setEnchantLevel(ench);
+                n++;
+            }
+        }
+        return n;
+    }
 }
