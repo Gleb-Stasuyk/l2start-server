@@ -1313,42 +1313,70 @@ public final class BotsCoreModule implements GameModule {
         return director;
     }
 
+    /** Personas kept ready (offline, ACTIVE) per race at starting levels; everything else is created on demand. */
+    static final int STARTER_MAX_LEVEL = 20;
+
+    /** Pure: the race (0..4) whose starter reserve is lowest and below {@code reserve}, -1 = all full. */
+    static int reserveGap(int[] ready, int reserve) {
+        int best = -1;
+        for (int race = 0; race < ready.length; race++) {
+            if ((ready[race] < reserve) && ((best < 0) || (ready[race] < ready[best]))) {
+                best = race;
+            }
+        }
+        return best;
+    }
+
+    /** ACTIVE bots in the world now: what MaxBots caps (traders and offline personas do not count). */
+    public int inWorldActive() {
+        int n = 0;
+        for (BotRecord r : registry.all()) {
+            if ((r.status() == BotRecord.Status.ACTIVE) && r.inWorld()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /**
-     * Pool warm-up (director): a new persona every 5 s (DirectorPoolWarmup a minute) until MaxBots exist, of every
-     * race and of levels spread over the game (fewer at the top), progress saved, so they are ready when needed.
+     * Pool warm-up (director): keeps a small reserve of offline personas of every race at starting levels
+     * (DirectorPoolReserve each, levels 1..20), at most DirectorPoolWarmup a minute. The database grows on demand:
+     * the director creates a persona of the right race and level when none fits.
      */
     private void warmUp() {
         final int perMin = ctx.config().getInt("DirectorPoolWarmup");
-        if ((perMin <= 0) || (director == null) || director.stopping()) {
+        final int reserve = ctx.config().getInt("DirectorPoolReserve");
+        if ((perMin <= 0) || (reserve <= 0) || (director == null) || director.stopping()) {
             return;
         }
-        final int max = ctx.config().getInt("MaxBots");
-        int n = Math.max(1, perMin / 12); // one database insert at a time keeps each call short (no "slow call")
         if ((perMin < 12) && (ThreadLocalRandom.current().nextInt(12) >= perMin)) {
             return;
         }
-        final ThreadLocalRandom rnd = ThreadLocalRandom.current();
-        int made = 0;
-        while ((n-- > 0) && (active().size() < max)) {
-            try {
-                final BotRecord r = factory.create(DirectorRunner.startClass(rnd.nextInt(5))); // quietly: no log line for each
-                ctx.metrics().counter("created").inc();
-                final int level = 1 + (int) (75 * Math.pow(rnd.nextDouble(), 1.4));
-                final long now = System.currentTimeMillis();
-                r.setProgress(level, now, 1);
-                repo.saveProgress(r.botId(), level, now);
-                made++;
-            } catch (Exception e) {
-                ctx.log().warn("pool warm-up: cannot create a persona", e);
-                return;
+        final long now = System.currentTimeMillis();
+        final int[] ready = new int[5];
+        for (BotRecord r : registry.all()) {
+            if ((r.status() == BotRecord.Status.ACTIVE) && !r.inWorld() && (r.paperLevel(now) <= STARTER_MAX_LEVEL)) {
+                final int race = DirectorRunner.race(r.persona() == null ? r.classId() : r.persona().classId());
+                if ((race >= 0) && (race < ready.length)) {
+                    ready[race]++;
+                }
             }
         }
-        if ((made > 0) && ((active().size() % 100) < made)) {
-            ctx.log().info("pool warm-up: " + active().size() + " of " + max + " personas");
+        final int race = reserveGap(ready, reserve);
+        if (race < 0) {
+            return;
+        }
+        try {
+            final BotRecord r = factory.create(DirectorRunner.startClass(race)); // quietly: no log line for each
+            ctx.metrics().counter("created").inc();
+            final int level = 1 + ThreadLocalRandom.current().nextInt(STARTER_MAX_LEVEL);
+            r.setProgress(level, now, 1);
+            repo.saveProgress(r.botId(), level, now);
+        } catch (Exception e) {
+            ctx.log().warn("pool warm-up: cannot create a persona", e);
         }
     }
 
-    /** One new persona with its account and character (director: when no existing persona fits). */
     BotRecord createOne(int classId) throws Exception {
         final BotRecord r = factory.create(classId);
         final Persona p = r.persona();
@@ -1369,13 +1397,8 @@ public final class BotsCoreModule implements GameModule {
 
     /** @return how many were created */
     public int create(int n, int classId, List<String> errors) {
-        final int max = ctx.config().getInt("MaxBots");
         int done = 0;
-        for (int i = 0; i < n; i++) {
-            if (active().size() >= max) {
-                errors.add("MaxBots=" + max + " reached");
-                break;
-            }
+        for (int i = 0; i < n; i++) { // MaxBots caps bots in the world, not characters in the database
             try {
                 final BotRecord r = factory.create(classId);
                 final Persona p = r.persona();

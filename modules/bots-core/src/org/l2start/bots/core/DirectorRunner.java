@@ -146,7 +146,7 @@ public final class DirectorRunner {
             return; // nobody to show anything to: zero cost
         }
         director.setDensity(module.brains().overload().density());
-        director.setCanCreate(module.active().size() < ctx.config().getInt("MaxBots"));
+        director.setCanCreate(module.inWorldActive() < ctx.config().getInt("MaxBots")); // MaxBots = bots in the world
         final boolean needGeo = ctx.config().getBoolean("RequireGeodata");
         final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, new Director.Terrain() {
             @Override
@@ -314,6 +314,9 @@ public final class DirectorRunner {
         return new Pos(approx.x(), approx.y(), z);
     }
 
+    private final java.util.concurrent.atomic.AtomicInteger maxBotsSkipped = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long maxBotsLogAt;
+
     private void materialize(Director.Command.Materialize m) {
         final BotRecord known = m.botId() == 0 ? null : byId(m.botId());
         if (stopping || ((known != null) && !busy.add(known.botId()))) {
@@ -327,8 +330,13 @@ public final class DirectorRunner {
                     return;
                 }
                 if (r == null) {
-                    if (module.active().size() >= ctx.config().getInt("MaxBots")) {
-                        ctx.log().info("director: MaxBots reached, a new persona for " + m.assignment().place() + " is not created");
+                    if (module.inWorldActive() >= ctx.config().getInt("MaxBots")) {
+                        final long t = System.currentTimeMillis();
+                        maxBotsSkipped.incrementAndGet();
+                        if (t >= maxBotsLogAt) { // at most once a minute
+                            maxBotsLogAt = t + 60_000L;
+                            ctx.log().info("director: MaxBots=" + ctx.config().getInt("MaxBots") + " bots in the world, " + maxBotsSkipped.getAndSet(0) + " new persona(s) not created (last for " + m.assignment().place() + ")");
+                        }
                         return;
                     }
                     r = module.createOne(startClass(m.race()));

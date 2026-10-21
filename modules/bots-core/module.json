@@ -10,7 +10,7 @@
   "migrations": "sql",
   "config": {
     "RequireGeodata": { "type": "bool", "default": true, "reloadable": true, "description": "Bots enter the world only where geodata is loaded (GeoEngine.hasGeo)." },
-    "MaxBots": { "type": "int", "default": 1000, "min": 0, "max": 5000, "reloadable": true, "description": "Upper limit of bot characters that //bots create may make." },
+    "MaxBots": { "type": "int", "default": 1000, "min": 0, "max": 5000, "reloadable": true, "description": "Upper limit of ACTIVE bots in the world at once (store traders and offline personas do not count). New personas are created on demand; the database is not capped." },
     "MaxInWorld": { "type": "int", "default": 300, "min": 0, "max": 2000, "reloadable": true, "description": "Upper limit of bots in the world at the same time." },
     "AutoCreate": { "type": "int", "default": 0, "min": 0, "max": 5000, "description": "On server start, create bots until at least this many exist (0 = only //bots create)." },
     "AutoSpawn": { "type": "int", "default": 0, "min": 0, "max": 2000, "description": "On server start, log this many bots into the world (0 = only //bots spawn)." },
@@ -66,7 +66,8 @@
     "DirectorTransitStarterFactor": { "type": "string", "default": "4", "reloadable": true, "description": "Transit in the starting villages is this many times rarer." },
     "DirectorPass": { "type": "list", "default": "2m,5m", "reloadable": true, "description": "A passer-by runs past a player on a road (not in a town, not at a hunting ground) every min,max (evening: more often)." },
     "TownWanderersMultiplier": { "type": "string", "default": "2.0", "reloadable": true, "description": "Scales director TOWN targets, hunt caps/ground targets, and passer-by frequency (2.0 ≈ twice as many town/hunt bots and twice as often on roads)." },
-    "DirectorPoolWarmup": { "type": "int", "default": 12, "min": 0, "max": 120, "reloadable": true, "description": "Director: in the background, create this many new personas a minute (all levels and races) until MaxBots exist, so the director rarely has to create one on the spot (0 = off)." },
+    "DirectorPoolWarmup": { "type": "int", "default": 12, "min": 0, "max": 120, "reloadable": true, "description": "Director: at most this many reserve personas a minute are created in the background (0 = off)." },
+    "DirectorPoolReserve": { "type": "int", "default": 4, "min": 0, "max": 100, "reloadable": true, "description": "Director: offline personas kept ready per race at levels 1-20 (starting zones); all others are created on demand." },
     "DirectorLinger": { "type": "list", "default": "20m,90m", "reloadable": true, "description": "Hunt session (phase 4d): a bot that a player has seen this long (min,max by persona) ends its stay (hunters: RestockShare / LogoutStyle)." },
     "RestockShare": { "type": "string", "default": "0.4", "reloadable": true, "description": "Phase 4d: share of ends of a hunt that are 'went to town and back': a scroll of escape (in town in front of a player: 2-3 NPCs, then the gatekeeper) or running off, and the same persona comes back to the same ground from its edge after RestockAway." },
     "RestockAway": { "type": "list", "default": "4m,12m", "reloadable": true, "description": "Phase 4d: how long a hunter is away in town before it comes back (min,max)." },
