@@ -187,6 +187,10 @@ public final class BotsCoreModule implements GameModule {
                 final Player bot = oid == 0 ? null : org.l2jmobius.gameserver.entity.World.getPlayer(oid);
                 return academyTrades.offer(bot, p, amount, onPaid);
             });
+            academyRewards.setGraduatePayer((p, clanId, amount, onPaid) -> {
+                final org.l2start.bots.clan.AcademyRecruiters.Leader l = academyRecruiters == null ? null : academyRecruiters.leaderAtPlace(clanId);
+                return (l != null) && academyTrades.offerAt(l.bot(), p, amount, l.place(), onPaid);
+            });
         }
         ctx.scheduler().fixedRate("party trades", Duration.ofMillis(400), Duration.ofMillis(400), partyTrades::tick);
 

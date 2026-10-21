@@ -69,6 +69,37 @@ public final class AcademyRecruiters {
     /** live player objectId -> object id of the recruiter bot that invited it (for the join payout by trade) */
     private final Map<Integer, Integer> inviters = new ConcurrentHashMap<>();
 
+    /** Russian name of a recruiter town. */
+    public static String townRu(String town) {
+        return switch (town) {
+            case "Gludin" -> "Глудине";
+            case "Gludio" -> "Глудио";
+            case "Dion" -> "Дионе";
+            case "Giran" -> "Гиране";
+            default -> town;
+        };
+    }
+
+    /** The clan's leader in the world at its recruiting place (gatekeeper of its town), or null. */
+    public Leader leaderAtPlace(int clanId) {
+        for (List<Slot> slots : byTown.values()) {
+            for (Slot s : slots) {
+                if ((s.clanId == clanId) && (s.botId > 0)) {
+                    final BotRecord r = byBot(s.botId);
+                    final Player p = r == null ? null : r.player();
+                    if ((p != null) && p.isOnline()) {
+                        return new Leader(p, s.spot.town(), "у гейткипера в " + townRu(s.spot.town()));
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** @param place where it waits, in Russian ("у гейткипера в Гиране") */
+    public record Leader(Player bot, String town, String place) {
+    }
+
     /** Object id of the recruiter bot that last invited this player into an academy, 0 = none. */
     public int inviterOf(int playerObjectId) {
         return inviters.getOrDefault(playerObjectId, 0);

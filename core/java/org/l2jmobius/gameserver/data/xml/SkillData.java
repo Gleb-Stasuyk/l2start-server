@@ -59,6 +59,7 @@ public class SkillData
 		{
 			processDirectory("data/stats/skills/custom", _skillFiles);
 		}
+		for (File dir : org.l2start.platform.hooks.CoreHooks.dataDirs("skills", null)) { final File[] fs = dir.listFiles(); if (fs != null) for (File f : fs) if (f.isFile() && f.getName().toLowerCase().endsWith(".xml")) _skillFiles.add(f); } // [HOOK:P9-DATA-SKILLS]
 		
 		load();
 	}

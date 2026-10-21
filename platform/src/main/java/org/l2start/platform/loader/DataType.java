@@ -10,7 +10,9 @@ public enum DataType {
     BUYLISTS(true),
     HTML(false),
     /** Starting items per class (stock format of data/stats/players/initialEquipment.xml); replaces the listed classes. Since API 1.1. */
-    INITIAL_EQUIPMENT(false, "initialEquipment");
+    INITIAL_EQUIPMENT(false, "initialEquipment"),
+    /** Skill XML files (stock format of data/stats/skills); loaded after the stock and custom skills. Since API 1.12. */
+    SKILLS(false, "skills");
 
     private final boolean hasIds;
     private final String key;

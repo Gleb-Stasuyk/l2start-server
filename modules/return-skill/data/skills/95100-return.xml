@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../core/dist/game/data/xsd/skills.xsd">
+	<!-- return-skill: Scroll of Escape (2013) without the scroll, 60 s cast, 30 min reuse. Same conditions and effect as 2013. -->
+	<skill id="95100" levels="1" name="Возвращение в город">
+		<operateType>A1</operateType>
+		<targetType>SELF</targetType>
+		<hitTime>60000</hitTime>
+		<reuseDelay>1800000</reuseDelay>
+		<isMagic>2</isMagic> <!-- Static Skill, like Scroll of Escape -->
+		<magicLevel>1</magicLevel>
+		<excludedFromCheck>true</excludedFromCheck>
+		<conditions msgId="113" addName="1">
+			<and>
+				<player canEscape="true" />
+				<not>
+					<player insideZoneId="10501, 10502, 10503, 10504, 10505, 10506, 10507, 10508" />
+				</not>
+			</and>
+		</conditions>
+		<effects>
+			<effect name="Escape">
+				<escapeType>TOWN</escapeType>
+			</effect>
+		</effects>
+	</skill>
+</list>

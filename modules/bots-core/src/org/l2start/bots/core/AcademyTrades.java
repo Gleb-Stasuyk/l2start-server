@@ -22,10 +22,14 @@ import org.l2start.platform.api.ModuleContext;
  * he needs the money, and accepts that trade later. Paid once (the ledger is written on a successful exchange).
  */
 final class AcademyTrades {
-    enum State { ASKED, WAITING, TRADING }
+    enum State { MEET, ASKED, WAITING, TRADING }
 
     static final long ASK_TIMEOUT_MS = 20_000L;
     static final long WAIT_MS = 30 * 60_000L;
+    /** Graduation money at the leader's place: valid this long. */
+    static final long MEET_WAIT_MS = 45 * 60_000L;
+    /** Stock trade range. */
+    static final int TRADE_RANGE = 150;
     static final long ACCEPT_DELAY_MS = 1_200L;
     static final String WHISPER_RU = "Если нужны деньги за академию — открой со мной трейд сам, я приму.";
 
@@ -39,6 +43,9 @@ final class AcademyTrades {
         volatile long acceptAt;
         volatile boolean added;
         volatile int adenaBefore;
+        volatile long validMs = WAIT_MS;
+        volatile long askedAt;
+        volatile boolean graduation;
 
         Deal(int botOid, int playerOid, long amount, Runnable onPaid, long now) {
             this.botOid = botOid;
@@ -63,6 +70,34 @@ final class AcademyTrades {
             return State.TRADING;
         }
         return (requestOver || (age > ASK_TIMEOUT_MS)) ? State.WAITING : State.ASKED;
+    }
+
+    /** Pure: graduation money is handed over only next to the leader, at its place. */
+    static boolean inTradeRange(double distance) {
+        return distance <= TRADE_RANGE;
+    }
+
+    /** Pure: the graduation whisper (Russian), with the sum and the place. */
+    static String graduationWhisper(long amount, String place) {
+        return "Поздравляю с выпуском из академии! Готов отдать " + String.format(java.util.Locale.ROOT, "%,d", amount).replace(',', ' ')
+            + " аден — жду тебя " + place + ", подойди ко мне, открою трейд.";
+    }
+
+    /**
+     * Graduation: the leader whispers where it waits; when the player comes within trade range it asks for the trade.
+     * Replaces an unpaid join offer (the graduation sum includes it then). @return false = no leader in the world
+     */
+    boolean offerAt(Player bot, Player player, long amount, String place, Runnable onPaid) {
+        if ((bot == null) || (player == null) || !bot.isOnline() || !player.isOnline() || (amount <= 0) || (amount > Integer.MAX_VALUE)) {
+            return false;
+        }
+        final Deal d = new Deal(bot.getObjectId(), player.getObjectId(), amount, onPaid, System.currentTimeMillis());
+        d.state = State.MEET;
+        d.validMs = MEET_WAIT_MS;
+        d.graduation = true;
+        deals.put(player.getObjectId(), d);
+        player.sendPacket(new CreatureSay(bot, ChatType.WHISPER, bot.getName(), graduationWhisper(amount, place)));
+        return true;
     }
 
     /** Pure: the exchange is done when the bot's adena went down by the amount (a cancel leaves it as it was). */
@@ -106,9 +141,15 @@ final class AcademyTrades {
         for (Deal d : new ArrayList<>(deals.values())) {
             final Player bot = World.getPlayer(d.botOid);
             final Player p = World.getPlayer(d.playerOid);
-            if ((bot == null) || (p == null) || !bot.isOnline() || !p.isOnline() || ((now - d.since) > WAIT_MS)) {
+            if ((now - d.since) > d.validMs) {
                 deals.remove(d.playerOid);
                 continue;
+            }
+            if ((bot == null) || (p == null) || !bot.isOnline() || !p.isOnline()) {
+                if (!d.graduation) {
+                    deals.remove(d.playerOid);
+                }
+                continue; // graduation money waits for him (or its leader) to come back within the offer time
             }
             try {
                 step(d, bot, p, now);
@@ -124,9 +165,17 @@ final class AcademyTrades {
 
     private void step(Deal d, Player bot, Player p, long now) {
         switch (d.state) {
+            case MEET -> {
+                if (inTradeRange(bot.calculateDistance3D(p)) && !bot.isProcessingTransaction() && !p.isProcessingRequest()) {
+                    bot.onTransactionRequest(p);
+                    p.sendPacket(new SendTradeRequest(bot.getObjectId()));
+                    d.state = State.ASKED;
+                    d.askedAt = now;
+                }
+            }
             case ASKED -> {
                 final boolean open = (bot.getActiveTradeList() != null) && (bot.getActiveTradeList().getPartner() == p);
-                final State next = afterAsk(open, (p.getActiveRequester() != bot) && !open, now - d.since);
+                final State next = afterAsk(open, (p.getActiveRequester() != bot) && !open, now - (d.askedAt != 0 ? d.askedAt : d.since));
                 if (next == State.WAITING) {
                     d.state = State.WAITING;
                     if (p.getActiveRequester() == bot) {

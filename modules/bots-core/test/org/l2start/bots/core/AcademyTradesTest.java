@@ -31,4 +31,19 @@ class AcademyTradesTest {
         assertTrue(AcademyTrades.WHISPER_RU.matches(".*[а-яА-Я].*"));
         assertTrue(AcademyTrades.WHISPER_RU.contains("трейд"));
     }
+
+    @Test
+    void graduationWhisperNamesSumAndPlace() {
+        final String w = AcademyTrades.graduationWhisper(200_000, "у гейткипера в Гиране");
+        assertTrue(w.contains("200 000"), w);
+        assertTrue(w.contains("у гейткипера в Гиране"), w);
+        assertEquals("у гейткипера в Гиране", "у гейткипера в " + org.l2start.bots.clan.AcademyRecruiters.townRu("Giran"));
+    }
+
+    @Test
+    void graduationTradeOnlyWithinTradeRange() {
+        assertTrue(AcademyTrades.inTradeRange(120));
+        assertFalse(AcademyTrades.inTradeRange(600), "not before he comes to the place");
+        assertTrue(AcademyTrades.MEET_WAIT_MS >= 30 * 60_000L, "valid 30 minutes or longer");
+    }
 }

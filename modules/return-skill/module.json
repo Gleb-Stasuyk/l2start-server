@@ -1,0 +1,11 @@
+{
+  "id": "return-skill",
+  "name": "Return skill",
+  "description": "Every player knows 'Возвращение в город' (skill 95100): like a Scroll of Escape to the nearest town, but a 60 s cast, no scroll, 30 min reuse.",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.12",
+  "entrypoint": "org.l2start.modules.returnskill.ReturnSkillModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "data": { "skills": "data/skills" }
+}

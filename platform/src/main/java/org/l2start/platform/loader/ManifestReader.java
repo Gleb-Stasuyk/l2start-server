@@ -162,7 +162,7 @@ public final class ManifestReader {
                 for (Map.Entry<?, ?> e : map.entrySet()) {
                     final DataType type = DataType.byKey(String.valueOf(e.getKey()));
                     if (type == null) {
-                        errors.add("data." + e.getKey() + ": unknown data type (npcs, spawns, multisell, buylists, html, initialEquipment)");
+                        errors.add("data." + e.getKey() + ": unknown data type (npcs, spawns, multisell, buylists, html, initialEquipment, skills)");
                         continue;
                     }
                     if (!(e.getValue() instanceof String rel)) {
