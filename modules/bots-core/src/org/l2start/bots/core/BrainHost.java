@@ -547,7 +547,8 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     /** A live player (or a director test anchor) within the demote radius sees the bot. */
     private boolean seenByLive(Player p) {
         for (Player o : World.getVisibleObjectsInRange(p, Player.class, demoteRadius)) {
-            if (!registry.isBot(o) && (o.isOnlineInt() != 0) && org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance().canSeeTarget(o, p)) {
+            if (!registry.isBot(o) && (o.isOnlineInt() != 0)
+                && org.l2start.bots.runtime.IdleWatch.seen(p.calculateDistance2D(o), org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance().canSeeTarget(o, p))) {
                 return true;
             }
         }
@@ -568,6 +569,12 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             return;
         }
         final org.l2start.bots.director.Scatter.Result s = WorldScatter.pick(spot, p);
+        if (liveNear(s.pos(), org.l2start.bots.runtime.IdleWatch.SIGHT_ALWAYS)) {
+            // never appear out of thin air in front of a live player either: it takes up another activity instead
+            ctx.log().info("idle: " + m.r.name() + " " + why + ": no teleport, a live player is at the spot " + s.pos());
+            post(m.r, new BotEvent.Idle(why, true));
+            return;
+        }
         ctx.log().info("idle: " + m.r.name() + " " + why + " at " + at + ": teleported to " + s.pos() + (s.fallback() ? " (fallback)" : ""));
         if (p.isSitting()) {
             p.standUp();
@@ -576,6 +583,21 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         p.abortCast();
         p.getAI().setIntentionActive();
         p.teleToLocation(WorldScatter.loc(s.pos()), false);
+    }
+
+    /** A live player (or a director test player) within {@code radius} of {@code pos}. */
+    private boolean liveNear(Pos pos, double radius) {
+        for (Player o : World.getPlayers()) {
+            if (!registry.isBot(o) && (o.isOnlineInt() != 0) && (Math.hypot(o.getX() - pos.x(), o.getY() - pos.y()) <= radius)) {
+                return true;
+            }
+        }
+        for (Pos a : anchors.get()) {
+            if (Math.hypot(a.x() - pos.x(), a.y() - pos.y()) <= radius) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Pos fittingSpot(BotRecord r, Player p, Pos at) {

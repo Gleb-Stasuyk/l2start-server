@@ -88,4 +88,22 @@ class IdleWatchTest {
         assertEquals(Boolean.TRUE, IdleWatch.pendingTeleport(AT, new Pos(AT.x() + 100, AT.y(), AT.z()), false));
         assertNull(IdleWatch.pendingTeleport(AT, new Pos(AT.x() + 400, AT.y(), AT.z()), false));
     }
+
+    /** Live test 2026-10-22: in a cave a bot 600 away behind a wall vanished "unseen" in front of the player. */
+    @Test
+    void nearIsSeenWithoutLineOfSight() {
+        assertTrue(IdleWatch.seen(600, false));
+        assertTrue(IdleWatch.seen(IdleWatch.SIGHT_ALWAYS, false));
+        assertFalse(IdleWatch.seen(IdleWatch.SIGHT_ALWAYS + 1, false));
+        assertTrue(IdleWatch.seen(4000, true));
+    }
+
+    /** A PvP fight is FIGHT: standing while it exchanges hits is intentional, no idle and no WARN. */
+    @Test
+    void fightStandingIsNotIdle() {
+        final IdleWatch w = new IdleWatch();
+        final Activity pvp = new Activity(Activity.Kind.FIGHT, false, 0);
+        assertEquals(Verdict.OK, ticks(w, 0, 20, 3000, AT, pvp));
+        assertTrue(IdleWatch.standsOnPurpose(pvp, 60_000));
+    }
 }

@@ -299,6 +299,10 @@ public final class BasicBrain implements Brain {
         if (phase == Phase.REST) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.REST, false, phaseSince);
         }
+        if (pvpId != 0) {
+            // a PvP (fight or flight) is an intentional state (S3): FIGHT, its time counted from the last exchange of hits
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.FIGHT, false, pvpProgress(pvpSince, playerHits.get(pvpId)));
+        }
         if (fightId != 0) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.FIGHT, false, fightSince);
         }
@@ -754,13 +758,17 @@ public final class BasicBrain implements Brain {
         final PlayerView p = w.players().stream().filter(x -> x.objectId() == pvpId).findFirst().orElse(null);
         standIfSitting(ctx, me); // never sits while a player fights it
         if (!pvpFight) {
-            // a few seconds of running, then a scroll of escape (logs out later in town, the director sends it away)
+            // runs on foot; a scroll of escape only once the player cannot see it any more (never vanishes in sight)
             detail = "runs from a player";
-            if (((now - pvpSince) > pvpFleeMs) || (p == null) || (pvpFlee != null && pvpFlee.distance2d(me.pos()) < 150)) {
-                ctx.note("scroll of escape");
+            final boolean ranLeg = ((now - pvpSince) > pvpFleeMs) || (pvpFlee != null && pvpFlee.distance2d(me.pos()) < 150);
+            if (fleeEscapes(p == null ? -1 : p.pos().distance2d(me.pos()))) {
+                ctx.note("scroll of escape (out of the player's sight)");
                 ctx.act().returnToTown();
                 pvpOver(ctx, now);
                 return 3000;
+            }
+            if (ranLeg) {
+                return startFlee(ctx, me, p, now); // still seen: keeps running, farther away
             }
             if (!me.moving() && (pvpFlee != null)) {
                 ctx.act().moveTo(pvpFlee);
@@ -826,6 +834,19 @@ public final class BasicBrain implements Brain {
             }
         }
         return 500;
+    }
+
+    /** Out of a fleeing bot's sight from here (the player is not even known, or this far away). */
+    static final int PVP_FLEE_UNSEEN = 1500;
+
+    /** Pure: a fleeing bot reads its scroll of escape only out of the player's sight. @param distance -1 = player not in view */
+    static boolean fleeEscapes(double distance) {
+        return (distance < 0) || (distance > PVP_FLEE_UNSEEN);
+    }
+
+    /** Pure: the time a PvP (fight or flight) counts as making progress from, for the idle watch. */
+    static long pvpProgress(long pvpSince, Long lastHit) {
+        return Math.max(pvpSince, lastHit == null ? 0 : lastHit);
     }
 
     private long startFlee(BrainContext ctx, SelfView me, PlayerView p, long now) {

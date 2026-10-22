@@ -81,6 +81,17 @@ public final class IdleWatch {
         return v;
     }
 
+    /**
+     * The client draws every character it knows, walls or not: this close a live player sees the bot even without a line
+     * of sight (caves, floors). Farther out (up to the host's radius) only with a line of sight.
+     */
+    public static final double SIGHT_ALWAYS = 2000;
+
+    /** Pure: does a live player at {@code distance} see the bot. */
+    public static boolean seen(double distance, boolean lineOfSight) {
+        return (distance <= SIGHT_ALWAYS) || lineOfSight;
+    }
+
     /** What the host does about a verdict. */
     public enum Reaction {
         NONE,
