@@ -137,7 +137,8 @@ public final class DirectorRunner {
             final Player p = r.player();
             if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
                 && !withPlayer(p) // phase 6b: in a real player's party it is his companion, the director leaves it be
-                && !module.isAcademyRecruiter(r.botId())) { // phase 7f: recruiters stay at GK
+                && !module.isAcademyRecruiter(r.botId()) // phase 7f: recruiters stay at GK
+                && !module.isRbPinned(r.botId())) { // RB party: answered a player's call, it is his until it leaves
                 bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group(), p.isInCombat()));
             }
         }
@@ -324,6 +325,19 @@ public final class DirectorRunner {
     }
 
     private void materialize(Director.Command.Materialize m) {
+        materialize(m, null, null);
+    }
+
+    /**
+     * RB party (iteration 1): bring this persona (null = create one with {@code create}) in at {@code m.at()} with the
+     * level, class, skills and gear of {@code m.level()}, like every director arrival; {@code arrived} runs once it is
+     * in the world. The director does not command it (bots-core pins it to the player who called).
+     */
+    void materializeFor(Director.Command.Materialize m, java.util.concurrent.Callable<BotRecord> create, java.util.function.Consumer<BotRecord> arrived) {
+        materialize(m, create, arrived);
+    }
+
+    private void materialize(Director.Command.Materialize m, java.util.concurrent.Callable<BotRecord> create, java.util.function.Consumer<BotRecord> arrived) {
         final BotRecord known = m.botId() == 0 ? null : byId(m.botId());
         if (stopping || ((known != null) && !busy.add(known.botId()))) {
             return;
@@ -345,7 +359,7 @@ public final class DirectorRunner {
                         }
                         return;
                     }
-                    r = module.createOne(startClass(m.race()));
+                    r = create != null ? create.call() : module.createOne(startClass(m.race()));
                     if (r == null) {
                         return;
                     }
@@ -394,6 +408,9 @@ public final class DirectorRunner {
                 ctx.metrics().counter("materialized").inc();
                 bot.setGoal(m.assignment().kind() + " " + m.assignment().place());
                 module.brains().noteFor(bot, "director: " + m.assignment() + " (" + what[0] + ")");
+                if (arrived != null) {
+                    arrived.accept(bot);
+                }
             } catch (Exception e) {
                 ctx.log().warn("director: cannot bring " + (r == null ? "a new persona" : r.name()) + " in", e);
             } finally {
@@ -452,6 +469,11 @@ public final class DirectorRunner {
 
     public boolean stopping() {
         return stopping;
+    }
+
+    /** Coming in or going out right now. */
+    boolean isBusy(int botId) {
+        return busy.contains(botId);
     }
 
     /** Take a bot out (director decision, or its brain left by the gatekeeper). */

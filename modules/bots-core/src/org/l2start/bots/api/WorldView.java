@@ -37,4 +37,18 @@ public interface WorldView {
     default boolean partyLeader() {
         return true;
     }
+
+    /** Not a boss. */
+    int BOSS_NONE = 0;
+    /** An ordinary raid boss. */
+    int BOSS_RAID = 1;
+    /** A grand (epic) boss: RB parties of bots never go there. */
+    int BOSS_EPIC = 2;
+    /** A minion of a raid boss. */
+    int BOSS_MINION = 3;
+
+    /** RB party (iteration 1): what kind of boss this NPC is ({@link #BOSS_NONE} when unknown or gone). */
+    default int bossKind(int objectId) {
+        return BOSS_NONE;
+    }
 }

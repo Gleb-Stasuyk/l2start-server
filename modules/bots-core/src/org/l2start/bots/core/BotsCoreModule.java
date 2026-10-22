@@ -50,6 +50,7 @@ public final class BotsCoreModule implements GameModule {
     private Random seeds;
     private volatile PersonaGenerator personas;
     private DirectorRunner director;
+    private RbRecruit rbRecruit;
     /** The five starting zones (docs/STARTER_ZONES_PLAN.md), in both presence modes. */
     private volatile org.l2start.bots.director.StarterZones zones;
     private volatile org.l2start.bots.director.StockPoints stockPoints;
@@ -294,6 +295,15 @@ public final class BotsCoreModule implements GameModule {
         return academyRewards;
     }
 
+    /** RB party (iteration 1): the bot answered a live player's call for a raid boss; the director leaves it be. */
+    public boolean isRbPinned(int botId) {
+        return (rbRecruit != null) && rbRecruit.pinned(botId);
+    }
+
+    public RbRecruit rbRecruit() {
+        return rbRecruit;
+    }
+
     /** Phase 7f: director must not logout academy recruiters while on duty. */
     public boolean isAcademyRecruiter(int botId) {
         return ((academyRecruiters != null) && academyRecruiters.isRecruiter(botId)) || ((clanRecruiters != null) && clanRecruiters.isRecruiter(botId));
@@ -354,6 +364,8 @@ public final class BotsCoreModule implements GameModule {
             ctx.log().warn("no geodata: bots cannot enter the world (RequireGeodata=true). See docs/GEODATA.md");
         }
         relocateStarters();
+        rbRecruit = new RbRecruit(this);
+        ctx.scheduler().fixedRate("rb party", Duration.ofSeconds(10), Duration.ofSeconds(10), rbRecruit::tick);
         ctx.scheduler().fixedRate("teleports", Duration.ofMillis(500), Duration.ofMillis(500), () -> {
             final int n = world.completeTeleports(registry.all());
             if (n > 0) {
@@ -952,6 +964,10 @@ public final class BotsCoreModule implements GameModule {
             onClanChat(from, e.getText());
             return;
         }
+        // RB party (iteration 1): "ищу танка и биша на рб" in trade / shout — the roles named answer, not the LFP replies
+        if (((type == ChatType.TRADE) || (type == ChatType.SHOUT)) && (rbRecruit != null) && rbRecruit.onChat(from, e.getText())) {
+            return;
+        }
         final String channel = switch (type) {
             case PARTY -> "PARTY";
             case GENERAL -> "ALL";
@@ -1045,8 +1061,10 @@ public final class BotsCoreModule implements GameModule {
                 }
             }
         }
+        // RB party: a bot that answered his call is not limited by PartyBotsMax (a raid party is up to 8 bots)
+        final boolean called = (rbRecruit != null) && rbRecruit.calledBy(r.botId(), requester.getObjectId());
         brains.post(r, new BotEvent.PartyInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), requester.getPlayerClass().getId(), members,
-            bots >= ctx.config().getInt("PartyBotsMax")));
+            !called && (bots >= ctx.config().getInt("PartyBotsMax"))));
         return true;
     }
 
@@ -1411,7 +1429,12 @@ public final class BotsCoreModule implements GameModule {
     }
 
     BotRecord createOne(int classId) throws Exception {
-        final BotRecord r = factory.create(classId);
+        return createOne(classId, null);
+    }
+
+    /** @param adjust changes the generated persona before the character is made (RB party: the planned profession) */
+    BotRecord createOne(int classId, java.util.function.UnaryOperator<Persona> adjust) throws Exception {
+        final BotRecord r = factory.create(classId, adjust);
         final Persona p = r.persona();
         ctx.log().info("created " + r.name() + " (class " + r.classId() + ", " + p.nameStyle() + ", " + (p.female() ? "female" : "male") + ", " + p.chronotype() + ", " + p.timezone() + ", account " + r.accountName() + ")");
         ctx.metrics().counter("created").inc();

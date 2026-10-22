@@ -126,4 +126,18 @@ public sealed interface BotEvent {
             return "clanRally:" + fromId;
         }
     }
+
+    /**
+     * RB party (iteration 1): a live player asked in trade / shout for this role for a raid boss and bots-core picked
+     * this bot. It whispers him, runs to him and waits for his invitation (3 min).
+     * @param role TANK, BISHOP, PROPHET or DD (org.l2start.bots.chat.RbParse.Role)
+     * @param summoned brought into the world for this call: it logs out when it is over
+     * @param at where the player stood when he asked
+     */
+    record RbCall(int fromId, String from, String role, boolean summoned, Pos at) implements BotEvent {
+        @Override
+        public String key() {
+            return "rbCall";
+        }
+    }
 }

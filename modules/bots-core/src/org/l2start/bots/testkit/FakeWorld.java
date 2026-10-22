@@ -101,6 +101,8 @@ public final class FakeWorld {
         public boolean undead;
         /** Spoil (254) worked on it: Sweeper (42) on the corpse gives {@link #SWEEP_ITEM}. */
         public boolean spoiled;
+        /** RB party tests: WorldView.BOSS_* of this monster. */
+        public int bossKind;
         long respawnAt = -1;
         long nextHitAt;
         long swingUntil;
@@ -806,6 +808,12 @@ public final class FakeWorld {
             @Override
             public long itemCount(int itemId) {
                 return FakeWorld.this.itemCount(itemId);
+            }
+
+            @Override
+            public int bossKind(int objectId) {
+                final Mob m = mobs.get(objectId);
+                return m == null ? BOSS_NONE : m.bossKind;
             }
         };
     }

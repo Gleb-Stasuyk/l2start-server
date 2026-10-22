@@ -116,6 +116,21 @@
 		<ru>я {role} {level}, инвайть|я {level} {role}, кидай пати|можешь инвайт, я {role}|+ я {role} {level}</ru>
 		<en>i'm {role} {level}, invite|invite me, {role} {level}|can inv, {role} here|+ {role} {level}</en>
 	</intent>
+	<!-- RB party: a bot of the role the player asked for in trade/shout answers him in a whisper and comes -->
+	<intent id="RB_REPLY">
+		<ru>{role} {level}, возьми на рб|я {role} {level}, кидай пати на рб|+ {role} {level}, иду к тебе|{role} {level} на рб, инвайть|могу на рб, {role} {level}</ru>
+		<en>{role} {level} for rb, inv|i'm {role} {level}, invite for rb|+ {role} {level}, coming|{role} {level}, can go rb</en>
+	</intent>
+	<!-- RB party: the player did not invite the bot that came -->
+	<intent id="RB_GIVE_UP">
+		<ru>ну ок|ладно, видимо уже набрали|ок, не нужен так не нужен|ну ладно, удачи на рб</ru>
+		<en>ok nvm|ok, guess you're full|np, gl on rb|ok then</en>
+	</intent>
+	<!-- RB party: the leader targets an epic (grand) boss -->
+	<intent id="RB_NO_EPIC">
+		<ru>не, на эпика не пойдём|эпика не потянем, давай обычного рб|на эпиков я пас|эпик не, только обычные рб</ru>
+		<en>no epics, sorry|we can't do an epic|pass on epics|only normal rbs</en>
+	</intent>
 	<!-- phase 6d: accepted a whisper ask, inviting now -->
 	<intent id="ASK_OK">
 		<ru>ок, кидаю|го, инвайт|секунду|кидаю пати|ок</ru>

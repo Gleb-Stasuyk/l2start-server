@@ -208,6 +208,13 @@ public final class BasicBrain implements Brain {
         if (pv > 0) {
             return pv;
         }
+        if (rbCallerId != 0) {
+            // RB party: answered a live player's call for a raid boss (bots-core pins it to him meanwhile)
+            final long r = raid(ctx, w, me, now);
+            if (r > 0) {
+                return r;
+            }
+        }
         if ((ptMateId != 0) || (mate(w) != null)) {
             // phase 6c: in a real player's party it plays with him (the director leaves it be meanwhile)
             final long c = companion(ctx, w, me, now, attacker(w, me));
@@ -286,7 +293,7 @@ public final class BasicBrain implements Brain {
         if (phase == Phase.DEAD) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.DEAD, false, phaseSince);
         }
-        if (ptMateId != 0) {
+        if ((ptMateId != 0) || (rbCallerId != 0)) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.PARTY, false, phaseSince);
         }
         final Assignment o = currentOrder;
@@ -1968,7 +1975,8 @@ public final class BasicBrain implements Brain {
             detail = "loot";
             return 0;
         }
-        if (mob.engagedByOther() && (mob.targetId() != me.objectId())) {
+        final boolean raidFight = rbEngaged && (w.bossKind(mob.objectId()) != WorldView.BOSS_NONE);
+        if (!raidFight && mob.engagedByOther() && (mob.targetId() != me.objectId())) {
             ctx.note("left " + fightName + ": someone else's");
             abandon(now, 60_000);
             ctx.act().stop();
@@ -1977,7 +1985,7 @@ public final class BasicBrain implements Brain {
         if (mob.hpPct() < fightHp - 0.5) {
             fightHp = mob.hpPct();
             fightHpAt = now;
-        } else if (((now - fightHpAt) > 25_000) || ((now - fightSince) > (FIGHT_TIMEOUT * 3))) {
+        } else if (!raidFight && (((now - fightHpAt) > 25_000) || ((now - fightSince) > (FIGHT_TIMEOUT * 3)))) {
             ctx.note("gave up on " + fightName + ": no progress");
             abandon(now, BLACKLIST_MS);
             ctx.act().stop();
@@ -1987,7 +1995,7 @@ public final class BasicBrain implements Brain {
             abandon(now, 60_000);
             return 0;
         }
-        if (shouldFlee(w, me, mob, now)) {
+        if (!raidFight && shouldFlee(w, me, mob, now)) {
             ctx.note(String.format(java.util.Locale.ROOT, "hurt badly by %s (hp %.0f%%, no potion at hand): runs", fightName, me.hpPct()));
             abandon(now, BLACKLIST_MS);
             return startMobFlee(ctx, me, mob, now);
@@ -2117,6 +2125,7 @@ public final class BasicBrain implements Brain {
         sb.append("\nSkills cast ").append(playstyleCasts).append(", buffs ").append(buffs).append(", heals ").append(heals).append(", summoned ").append(summoned)
             .append(", swept ").append(sweeps).append(", round to the back ").append(sneaks);
         sb.append(companionDetails(ctxNow));
+        sb.append(rbDetails());
         if (lastPvpVerdict != null) {
             sb.append("\nPvP: ").append(lastPvpVerdict.intent()).append(" (").append(lastPvpVerdict.why()).append(")");
             if (lastPvpTarget != null && !lastPvpTarget.isEmpty()) {
@@ -2271,6 +2280,16 @@ public final class BasicBrain implements Brain {
                 hurt = m;
             }
         }
+        if (rbInParty) {
+            // RB party: the bishop keeps the tank up first (it holds the boss), then the others
+            for (PartyMember m : pm) {
+                if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK) && (m.hpPct() < RB_TANK_HEAL_HP) && (m.distance() < 1200)
+                    && ((hurt == null) || (hurt.hpPct() > 30) || (PartyBuffs.roleOf(hurt.classId()) != PartyBuffs.Role.TANK))) {
+                    hurt = m;
+                    break;
+                }
+            }
+        }
         if ((hurt != null) && (me.mpPct() >= 10)) {
             for (int id : HEALS) {
                 final SkillView s = skill(me, id);
@@ -2310,6 +2329,9 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         final boolean peace = me.inPeaceZone();
+        if (rbInParty && (!"PROPHET".equals(rbRole) || (!peace && !rbBuffAsked))) {
+            return 0; // RB party: only the prophet buffs — Wind Walk in town, the full set when the party asks ("баф")
+        }
         for (PartyMember m : pm) {
             if (m.dead() || (m.distance() > 600)) {
                 continue;
@@ -2625,10 +2647,13 @@ public final class BasicBrain implements Brain {
             switch (e) {
                 case BotEvent.PartyInvite inv -> onInvite(ctx, w, me, inv, now);
                 case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
+                case BotEvent.RbCall rc -> onRbCall(ctx, w, me, rc, now);
                 case BotEvent.Chat c -> {
-                    if ("PARTY".equals(c.channel()) && (c.fromId() == ptMateId) && (ptMateId != 0)) {
+                    if ("PARTY".equals(c.channel()) && rbInParty) {
+                        onRbPartyChat(ctx, w, me, c, now);
+                    } else if ("PARTY".equals(c.channel()) && (c.fromId() == ptMateId) && (ptMateId != 0)) {
                         onPartyCommand(ctx, w, me, c.text(), now);
-                    } else if (social && isLfpChannel(c.channel())) {
+                    } else if (social && isLfpChannel(c.channel()) && (rbCallerId == 0)) {
                         onLfpChat(ctx, w, me, c, now);
                     }
                 }
@@ -3054,7 +3079,7 @@ public final class BasicBrain implements Brain {
     }
 
     private void maybeShoutLfp(BrainContext ctx, WorldView w, SelfView me, long now) {
-        if (!social || (ptMateId != 0) || me.dead() || leavingSocial(ctx) || !lfpAllowed(me.level())) {
+        if (!social || (ptMateId != 0) || (rbCallerId != 0) || me.dead() || leavingSocial(ctx) || !lfpAllowed(me.level())) {
             return;
         }
         if (!inTownForLfp(ctx, me)) {
@@ -3166,6 +3191,14 @@ public final class BasicBrain implements Brain {
         ptInvites++;
         if (!w.party().isEmpty() || (ptInvite != null)) {
             return; // the stock request already said "member of another party", or one is pending
+        }
+        if ((rbCallerId != 0) && (inv.fromId() == rbCallerId) && !rbInParty && (rbLeaving == 0)) {
+            // RB party: it answered his call and came for this invitation
+            ptAnswer = PartyDecision.Answer.ACCEPT;
+            ptInvite = inv;
+            ptAnswerAt = now + 1200 + ctx.rnd().nextInt(2500);
+            ctx.note("rb party: invited by " + inv.from() + ", joins");
+            return;
         }
         final Assignment order = ctx.assignment();
         final PartyDecision.Doing doing = me.dead() ? PartyDecision.Doing.BUSY
@@ -3811,6 +3844,794 @@ public final class BasicBrain implements Brain {
         }
         return "\nParty with " + ptMate + " for " + ((now - ptSince) / 60_000) + " min, mode " + ptMode + ", commands " + ptCommands + ", deaths " + ptDeaths
             + (ptCatchingUp ? ", catching up" : ptWaiting ? ", waiting" : "") + (ptWarned ? ", leaving soon" : "");
+    }
+
+    // ------------------------------------------------------------------ RB party, iteration 1 (docs/RB_PARTY_PLAN.md)
+
+    /** The bishop heals the tank below this HP % (the others below {@link #PARTY_HEAL_HP}). */
+    static final double RB_TANK_HEAL_HP = 80;
+    /** A tank turns the boss away from the party at most this often. */
+    static final long RB_TURN_MS = 5000;
+    /** Supports keep this far from the boss (heals reach, cleaves do not). */
+    static final int RB_SUPPORT_BACK = 550;
+
+    private int rbCallerId;
+    private String rbCaller = "";
+    private String rbRole = "";
+    private boolean rbSummoned;
+    private Pos rbCallAt;
+    private long rbWaitUntil;
+    private boolean rbInParty;
+    private boolean rbEngaged;
+    private int rbBossId;
+    private long rbEngagedAt;
+    private long rbQuietSince;
+    private boolean rbBuffAsked;
+    private boolean rbGoAsked;
+    private long rbGoAt;
+    private long rbIdleSince;
+    private Pos rbLeaderLast;
+    private Pos rbLeaderGk;
+    private Pos rbGk;
+    private Pos rbGkTo;
+    private long rbGkAt;
+    private int rbGkMisses;
+    private long rbSoeAt;
+    private long rbSoeRead;
+    private long rbByeAt;
+    /** 0 = no; 1 = a scroll soon; 2 = reading it; 3 = back in town (a bot brought in logs out); 4 = walks away unseen, then logs out; 5 = done. */
+    private int rbLeaving;
+    private long rbLeaveStep;
+    private Pos rbLeaveFrom;
+    private long rbTurnAt;
+    private boolean rbEpicSaid;
+    private int rbCalls;
+    private int rbTurns;
+    private int rbGkFollows;
+    private int rbSoeFollows;
+
+    /** Answers a live player's RB call now (0 = no). */
+    public int rbCaller() {
+        return rbCallerId;
+    }
+
+    public boolean rbInParty() {
+        return rbInParty;
+    }
+
+    public boolean rbEngaged() {
+        return rbEngaged;
+    }
+
+    public int rbLeaving() {
+        return rbLeaving;
+    }
+
+    public int rbTurns() {
+        return rbTurns;
+    }
+
+    public int rbGkFollows() {
+        return rbGkFollows;
+    }
+
+    public int rbSoeFollows() {
+        return rbSoeFollows;
+    }
+
+    /** bots-core chose this bot for a player's RB call: whisper him, go to him, wait for his invitation. */
+    private void onRbCall(BrainContext ctx, WorldView w, SelfView me, BotEvent.RbCall call, long now) {
+        if ((rbCallerId != 0) || !w.party().isEmpty() || me.dead()) {
+            ctx.note("rb party: cannot answer " + call.from() + " (busy)");
+            if (call.summoned() && (rbCallerId == 0)) {
+                rbCallerId = call.fromId();
+                rbCaller = call.from();
+                rbSummoned = true;
+                rbStartLeaving(ctx, now, "brought in but busy");
+            }
+            return;
+        }
+        rbCalls++;
+        rbCallerId = call.fromId();
+        rbCaller = call.from();
+        rbRole = call.role();
+        rbSummoned = call.summoned();
+        rbCallAt = call.at();
+        rbWaitUntil = now + RaidPlay.INVITE_WAIT_MS;
+        rbInParty = false;
+        rbEngaged = false;
+        rbBossId = 0;
+        rbBuffAsked = false;
+        rbGoAsked = false;
+        rbLeaderLast = null;
+        rbLeaderGk = null;
+        rbGkAt = 0;
+        rbSoeAt = 0;
+        rbSoeRead = 0;
+        rbByeAt = 0;
+        rbLeaving = 0;
+        rbEpicSaid = false;
+        endFight();
+        errand = null;
+        enter(ctx, Phase.LEVEL, "rb party with " + rbCaller);
+        ctx.note("rb party: answers " + rbCaller + " as " + rbRole + (rbSummoned ? " (brought in for it)" : ""));
+        final boolean ru = (ctx.info().lang() == null) || ctx.info().lang().toUpperCase(java.util.Locale.ROOT).startsWith("RU");
+        org.l2start.bots.chat.RbParse.Role role;
+        try {
+            role = org.l2start.bots.chat.RbParse.Role.valueOf(rbRole);
+        } catch (IllegalArgumentException e) {
+            role = org.l2start.bots.chat.RbParse.Role.DD;
+        }
+        // like people reading the chat: not all at once
+        speak(ctx, "WHISPER", rbCaller, "RB_REPLY", Map.of("player", rbCaller, "level", Integer.toString(me.level()), "role", org.l2start.bots.chat.RbParse.word(role, ru)),
+            now + ctx.reactionDelay() + 1500 + ctx.rnd().nextInt(9000));
+    }
+
+    /** Party chat of a raid party: "баф" from anyone (the prophet buffs), "го" and the commands from its leader. */
+    private void onRbPartyChat(BrainContext ctx, WorldView w, SelfView me, BotEvent.Chat c, long now) {
+        if (RaidPlay.wantsBuff(c.text())) {
+            if ("PROPHET".equals(rbRole)) {
+                rbBuffAsked = true;
+                partyBuffed.clear();
+                partyTried = 0;
+                ctx.note("rb party: " + c.from() + " asks for buffs");
+            }
+            return;
+        }
+        if (c.fromId() != ptMateId) {
+            return;
+        }
+        if (RaidPlay.isGo(c.text())) {
+            rbGoAsked = true;
+            rbGoAt = now;
+            ptMode = PartyMode.ASSIST;
+            ctx.note("rb party: " + c.from() + " says go");
+            return;
+        }
+        onPartyCommand(ctx, w, me, c.text(), now);
+        if ((ptMode == PartyMode.STOP) || (ptMode == PartyMode.FOLLOW) || (ptMode == PartyMode.SIT)) {
+            rbDisengage(ctx, "told to " + ptMode);
+        }
+    }
+
+    /** The live member it plays for: the party leader when he is a live player, else its caller, else any live one. */
+    private PartyMember rbLeader(WorldView w) {
+        PartyMember caller = null;
+        PartyMember any = null;
+        for (PartyMember m : w.party()) {
+            if (m.bot()) {
+                continue;
+            }
+            if (m.leader()) {
+                return m;
+            }
+            if (m.objectId() == rbCallerId) {
+                caller = m;
+            }
+            if (any == null) {
+                any = m;
+            }
+        }
+        return caller != null ? caller : any;
+    }
+
+    private long raid(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (rbLeaving > 0) {
+            return rbLeave(ctx, w, me, now);
+        }
+        final PartyMember lead = rbLeader(w);
+        if (lead == null) {
+            if (rbInParty) {
+                rbStartLeaving(ctx, now, w.party().isEmpty() ? "the party broke up" : "no live player left in the party");
+                if (!w.party().isEmpty()) {
+                    ctx.act().leaveParty();
+                }
+                return 1000;
+            }
+            return rbWait(ctx, w, me, now);
+        }
+        if (!rbInParty) {
+            rbInParty = true;
+            rbIdleSince = now;
+            rbLeaderLast = lead.pos();
+            ptSince = now;
+            ptParties++;
+            ctx.note("rb party: in the party of " + lead.name());
+        }
+        ptMateId = lead.objectId();
+        ptMate = lead.name();
+        return rbParty(ctx, w, me, lead, now);
+    }
+
+    /** Called, not invited yet: goes to the player and waits by him; 3 min without an invitation and it leaves. */
+    private long rbWait(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (now >= rbWaitUntil) {
+            ctx.note("rb party: " + rbCaller + " did not invite it in " + (RaidPlay.INVITE_WAIT_MS / 60_000) + " min");
+            if (ctx.rnd().nextDouble() < 0.5) {
+                speak(ctx, "WHISPER", rbCaller, "RB_GIVE_UP", Map.of("player", rbCaller), now + ctx.reactionDelay());
+            }
+            if (rbSummoned) {
+                rbLeaving = 4; // brought in for him: walks off out of sight and logs out
+                rbLeaveStep = now + 60_000;
+                return 1000;
+            }
+            rbClear(ctx, now);
+            return 0;
+        }
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        final NpcView attacker = attacker(w, me);
+        if (attacker != null) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, attacker, now);
+        }
+        final PlayerView p = playerById(w, rbCallerId);
+        if (p != null) {
+            rbCallAt = p.pos();
+        }
+        if (rbCallAt == null) {
+            detail = "waits for the invitation of " + rbCaller;
+            return 1500;
+        }
+        final double d = me.pos().distance2d(rbCallAt);
+        if ((d > CATCH_UP_RUN) && (now >= ptTeleportNextAt)) {
+            final ActionResult r = ctx.act().teleportNear(rbCallAt);
+            if (r.ok()) {
+                ctx.note("rb party: appeared near " + rbCaller + " out of sight, runs to him");
+                return 1500;
+            }
+            ptTeleportNextAt = now + 10_000;
+        }
+        if (d > 260) {
+            standIfSitting(ctx, me);
+            ctx.act().setWalking(false);
+            detail = "goes to " + rbCaller;
+            return Math.min(1500, walk(ctx, w, me, rbCallAt.toward(me.pos(), 120 + (int) (botId % 120)), now));
+        }
+        standIfSitting(ctx, me);
+        detail = "waits for the invitation of " + rbCaller;
+        return 1500;
+    }
+
+    /** In the raid party: follow the leader (on foot, by his gatekeeper, by scroll), buff, heal, fight his raid boss. */
+    private long rbParty(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now) {
+        if (rbByeAt > 0) {
+            if (now >= rbByeAt) {
+                ctx.act().leaveParty();
+                rbStartLeaving(ctx, now, "said goodbye");
+                return 1000;
+            }
+            detail = "says goodbye";
+            return Math.max(300, rbByeAt - now);
+        }
+        final boolean moved = (rbLeaderLast == null) || (rbLeaderLast.distance2d(lead.pos()) > 40);
+        // the leader vanished: a teleport. By the gatekeeper he stood at, or a scroll / the return skill.
+        if ((rbLeaderLast != null) && (rbLeaderLast.distance2d(lead.pos()) > RaidPlay.JUMP) && (rbGkAt == 0) && (rbSoeAt == 0) && (rbSoeRead == 0)
+            && (me.pos().distance2d(rbLeaderLast) <= RaidPlay.FOLLOW_GK)) {
+            rbDisengage(ctx, "the leader teleported");
+            if (rbLeaderGk != null) {
+                rbGk = rbLeaderGk;
+                rbGkTo = lead.pos();
+                rbGkAt = now + RaidPlay.gkDelay(ctx.rnd());
+                rbGkMisses = 0;
+                ctx.note("rb party: " + lead.name() + " took the gatekeeper, takes it too in " + ((rbGkAt - now) / 1000) + " s");
+            } else {
+                rbSoeAt = now + RaidPlay.gkDelay(ctx.rnd());
+                ctx.note("rb party: " + lead.name() + " read a scroll (or the return skill), reads one too");
+            }
+        }
+        final Pos gk = ctx.act().nearestGk();
+        rbLeaderGk = (gk != null) && (gk.distance2d(lead.pos()) <= RaidPlay.LEADER_AT_GK) ? gk : null;
+        rbLeaderLast = lead.pos();
+        if (moved || (fightId != 0) || rbEngaged || me.inCombat() || (rbGkAt > 0) || (rbSoeAt > 0) || (rbSoeRead > 0)) {
+            rbIdleSince = now;
+        }
+        if ((now - rbIdleSince) > RaidPlay.IDLE_MS) {
+            ctx.note("rb party: " + lead.name() + " did nothing for " + (RaidPlay.IDLE_MS / 60_000) + " min");
+            speak(ctx, "PARTY", null, "BYE", Map.of("player", lead.name()), now + ctx.reactionDelay());
+            final long said = speech.isEmpty() ? now : speech.get(speech.size() - 1).due();
+            rbByeAt = Math.max(now + 2000, said + 1500 + ctx.rnd().nextInt(2500));
+            return 500;
+        }
+        if (rbGkAt > 0) {
+            final long d = rbFollowGk(ctx, w, me, lead, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if ((rbSoeAt > 0) || (rbSoeRead > 0)) {
+            final long d = rbFollowSoe(ctx, w, me, lead, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        final NpcView attacker = attacker(w, me);
+        if (lead.distance() > MATE_FAR) {
+            return rbCatchUp(ctx, w, me, lead, now, attacker);
+        }
+        // a scroll, the return skill or a gatekeeper of its own is over: with its leader again
+        final long cared = care(ctx, w, me, now, true);
+        if (cared > 0) {
+            return cared;
+        }
+        final long pc = partyCare(ctx, w, me, now, attacker);
+        if (pc > 0) {
+            return pc;
+        }
+        if (rbBuffAsked && (now > (partyTried + 6000))) {
+            rbBuffAsked = false;
+            speak(ctx, "PARTY", null, "BUFFED", Map.of("player", lead.name()), now + ctx.reactionDelay());
+        }
+        // when the fight starts: the leader hits a raid boss, or says "го"
+        final NpcView t = lead.targetId() == 0 ? null : w.npc(lead.targetId());
+        final int kind = t == null ? WorldView.BOSS_NONE : w.bossKind(t.objectId());
+        if (kind == WorldView.BOSS_EPIC) {
+            if (!rbEpicSaid) {
+                rbEpicSaid = true;
+                if ("TANK".equals(rbRole) || (ctx.rnd().nextDouble() < 0.3)) {
+                    speak(ctx, "PARTY", null, "RB_NO_EPIC", Map.of("player", lead.name()), now + ctx.reactionDelay());
+                }
+            }
+            rbGoAsked = false;
+            rbDisengage(ctx, "an epic boss");
+        } else if (!rbEngaged && (ptMode != PartyMode.STOP) && (ptMode != PartyMode.FOLLOW) && (ptMode != PartyMode.SIT)) {
+            final boolean raidTarget = (t != null) && !t.dead() && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION));
+            final boolean pulled = raidTarget && RaidPlay.bossPulled(t.hpPct(), t.attackingNow(), t.targetId(), lead.objectId(), w.party(), me.objectId());
+            if (pulled || rbGoAsked) {
+                NpcView boss = raidTarget ? t : null;
+                if ((boss == null) && (t != null) && !t.dead() && t.monster() && t.attackable() && (w.bossKind(t.objectId()) != WorldView.BOSS_EPIC)) {
+                    boss = t; // "го" on what he has targeted
+                }
+                if (boss == null) {
+                    boss = nearestRaid(w, lead);
+                }
+                if (boss != null) {
+                    rbEngage(ctx, boss, now);
+                } else if ((now - rbGoAt) > 10_000) {
+                    rbGoAsked = false; // "го" with nothing to fight
+                }
+            }
+        }
+        if (rbEngaged) {
+            if ((ptMode == PartyMode.STOP) || (ptMode == PartyMode.FOLLOW) || (ptMode == PartyMode.SIT)) {
+                rbDisengage(ctx, "told to " + ptMode);
+            } else {
+                final long d = rbFight(ctx, w, me, lead, now);
+                if (d > 0) {
+                    return d;
+                }
+            }
+        }
+        // on the way: no fights of its own, it only defends itself and the party
+        if ((ptMode != PartyMode.STOP) && (ptMode != PartyMode.SIT)) {
+            final long d = defendParty(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        } else if (fightId != 0) {
+            endFight();
+            ctx.act().stop();
+        }
+        if ((attacker != null) && ((ptMode != PartyMode.STOP) || (me.hpPct() < 60))) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, attacker, now, true);
+        }
+        final boolean restNow = (ptMode == PartyMode.SIT) || (lead.sitting() && (lead.distance() < 600)) || needsRest(me);
+        if (restNow && (aggroNear(w, me, AGGRO_NEAR) == null) && (threat(w, me, false) == null) && !me.inCombat() && (lead.distance() < 900)) {
+            if (!me.sitting()) {
+                if (me.moving() || me.attacking() || me.casting()) {
+                    ctx.act().stop();
+                    return 800;
+                }
+                ctx.act().sit();
+            }
+            detail = "rests by " + lead.name();
+            if ((ptMode == PartyMode.SIT) && !lead.sitting() && (lead.distance() > 300)) {
+                ptMode = PartyMode.ASSIST;
+            }
+            return 2000;
+        }
+        if (me.sitting()) {
+            ctx.act().stand();
+            return 1000;
+        }
+        if (ptMode == PartyMode.STOP) {
+            detail = "holds by " + lead.name();
+            return 1500;
+        }
+        // the formation: the tank in front, melee by the leader, mages and supports a little behind
+        final boolean back = me.mage() || me.bow() || support(me.classId());
+        final int keep = "TANK".equals(rbRole) ? 90 + (int) (botId % 60) : back ? 240 + (int) (botId % 140) : 120 + (int) (botId % 90);
+        if (lead.distance() > (keep + 160)) {
+            if ((stuck >= 3) && ctx.act().teleportNear(lead.pos()).ok()) {
+                ctx.note("rb party: stuck behind " + lead.name() + ", appeared by the party out of sight");
+                stuck = 0;
+                return 1500;
+            }
+            detail = "follows " + lead.name();
+            ctx.act().setWalking(false);
+            return Math.min(1200, walk(ctx, w, me, lead.pos().toward(me.pos(), keep), now));
+        }
+        detail = "by " + lead.name() + (rbGoAsked ? "" : ", waits for his go");
+        return 1000 + ctx.rnd().nextInt(600);
+    }
+
+    /** The nearest living ordinary raid boss within 1500 of the leader (epics never). */
+    private static NpcView nearestRaid(WorldView w, PartyMember lead) {
+        NpcView best = null;
+        for (NpcView n : w.npcs()) {
+            if (n.dead() || !n.attackable() || (n.pos().distance2d(lead.pos()) > 1500) || (w.bossKind(n.objectId()) != WorldView.BOSS_RAID)) {
+                continue;
+            }
+            if ((best == null) || (n.distance() < best.distance())) {
+                best = n;
+            }
+        }
+        return best;
+    }
+
+    private void rbEngage(BrainContext ctx, NpcView boss, long now) {
+        rbEngaged = true;
+        rbBossId = boss.objectId();
+        rbEngagedAt = now;
+        rbQuietSince = now;
+        rbGoAsked = false;
+        ptMode = PartyMode.ASSIST;
+        ctx.note("rb party: the fight starts on " + boss.name() + " lv " + boss.level() + " (" + rbRole + ")");
+    }
+
+    private void rbDisengage(BrainContext ctx, String why) {
+        if (!rbEngaged) {
+            return;
+        }
+        rbEngaged = false;
+        rbBossId = 0;
+        endFight();
+        ctx.note("rb party: the fight is over (" + why + ")");
+    }
+
+    /**
+     * The raid fight: the tank takes the boss first (Aggression / Aura of Hate) and holds it with its back to the
+     * party; the damage dealers wait for that a moment, then hit what the leader hits; the bishop and the prophet keep
+     * back and heal (partyCare runs before this).
+     */
+    private long rbFight(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now) {
+        final NpcView boss = rbBossId == 0 ? null : w.npc(rbBossId);
+        if ((boss != null) && boss.dead()) {
+            ctx.note("rb party: " + boss.name() + " is dead");
+            rbBossId = 0;
+        }
+        NpcView target = null;
+        final NpcView lt = lead.targetId() == 0 ? null : w.npc(lead.targetId());
+        if ((lt != null) && !lt.dead() && lt.monster() && lt.attackable() && (lt.distance() < 2000) && (w.bossKind(lt.objectId()) != WorldView.BOSS_EPIC)) {
+            target = lt;
+        } else if ((boss != null) && !boss.dead() && (boss.distance() < 2400)) {
+            target = boss;
+        } else {
+            target = onPartner(w);
+            if (target == null) {
+                target = attacker(w, me);
+            }
+        }
+        if (target == null) {
+            if ((now - rbQuietSince) > RaidPlay.QUIET_MS) {
+                rbDisengage(ctx, "nothing left to fight");
+            }
+            return 0;
+        }
+        rbQuietSince = now;
+        final boolean bossy = w.bossKind(target.objectId()) != WorldView.BOSS_NONE;
+        switch (rbRole) {
+            case "BISHOP", "PROPHET" -> {
+                // supports keep back from the boss and near the party: heals and buffs come from partyCare
+                standIfSitting(ctx, me);
+                if (fightId != 0) {
+                    endFight();
+                    ctx.act().stop();
+                }
+                final Pos center = RaidPlay.center(w.party(), 1500);
+                if (target.distance() < (RB_SUPPORT_BACK - 200)) {
+                    final Pos from = center == null ? me.pos() : center;
+                    detail = "keeps back from " + target.name();
+                    return Math.min(1000, walk(ctx, w, me, target.pos().toward(from, RB_SUPPORT_BACK), now));
+                }
+                if (target.distance() > 1100) {
+                    detail = "comes closer to " + target.name();
+                    return Math.min(1000, walk(ctx, w, me, target.pos().toward(me.pos(), RB_SUPPORT_BACK + 150), now));
+                }
+                detail = "supports the party on " + target.name();
+                return 700;
+            }
+            case "TANK" -> {
+                standIfSitting(ctx, me);
+                if (target.targetId() != me.objectId()) {
+                    taunt(ctx, me, target, now);
+                }
+                if (fightId != target.objectId()) {
+                    return startFight(ctx, me, target, now, true);
+                }
+                if (bossy && (target.targetId() == me.objectId()) && (now >= rbTurnAt)) {
+                    final Pos center = RaidPlay.center(w.party(), 1500);
+                    if (RaidPlay.bossFacesParty(target.pos(), me.pos(), center)) {
+                        rbTurnAt = now + RB_TURN_MS;
+                        rbTurns++;
+                        ctx.act().moveTo(RaidPlay.tankSpot(target.pos(), center, 110));
+                        detail = "turns " + target.name() + " away from the party";
+                        return 1200;
+                    }
+                }
+                final long d = fight(ctx, w, me, now);
+                return d > 0 ? d : 400;
+            }
+            default -> {
+                // damage dealers: the tank takes the boss first
+                final PartyMember tank = tankOf(w);
+                if (bossy && (tank != null) && (target.targetId() != tank.objectId()) && ((now - rbEngagedAt) < RaidPlay.TANK_FIRST_MS) && (fightId == 0)) {
+                    detail = "waits for " + tank.name() + " to take " + target.name();
+                    return 500;
+                }
+                standIfSitting(ctx, me);
+                if (fightId != target.objectId()) {
+                    detail = "assists " + lead.name();
+                    return startFight(ctx, me, target, now, true);
+                }
+                final long d = fight(ctx, w, me, now);
+                return d > 0 ? d : 400;
+            }
+        }
+    }
+
+    /** A living tank of the party (another member), null = none. */
+    private static PartyMember tankOf(WorldView w) {
+        for (PartyMember m : w.party()) {
+            if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK) && (m.distance() < 2000)) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /** The leader took a gatekeeper: walk to that one and take it to where he landed, a few seconds after him. */
+    private long rbFollowGk(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now) {
+        if ((lead.distance() < MATE_FAR) || ((now - rbGkAt) > 90_000)) {
+            rbGkAt = 0; // with him again (or it took too long: plain catch-up)
+            return 0;
+        }
+        final NpcView a = attacker(w, me);
+        if (a != null) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, a, now, true);
+        }
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (me.pos().distance2d(rbGk) > 150) {
+            standIfSitting(ctx, me);
+            ctx.act().setWalking(false);
+            detail = "goes to the gatekeeper after " + lead.name();
+            return Math.min(1500, walk(ctx, w, me, rbGk, now));
+        }
+        if (now < rbGkAt) {
+            detail = "at the gatekeeper";
+            return Math.min(1500, rbGkAt - now);
+        }
+        final ActionResult r = ctx.act().teleportViaGk(rbGkTo);
+        if (r.ok()) {
+            rbGkFollows++;
+            ctx.note("rb party: teleported by the gatekeeper after " + lead.name());
+            rbGkAt = 0;
+            return 2500;
+        }
+        if (++rbGkMisses >= 3) {
+            ctx.note("rb party: the gatekeeper did not take it (" + r + "): catches up");
+            rbGkAt = 0;
+            return 0;
+        }
+        rbGkAt = now + 1500;
+        return walk(ctx, w, me, rbGk, now);
+    }
+
+    /** The leader read a scroll (or used the return skill): it reads its own a few seconds later. */
+    private long rbFollowSoe(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now) {
+        if (rbSoeRead == 0) {
+            if (now < rbSoeAt) {
+                detail = "about to read a scroll";
+                return Math.min(1500, rbSoeAt - now);
+            }
+            rbSoeAt = 0;
+            rbSoeRead = now;
+            standIfSitting(ctx, me);
+            endFight();
+            rbSoeFollows++;
+            if ((w.itemCount(SOE) > 0) && (ctx.act().useItem(SOE) == ActionResult.OK)) {
+                ctx.note("rb party: reads a scroll of escape after " + lead.name());
+                detail = "scroll of escape";
+                return 2000;
+            }
+            ctx.note("rb party: no scroll of escape: back to town after " + lead.name());
+            ctx.act().returnToTown();
+            return 3000;
+        }
+        if ((lead.distance() < MATE_FAR) || ((now - rbSoeRead) > SOE_WAIT)) {
+            rbSoeRead = 0;
+            return 0;
+        }
+        detail = "scroll of escape";
+        return 1000;
+    }
+
+    /** The leader is far (it died, lagged behind, came late): run, or appear near him out of sight. */
+    private long rbCatchUp(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now, NpcView attacker) {
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (attacker != null) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, attacker, now, true);
+        }
+        standIfSitting(ctx, me);
+        final double far = me.pos().distance2d(lead.pos());
+        if (catchUpRoute(far, now >= ptTeleportNextAt).equals(ROUTE_TELEPORT)) {
+            if (ctx.act().teleportNear(lead.pos()).ok()) {
+                ctx.note("rb party: appeared near " + lead.name() + " out of sight, runs to him");
+                return 1500;
+            }
+            ptTeleportNextAt = now + 10_000;
+        }
+        // stuck on the way: out of sight it appears by the party
+        if ((stuck >= 3) && ctx.act().teleportNear(lead.pos()).ok()) {
+            ctx.note("rb party: stuck on the way, appeared near " + lead.name());
+            stuck = 0;
+            return 1500;
+        }
+        ctx.act().setWalking(false);
+        detail = "catches up with " + lead.name();
+        return walk(ctx, w, me, lead.pos(), now);
+    }
+
+    /** The raid party is over for it: a scroll of escape to town (a bot brought in for the call logs out there). */
+    private void rbStartLeaving(BrainContext ctx, long now, String why) {
+        ctx.note("rb party: leaves (" + why + ")");
+        rbLeaving = 1;
+        rbLeaveStep = now + 2000 + ctx.rnd().nextInt(6000);
+        rbEngaged = false;
+        rbBossId = 0;
+        rbInParty = false;
+        rbByeAt = 0;
+        rbGkAt = 0;
+        rbSoeAt = 0;
+        rbSoeRead = 0;
+        ptMateId = 0;
+        ptMate = "";
+        ptMode = PartyMode.ASSIST;
+        speech.removeIf(s -> "PARTY".equals(s.channel()));
+        endFight();
+    }
+
+    private long rbLeave(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        final NpcView a = attacker(w, me);
+        if ((a != null) && (rbLeaving != 2)) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, a, now);
+        }
+        switch (rbLeaving) {
+            case 1 -> {
+                if (now < rbLeaveStep) {
+                    detail = "about to go home";
+                    return Math.min(1500, rbLeaveStep - now);
+                }
+                standIfSitting(ctx, me);
+                if (me.inPeaceZone()) {
+                    rbLeaving = 3; // in town already
+                    rbLeaveStep = now + 5000 + ctx.rnd().nextInt(15_000);
+                    return 1000;
+                }
+                rbLeaveFrom = me.pos();
+                rbLeaving = 2;
+                rbLeaveStep = now + SOE_WAIT;
+                if ((w.itemCount(SOE) > 0) && (ctx.act().useItem(SOE) == ActionResult.OK)) {
+                    ctx.note("rb party: reads a scroll of escape home");
+                } else {
+                    ctx.act().returnToTown();
+                }
+                detail = "scroll of escape";
+                return 2000;
+            }
+            case 2 -> {
+                if ((me.pos().distance2d(rbLeaveFrom) > RaidPlay.JUMP) || (now >= rbLeaveStep)) {
+                    rbLeaving = 3;
+                    rbLeaveStep = now + 5000 + ctx.rnd().nextInt(15_000);
+                }
+                detail = "scroll of escape";
+                return 1000;
+            }
+            case 3 -> {
+                if (!rbSummoned) {
+                    rbClear(ctx, now);
+                    return 0;
+                }
+                if (now < rbLeaveStep) {
+                    detail = "back in town";
+                    return Math.min(2000, rbLeaveStep - now);
+                }
+                rbLeaving = 5;
+                ctx.note("rb party: logs out");
+                ctx.act().logout();
+                return 5000;
+            }
+            case 4 -> {
+                // nobody invited it: it walks off and logs out where nobody sees it
+                if (!livePlayerWithin(w, me.pos(), 1500) || (now >= rbLeaveStep)) {
+                    rbLeaving = 5;
+                    ctx.note("rb party: logs out (not invited)");
+                    ctx.act().logout();
+                    return 5000;
+                }
+                final PlayerView p = playerById(w, rbCallerId);
+                final Pos from = p != null ? p.pos() : rbCallAt != null ? rbCallAt : me.pos();
+                final double dx = me.pos().x() - from.x();
+                final double dy = me.pos().y() - from.y();
+                final double l = Math.max(1, Math.hypot(dx, dy));
+                standIfSitting(ctx, me);
+                detail = "walks away";
+                return Math.min(2000, walk(ctx, w, me, new Pos((int) (me.pos().x() + ((dx / l) * 900)), (int) (me.pos().y() + ((dy / l) * 900)), me.pos().z()), now));
+            }
+            default -> {
+                detail = "logging out";
+                return 5000;
+            }
+        }
+    }
+
+    private static boolean livePlayerWithin(WorldView w, Pos at, int radius) {
+        for (PlayerView p : w.players()) {
+            if (!p.bot() && (p.pos().distance2d(at) <= radius)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** An ordinary bot again (it lives here anyway). */
+    private void rbClear(BrainContext ctx, long now) {
+        ctx.note("rb party: over, back to its own life");
+        rbCallerId = 0;
+        rbCaller = "";
+        rbRole = "";
+        rbInParty = false;
+        rbEngaged = false;
+        rbLeaving = 0;
+        ptMateId = 0;
+        ptMate = "";
+        endFight();
+        if (ctx.assignment() == null) {
+            idleUntil = now + 30_000;
+        }
+    }
+
+    /** For //bots info. */
+    private String rbDetails() {
+        if (rbCallerId == 0) {
+            return rbCalls == 0 ? "" : "\nRB calls answered: " + rbCalls;
+        }
+        return "\nRB party: " + rbRole + " for " + rbCaller + (rbInParty ? " (in the party" + (rbEngaged ? ", fighting" : "") + ")" : " (waits for the invitation)")
+            + (rbLeaving > 0 ? ", leaving" : "") + (rbSummoned ? ", brought in" : "");
     }
 
     // ------------------------------------------------------------------ roles (4c, second part): summons, sweep, heals, back

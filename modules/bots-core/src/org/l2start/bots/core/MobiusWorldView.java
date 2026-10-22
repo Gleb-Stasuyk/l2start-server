@@ -243,6 +243,20 @@ final class MobiusWorldView implements WorldView {
         return World.findObject(objectId) instanceof Npc n ? view(n) : null;
     }
 
+    @Override
+    public int bossKind(int objectId) {
+        if (!(World.findObject(objectId) instanceof Npc n)) {
+            return BOSS_NONE;
+        }
+        if (n instanceof org.l2jmobius.gameserver.entity.actor.instance.GrandBoss) {
+            return BOSS_EPIC;
+        }
+        if (n.isRaidMinion()) {
+            return BOSS_MINION;
+        }
+        return n.isRaid() ? BOSS_RAID : BOSS_NONE;
+    }
+
     /** Aggro range of an aggressive monster (NPC data; the usual 300 when the data has none), else 0. */
     static int aggroRange(Npc n) {
         if (!n.isAggressive()) {
