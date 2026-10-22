@@ -82,6 +82,7 @@ public final class RecordingActuators implements Actuators {
     @Override public ActionResult logout() { return rec("logout", "", next::logout); }
     @Override public Pos nearestGk() { return next == null ? null : next.nearestGk(); }
     @Override public ActionResult teleportViaGk(Pos dest) { return rec("teleportViaGk", dest, () -> next.teleportViaGk(dest)); }
+    @Override public ActionResult teleportNear(Pos target) { return rec("teleportNear", target, () -> next.teleportNear(target)); }
 
     @Override
     public int learnSkills() {

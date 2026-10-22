@@ -25,7 +25,36 @@ import org.l2start.bots.api.Pos;
  */
 public final class Director {
     /** A live (human) player. */
-    public record Live(int id, Pos pos) {
+    /** @param level the live player's level (0 = unknown: test players of the director) */
+    public record Live(int id, Pos pos, int level) {
+        public Live(int id, Pos pos) {
+            this(id, pos, 0);
+        }
+    }
+
+    /**
+     * Pure: the level of an ad-hoc hunting ground (no catalogue ground there) from the player's level and the levels of
+     * the catalogue grounds around (their mobs). Live test 2026-10-22: a lv 11 bot was sent next to a lv 45 player in a
+     * 40+ area because every ad-hoc ground was "1-10".
+     * @param mobLevels max levels of the grounds near the player (may be empty)
+     */
+    static int adHocLevel(int playerLevel, List<Integer> mobLevels) {
+        int mobs = 0;
+        if (!mobLevels.isEmpty()) {
+            long sum = 0;
+            for (int l : mobLevels) {
+                sum += l;
+            }
+            mobs = (int) Math.round(sum / (double) mobLevels.size());
+        }
+        if ((playerLevel > 0) && (mobs > 0)) {
+            // around the player, pulled toward the mobs, never far from him
+            return Math.max(1, Math.min(PaperLevel.MAX, Math.max(playerLevel - 5, Math.min(playerLevel + 3, (playerLevel + mobs) / 2))));
+        }
+        if (playerLevel > 0) {
+            return Math.min(PaperLevel.MAX, playerLevel);
+        }
+        return mobs > 0 ? mobs : 10;
     }
 
     /** Presence summary for per-minute INFO logging. */
@@ -56,9 +85,14 @@ public final class Director {
     /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
     /** @param clanId phase 7d bot clan (0 = none; provisional or stock) */
     /** @param clanStockPending phase 7e: provisional clan leader — prefer spawn so stock Clan+crest appear */
-    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending) {
+    /** @param pk a PK persona: only hunting grounds, never a town (no PK in towns) */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending, boolean pk) {
+        public Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending) {
+            this(botId, level, lastLogout, race, activity, clanId, clanStockPending, false);
+        }
+
         public Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId) {
-            this(botId, level, lastLogout, race, activity, clanId, false);
+            this(botId, level, lastLogout, race, activity, clanId, false, false);
         }
 
         public Candidate(int botId, int level, long lastLogout, int race, double activity) {
@@ -438,7 +472,7 @@ public final class Director {
                 continue;
             }
             byPlace.computeIfAbsent(a.place(), k -> new ArrayList<>()).add(b);
-            if (!t.lingered && !isPresenceBot(b) && (t.seenSince != 0) && ((now - t.seenSince) > linger(c, b.seed()))) {
+            if (!t.lingered && !isPresenceBot(b) && !isCrowd(a) && (t.seenSince != 0) && ((now - t.seenSince) > linger(c, b.seed()))) {
                 lingering.add(b);
             }
         }
@@ -473,12 +507,18 @@ public final class Director {
             // targets (TownWanderersMultiplier scales TOWN + hunt + PASS frequency)
             final double wander = c.wanderMult();
             final Map<String, Integer> target = new LinkedHashMap<>();
+            final Map<String, Integer> crowdWant = new LinkedHashMap<>();
             int townSum = 0;
             for (Demand d : demand.values()) {
                 if (d.town()) {
                     int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density * wander);
                     if (raceOf(d.id()) >= 0) {
                         t = Math.min(t, starterTownMax);
+                    }
+                    final int crowd = (int) Math.round(gkCrowd(d.id(), hour) * density);
+                    if (crowd > 0) {
+                        crowdWant.put(d.id(), crowd);
+                        t = Math.max(t, crowd + 2); // the crowd counts as town presence, a few walk about besides
                     }
                     target.put(d.id(), t);
                     townSum += t;
@@ -514,7 +554,21 @@ public final class Director {
                 if ((have < want) && (now >= nextSpawn.getOrDefault(d.id(), 0L)) && (total < c.maxInWorld())) {
                     spawnRoom = Math.min(want - have, c.maxInWorld() - total);
                     partners.clear();
+                    crowdAt = null;
+                    if (d.town() && (crowdWant.getOrDefault(d.id(), 0) > 0)) {
+                        int crowdHave = 0;
+                        for (BotNow b : here) {
+                            if (isCrowd(b.assignment())) {
+                                crowdHave++;
+                            }
+                        }
+                        final List<Pos> gks = d.townRef().anchors("gk");
+                        if ((crowdHave < crowdWant.get(d.id())) && !gks.isEmpty()) {
+                            crowdAt = gks.get(0);
+                        }
+                    }
                     final Command m = spawn(c, now, d, cluster, live, bots, pool, terrain, createdThisTick);
+                    crowdAt = null;
                     if (m != null) {
                         out.add(m);
                         total++;
@@ -794,19 +848,23 @@ public final class Director {
                             }
                         }
                         
-                        // Get real mob spots within visibility (catalog.groundsNear with larger radius)
-                        // Use spots from nearby grounds or player position as fallback
+                        // Real mob spots and mob levels around the player (any level: the ground's band follows them)
                         final List<Pos> adHocSpots = new ArrayList<>();
+                        final List<Integer> mobLevels = new ArrayList<>();
                         for (WorldCatalog.Ground nearby : catalog.groundsNear(player.pos(), c.unseenRadius())) {
-                            if (!nearby.spots().isEmpty() && nearby.minLevel() <= 10) {
+                            if (nearby.center().distance2d(player.pos()) <= (nearby.radius() + c.unseenRadius())) {
+                                mobLevels.add(nearby.maxLevel());
+                            }
+                            if (adHocSpots.size() < 5) {
                                 for (Pos mobSpot : nearby.spots()) {
                                     if (player.pos().distance2d(mobSpot) <= c.unseenRadius()) {
                                         adHocSpots.add(mobSpot);
-                                        if (adHocSpots.size() >= 5) break;
+                                        if (adHocSpots.size() >= 5) {
+                                            break;
+                                        }
                                     }
                                 }
                             }
-                            if (adHocSpots.size() >= 5) break;
                         }
                         if (adHocSpots.isEmpty()) {
                             // Fallback: use player position offset by 300-500 units (don't stack on player)
@@ -818,14 +876,15 @@ public final class Director {
                                 player.pos().z()
                             ));
                         }
-                        
-                        // Ad-hoc ground: center at player, radius = unseenRadius, level 1-10 (starter)
+                        final int lvl = adHocLevel(player.level(), mobLevels);
+                        // huntLevels(): lo = maxLevel (aggressive 0), hi = maxLevel + 4 -> the band is lvl-2..lvl+2
+                        final int max = Math.max(1, lvl - 2);
                         spot = new WorldCatalog.Ground(
                             "adhoc_" + player.id(),
                             adHocTown,  // Starting zone town or null
                             player.pos(),
                             c.unseenRadius(),
-                            1, 10,  // Assume low-level starter area
+                            Math.max(1, max - 3), max,
                             10, 0.0, false,  // monsters=10, aggressive=0, indoor=false
                             adHocSpots
                         );
@@ -902,6 +961,34 @@ public final class Director {
 
     // ------------------------------------------------------------------ density
 
+    /** Towns with a crowd of AFK-but-in-game bots at the gatekeeper. */
+    static final Set<String> GK_CROWD_TOWNS = Set.of("dion_castle_town", "giran_castle_town", "town_of_aden", "town_of_goddard");
+    /** Anchor kind of a crowd member's assignment: where it stands AFK (near the gatekeeper). */
+    public static final String GK_AFK = "gk_afk";
+
+    /** Pure: how many stand AFK at the gatekeeper of {@code place} this hour (5..15, stable for the hour; 0 elsewhere). */
+    static int gkCrowd(String place, int hour) {
+        if (!GK_CROWD_TOWNS.contains(place)) {
+            return 0;
+        }
+        return 5 + Math.floorMod((place.hashCode() * 17) + (hour * 7), 11);
+    }
+
+    /** A crowd member (stands AFK at the gatekeeper, its own maximum: no linger leave). */
+    static boolean isCrowd(Assignment a) {
+        if (a == null) {
+            return false;
+        }
+        for (Assignment.Anchor x : a.anchors()) {
+            if (GK_AFK.equals(x.kind())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Pos crowdAt;
+
     static int townTarget(DirectorConfig c, String place, int hour, double curve) {
         final double lo;
         final double hi;
@@ -969,6 +1056,9 @@ public final class Director {
             return null;
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
+        if (d.town()) {
+            cands.removeIf(Candidate::pk); // no PK in towns: PK personas only on hunting grounds
+        }
         // starting village or one of its grounds up to level 20: only its race (S5); elsewhere any
         final int race = d.town() ? raceOf(d.townRef().id()) : StarterZones.raceOfGround(d.groundRef());
         Candidate back = null;
@@ -1015,7 +1105,13 @@ public final class Director {
         final Assignment a;
         if (d.town()) {
             final WorldCatalog.Town t = d.townRef();
-            a = new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), t.anchors(), null);
+            List<Assignment.Anchor> anchors = t.anchors();
+            if (crowdAt != null) {
+                // one of the crowd at the gatekeeper: stands AFK there (the brain picks its own spot, >= 50 from others)
+                anchors = new ArrayList<>(anchors);
+                anchors.add(new Assignment.Anchor(GK_AFK, crowdAt));
+            }
+            a = new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), anchors, null);
         } else {
             final WorldCatalog.Ground g = d.groundRef();
             a = new Assignment(++seq, Assignment.Kind.HUNT, g.id(), g.center(), g.radius(), g.minLevel(), g.maxLevel(), g.spots(), List.of(), null);
@@ -1102,7 +1198,7 @@ public final class Director {
     /** A persona for a short appearance (transit, passer-by): one of the pool, else a new one (at most one per tick). */
     private int[] persona(DirectorConfig c, long now, Pool pool, int lo, int hi, int race, boolean createdThisTick) {
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
-        cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
+        cands.removeIf(x -> x.pk() || pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         if (!cands.isEmpty()) {
             final Candidate pick = weighted(cands, now);
             return new int[] { pick.botId(), pick.level() };

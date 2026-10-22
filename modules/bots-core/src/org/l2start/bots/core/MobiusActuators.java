@@ -675,6 +675,58 @@ final class MobiusActuators implements Actuators {
         return g.nearestGk(new Pos(p.getX(), p.getY(), p.getZ()));
     }
 
+    /** Party catch-up: no live player within this of the bot (now) or of where it lands. */
+    static final int HIDDEN = 2000;
+
+    @Override
+    public ActionResult teleportNear(Pos target) {
+        final Player p = alive();
+        if ((p == null) || (target == null)) {
+            return done("teleportNear", target, ActionResult.INVALID);
+        }
+        final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
+        if (liveWithin(at, HIDDEN, p)) {
+            return done("teleportNear", "seen here", ActionResult.NOT_REACHABLE);
+        }
+        final java.util.concurrent.ThreadLocalRandom rnd = java.util.concurrent.ThreadLocalRandom.current();
+        final org.l2jmobius.gameserver.geoengine.GeoEngine geo = org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance();
+        for (int i = 0; i < 24; i++) {
+            final double ang = rnd.nextDouble() * Math.PI * 2;
+            final int r = 2100 + rnd.nextInt(400);
+            final int x = target.x() + (int) (Math.cos(ang) * r);
+            final int y = target.y() + (int) (Math.sin(ang) * r);
+            if (!geo.hasGeo(x, y)) {
+                continue;
+            }
+            final int z = geo.getHeight(x, y, target.z());
+            if (Math.abs(z - target.z()) > 400) {
+                continue;
+            }
+            final Pos q = new Pos(x, y, z);
+            if (liveWithin(q, HIDDEN, p) || !WorldScatter.GROUND.passable(x, y, z) || WorldScatter.GROUND.water(x, y, z) || !WorldScatter.GROUND.reachable(q, target)) {
+                continue;
+            }
+            if (p.isSitting()) {
+                p.standUp();
+            }
+            p.abortAttack();
+            p.abortCast();
+            p.getAI().setIntentionActive();
+            p.teleToLocation(new org.l2jmobius.gameserver.entity.Location(x, y, z), false);
+            return done("teleportNear", x + "," + y, ActionResult.OK);
+        }
+        return done("teleportNear", "no hidden spot", ActionResult.NOT_REACHABLE);
+    }
+
+    private static boolean liveWithin(Pos at, int radius, Player self) {
+        for (Player o : World.getPlayers()) {
+            if ((o != self) && (o.isOnlineInt() == 1) && !org.l2start.platform.hooks.CoreHooks.isBot(o) && (Math.hypot(o.getX() - at.x(), o.getY() - at.y()) <= radius)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public ActionResult teleportViaGk(Pos dest) {
         final Player p = alive();

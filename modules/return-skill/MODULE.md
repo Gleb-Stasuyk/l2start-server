@@ -10,3 +10,7 @@
 клиент не знает: скилл без иконки и названия, и использовать его клиент не даёт. Поэтому взят 2099 — его клиент
 знает, а сервер его нигде не выдаёт и не использует. Файл модуля применяется после всех стоковых
 (хук `P9-DATA-SKILLS` в `SkillData.load()`), так что версия модуля всегда заменяет стоковую.
+
+## Auto-learn (live players)
+
+`AutoLearnMaxLevel` (int, default 19, reloadable): live players learn every skill of their class automatically on login and level up while their level is <= this; 0 = off. Bots are never touched (their skills stay with bots-core).

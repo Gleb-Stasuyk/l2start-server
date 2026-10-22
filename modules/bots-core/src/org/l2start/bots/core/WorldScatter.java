@@ -43,6 +43,13 @@ final class WorldScatter {
         }
 
         @Override
+        public boolean direct(Pos from, Pos to) {
+            final GeoEngine geo = GeoEngine.getInstance();
+            return geo.canMoveToTarget(from.x(), from.y(), from.z(), to.x(), to.y(), to.z(), 0)
+                && geo.canSeeTarget(from.x(), from.y(), from.z() + 40, to.x(), to.y(), to.z() + 40);
+        }
+
+        @Override
         public boolean passable(int x, int y, int z) {
             final GeoEngine geo = GeoEngine.getInstance();
             if (!geo.hasGeo(x, y)) {
@@ -91,6 +98,11 @@ final class WorldScatter {
 
     static Scatter.Result pick(Pos center, Player self) {
         return pick(center, occupied(center, self), ThreadLocalRandom.current());
+    }
+
+    /** A post in plain view of {@code center} (recruiters at a gatekeeper). */
+    static Scatter.Result post(Pos center, Player self, int max) {
+        return Scatter.pickInSight(center, occupied(center, self), GROUND, ThreadLocalRandom.current(), max);
     }
 
     static Scatter.Result pick(Pos center, List<Pos> occupied, Random rnd) {

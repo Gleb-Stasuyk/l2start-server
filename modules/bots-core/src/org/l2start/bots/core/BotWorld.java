@@ -79,10 +79,29 @@ public final class BotWorld {
      * @return null on success, otherwise why not
      */
     public synchronized String enterPrepared(BotRecord r, Location at, java.util.function.Consumer<Player> prepare) {
-        return enter(r, null, at, prepare);
+        return enter(r, null, at, prepare, 0);
+    }
+
+    /**
+     * Log a bot in at a post (a recruiter at its gatekeeper): within {@code radius} of {@code at}, in plain view of it
+     * (straight walk and line of sight, never behind a wall).
+     */
+    public synchronized String enterAtPost(BotRecord r, Location at, int radius, java.util.function.Consumer<Player> prepare) {
+        return enter(r, null, at, prepare, Math.max(Scatter.POST_MIN + 10, radius));
+    }
+
+    /** Move a bot that is in the world to a post in plain view of {@code at}. @return where */
+    public static Pos toPost(Player p, Pos at, int radius) {
+        final Scatter.Result s = WorldScatter.post(at, p, radius);
+        p.teleToLocation(WorldScatter.loc(s.pos()), false);
+        return s.pos();
     }
 
     private String enter(BotRecord r, Location near, Location exact, java.util.function.Consumer<Player> prepare) {
+        return enter(r, near, exact, prepare, 0);
+    }
+
+    private String enter(BotRecord r, Location near, Location exact, java.util.function.Consumer<Player> prepare, int post) {
         if ((r.status() != BotRecord.Status.ACTIVE) && (r.status() != BotRecord.Status.TRADER)) {
             return r.name() + " is retired";
         }
@@ -102,8 +121,14 @@ public final class BotWorld {
         final int race = raceOf(r);
         final Pos around = (sz != null) && sz.foreign(race, wanted) ? sz.village(race).center() : wanted;
         final List<Pos> occupied = WorldScatter.occupied(around, p);
-        final org.l2start.bots.director.EnterPoint placed = org.l2start.bots.director.EnterPoint.decide(wanted, near != null ? "near" : exact != null ? "exact" : "saved", store, race, sz,
-            occupied, terrain, WorldScatter.GROUND, ThreadLocalRandom.current());
+        final org.l2start.bots.director.EnterPoint placed;
+        if (post > 0) {
+            final Scatter.Result s = Scatter.pickInSight(wanted, occupied, WorldScatter.GROUND, ThreadLocalRandom.current(), post);
+            placed = new org.l2start.bots.director.EnterPoint(wanted, s.pos(), "post", s.fallback(), s.tries(), false);
+        } else {
+            placed = org.l2start.bots.director.EnterPoint.decide(wanted, near != null ? "near" : exact != null ? "exact" : "saved", store, race, sz,
+                occupied, terrain, WorldScatter.GROUND, ThreadLocalRandom.current());
+        }
         final String source = placed.source();
         final Pos from = placed.from();
         if (placed.raceMoved()) {

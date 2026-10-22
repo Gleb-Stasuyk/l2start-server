@@ -16,6 +16,8 @@ public final class IdleWatch {
     static final long AGAIN_MS = 3 * 60_000L;
     /** ACTIVE bot this long without moving: a WARN in the log (diagnostics). */
     public static final long WARN_STILL_MS = 60_000;
+    /** S3: the maximum of the "AFK at the gatekeeper" state (2 h plus a little slack for the logout). */
+    public static final long AFK_TOWN_MAX_MS = 125 * 60_000L;
 
     public enum Verdict {
         OK, IDLE, IDLE_AGAIN
@@ -25,6 +27,7 @@ public final class IdleWatch {
     static long limit(Activity.Kind k) {
         return switch (k) {
             case AFK -> 10 * 60_000L;
+            case AFK_TOWN -> AFK_TOWN_MAX_MS;
             case REST -> 3 * 60_000L;
             case FIGHT -> 2 * 60_000L;
             case TRANSIT -> 15_000L;

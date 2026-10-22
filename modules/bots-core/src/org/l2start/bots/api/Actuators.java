@@ -171,4 +171,13 @@ public interface Actuators {
     default ActionResult teleportViaGk(Pos dest) {
         return ActionResult.INVALID;
     }
+
+    /**
+     * Party catch-up: appear on the ground near {@code target} (1.8-2.4k from it), never in sight of a live player: not
+     * where it stands now (nobody sees it go) and not where it lands. {@link ActionResult#NOT_REACHABLE} = it is seen
+     * right now or no hidden walkable point was found (walk / try later).
+     */
+    default ActionResult teleportNear(Pos target) {
+        return ActionResult.INVALID;
+    }
 }

@@ -33,6 +33,56 @@ public final class Scatter {
 
         /** The point is in water. */
         boolean water(int x, int y, int z);
+
+        /** A straight walk and a clear line of sight between the points (no pathfinding detour, no wall between). */
+        default boolean direct(Pos from, Pos to) {
+            return reachable(from, to);
+        }
+    }
+
+    /** Posts (recruiters, town spots): close to the centre, in plain view of it. */
+    public static final int POST_MIN = 40;
+    public static final int POST_MAX = 220;
+    public static final int POST_CLEAR = 50;
+
+    /**
+     * A point {@link #POST_MIN}..{@code max} around {@code center} that can be walked to in a straight line and seen
+     * from it (live test 2026-10-22: a Gludio recruiter was put 345 away behind the Dark Elf guild wall, reachable only by
+     * pathfinding). At least {@link #POST_CLEAR} from others. Nothing fits: the centre ({@link Result#fallback()}).
+     */
+    public static Result pickInSight(Pos center, Collection<Pos> occupied, Ground ground, Random rnd, int max) {
+        final int outer = Math.max(POST_MIN + 10, max);
+        for (int i = 0; i < TRIES; i++) {
+            final double ang = rnd.nextDouble() * Math.PI * 2;
+            final double r = POST_MIN + (rnd.nextDouble() * (outer - POST_MIN));
+            final int x = center.x() + (int) Math.round(Math.cos(ang) * r);
+            final int y = center.y() + (int) Math.round(Math.sin(ang) * r);
+            Pos p = new Pos(x, y, center.z());
+            if (ground.hasGeo(x, y)) {
+                final int z = ground.height(x, y, center.z());
+                if (Math.abs(z - center.z()) > MAX_DZ) {
+                    continue;
+                }
+                p = new Pos(x, y, z);
+                if (!ground.passable(x, y, z) || ground.water(x, y, z) || !ground.direct(center, p)) {
+                    continue;
+                }
+            }
+            if (!clearOf(p, occupied, POST_CLEAR)) {
+                continue;
+            }
+            return new Result(p, false, i + 1);
+        }
+        return new Result(center, true, TRIES);
+    }
+
+    static boolean clearOf(Pos p, Collection<Pos> occupied, int clear) {
+        for (Pos o : occupied) {
+            if (o.distance2d(p) < clear) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** @param fallback nothing fitted: the centre itself */

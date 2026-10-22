@@ -40,6 +40,27 @@ public final class AcademyRecruiters {
     public record Spot(String town, int x, int y, int z) {
     }
 
+    /** Academy recruiters (phase 7f) or clan recruiters (main clan, Dion/Giran/Aden/Goddard). */
+    public enum Kind {
+        ACADEMY, CLAN
+    }
+
+    public static final List<String> CLAN_TITLES = List.of("Набор в клан", "Клан ищет людей");
+    /** Clan recruiters take players from this level (lower ones go to the academies). */
+    public static final int CLAN_MIN_LEVEL = 20;
+    /** A clan recruiter invites a player who comes this close (once per {@link #APPROACH_AGAIN_MS}). */
+    static final int APPROACH = 150;
+    static final long APPROACH_AGAIN_MS = 30 * 60_000L;
+    /** Recruiters stand this close to their gatekeeper, in plain view of it. */
+    public static final int POST_RADIUS = 200;
+
+    /** Gatekeepers of the towns with clan recruiters. */
+    public static final List<Spot> CLAN_TOWNS = List.of(
+        new Spot("Dion", 15631, 142885, -2704),
+        new Spot("Giran", 83396, 147904, -3404),
+        new Spot("Aden", 146737, 25807, -2013),
+        new Spot("Goddard", 147966, -55228, -2728));
+
     /** Gatekeepers of the four starter towns. */
     public static final List<Spot> TOWNS = List.of(
         new Spot("Gludin", -80752, 149776, -3044),
@@ -68,6 +89,50 @@ public final class AcademyRecruiters {
     private final Set<Integer> activeBotIds = ConcurrentHashMap.newKeySet();
     /** live player objectId -> object id of the recruiter bot that invited it (for the join payout by trade) */
     private final Map<Integer, Integer> inviters = new ConcurrentHashMap<>();
+    private final Kind kind;
+    private final List<Spot> spots;
+    /** live player objectId -> when a clan recruiter last invited him on approach */
+    private final Map<Integer, Long> approached = new ConcurrentHashMap<>();
+    private volatile java.util.function.IntPredicate busyLeader = id -> false;
+
+    /** Russian genitive of a recruiter town ("у ГК Глудио"). */
+    public static String townGen(String town) {
+        return switch (town) {
+            case "Gludin" -> "Глудина";
+            case "Gludio" -> "Глудио";
+            case "Dion" -> "Диона";
+            case "Giran" -> "Гирана";
+            case "Aden" -> "Адена";
+            case "Goddard" -> "Годдарда";
+            default -> town;
+        };
+    }
+
+    /** Pure: where the recruiter stands, for its shout. */
+    public static String standsAt(String town) {
+        return "Стою у ГК " + townGen(town) + ".";
+    }
+
+    /** Pure: the clan recruiter's shout (clan info and where it stands). */
+    public static String clanShoutLine(String clanName, int clanLevel, String hallTown, int members, String town) {
+        final String hall = (hallTown == null) || hallTown.isBlank() ? "" : ", КХ в " + hallTown;
+        return "Клан " + clanName + " (" + clanLevel + " лвл" + hall + ", " + members + " чел.) набирает людей " + CLAN_MIN_LEVEL + "+! "
+            + standsAt(town) + " Пиши в ПМ или подходи";
+    }
+
+    /** Pure: may a clan recruiter take this player. */
+    public static boolean clanEligible(boolean hasClan, int level) {
+        return !hasClan && (level >= CLAN_MIN_LEVEL);
+    }
+
+    /** Leaders the other recruiter kind already uses (one bot cannot stand at two gatekeepers). */
+    public void setBusyLeader(java.util.function.IntPredicate busy) {
+        busyLeader = busy == null ? id -> false : busy;
+    }
+
+    public Kind kind() {
+        return kind;
+    }
 
     /** Russian name of a recruiter town. */
     public static String townRu(String town) {
@@ -76,6 +141,8 @@ public final class AcademyRecruiters {
             case "Gludio" -> "Глудио";
             case "Dion" -> "Дионе";
             case "Giran" -> "Гиране";
+            case "Aden" -> "Адене";
+            case "Goddard" -> "Годдарде";
             default -> town;
         };
     }
@@ -121,13 +188,28 @@ public final class AcademyRecruiters {
     private volatile long shoutMaxMs = SHOUT_GAP_MAX_MS;
 
     public AcademyRecruiters(ModuleContext ctx, ClanService clans, BotRegistry registry, BotWorld world) {
+        this(ctx, clans, registry, world, Kind.ACADEMY);
+    }
+
+    public AcademyRecruiters(ModuleContext ctx, ClanService clans, BotRegistry registry, BotWorld world, Kind kind) {
         this.ctx = ctx;
         this.clans = clans;
         this.registry = registry;
         this.world = world;
-        for (Spot s : TOWNS) {
-            byTown.put(s.town(), List.of(new Slot(s), new Slot(s)));
+        this.kind = kind;
+        this.spots = kind == Kind.CLAN ? CLAN_TOWNS : TOWNS;
+        for (Spot s : spots) {
+            byTown.put(s.town(), kind == Kind.CLAN ? List.of(new Slot(s)) : List.of(new Slot(s), new Slot(s)));
         }
+    }
+
+    private String title() {
+        final List<String> l = kind == Kind.CLAN ? CLAN_TITLES : TITLES;
+        return l.get(ThreadLocalRandom.current().nextInt(l.size()));
+    }
+
+    private boolean ownTitle(String t) {
+        return kind == Kind.CLAN ? CLAN_TITLES.contains(t) : isRecruiterTitle(t);
     }
 
     public void configure(boolean on) {
@@ -217,7 +299,7 @@ public final class AcademyRecruiters {
 
     public List<String> statusLines() {
         final List<String> out = new ArrayList<>();
-        for (Spot s : TOWNS) {
+        for (Spot s : spots) {
             final List<Slot> slots = byTown.get(s.town());
             int n = 0;
             final StringBuilder names = new StringBuilder();
@@ -245,7 +327,7 @@ public final class AcademyRecruiters {
             return;
         }
         final long now = System.currentTimeMillis();
-        for (Spot spot : TOWNS) {
+        for (Spot spot : spots) {
             boolean near = false;
             for (Player p : World.getPlayers()) {
                 if ((p != null) && (p.isOnlineInt() == 1) && !CoreHooks.isBot(p)
@@ -282,6 +364,9 @@ public final class AcademyRecruiters {
                 slot.seenAt = now;
                 ensureTitle(bot);
                 maybeShout(slot, bot, now);
+                if (kind == Kind.CLAN) {
+                    inviteApproaching(slot, bot, now);
+                }
             }
         }
     }
@@ -292,7 +377,7 @@ public final class AcademyRecruiters {
             return false;
         }
         final WhisperParse.Intent intent = WhisperParse.parse(text);
-        if ((intent != WhisperParse.Intent.ASK_CLAN) && !asksAcademy(text)) {
+        if ((intent != WhisperParse.Intent.ASK_CLAN) && !(kind == Kind.CLAN ? asksClan(text) : asksAcademy(text))) {
             return false;
         }
         final Player bot = to.player();
@@ -301,6 +386,30 @@ public final class AcademyRecruiters {
         }
         tryInvite(from, bot, findSlot(to.botId()), System.currentTimeMillis());
         return true;
+    }
+
+    static boolean asksClan(String text) {
+        if ((text == null) || text.isBlank()) {
+            return false;
+        }
+        final String t = text.toLowerCase(Locale.ROOT);
+        return t.contains("клан") || t.contains("clan") || t.contains("вступ") || t.contains("возьм") || t.contains("набор") || t.contains("take me")
+            || t.contains("invite") || t.contains("инвайт") || t.contains("+");
+    }
+
+    /** Clan recruiter: a live player without a clan who comes up to it gets the invite (once per half hour). */
+    private void inviteApproaching(Slot slot, Player bot, long now) {
+        for (Player p : World.getVisibleObjectsInRange(bot, Player.class, APPROACH)) {
+            if ((p.isOnlineInt() != 1) || CoreHooks.isBot(p) || !clanEligible(p.getClan() != null, p.getLevel())) {
+                continue;
+            }
+            final Long at = approached.get(p.getObjectId());
+            if ((at != null) && ((now - at) < APPROACH_AGAIN_MS)) {
+                continue;
+            }
+            approached.put(p.getObjectId(), now);
+            tryInvite(p, bot, slot, now);
+        }
     }
 
     static boolean asksAcademy(String text) {
@@ -363,8 +472,12 @@ public final class AcademyRecruiters {
     private ClanStore.Row pickClan(Set<Integer> used) {
         final List<ClanStore.Row> cands = new ArrayList<>();
         for (ClanStore.Row r : clans.clans()) {
-            if (used.contains(r.clanId()) || (r.level() < 5)) {
+            if (used.contains(r.clanId()) || (r.level() < 5) || busyLeader.test(r.leaderBotId())) {
                 continue;
+            }
+            final BotRecord leader = byBot(r.leaderBotId());
+            if ((leader != null) && (leader.persona() != null) && leader.persona().pk()) {
+                continue; // no PK in towns
             }
             final Clan stock = ClanTable.getInstance().getClan(r.clanId());
             if (stock == null) {
@@ -383,10 +496,8 @@ public final class AcademyRecruiters {
             place(leader, spot, slot, row, now);
             return;
         }
-        final int dx = ThreadLocalRandom.current().nextInt(-120, 121);
-        final int dy = ThreadLocalRandom.current().nextInt(-120, 121);
-        final String title = pickTitle();
-        final String err = world.enterPrepared(leader, new Location(spot.x() + dx, spot.y() + dy, spot.z()), p -> {
+        final String title = title();
+        final String err = world.enterAtPost(leader, new Location(spot.x(), spot.y(), spot.z()), POST_RADIUS, p -> {
             p.setTitle(title);
             p.broadcastUserInfo();
         });
@@ -411,18 +522,18 @@ public final class AcademyRecruiters {
         r.setPost(true);
         ensureTitle(p);
         final double dist = Math.hypot(p.getX() - spot.x(), p.getY() - spot.y());
-        if (dist > 400) {
-            p.teleToLocation(spot.x() + ThreadLocalRandom.current().nextInt(-80, 81),
-                spot.y() + ThreadLocalRandom.current().nextInt(-80, 81), spot.z(), false);
+        if (dist > (POST_RADIUS + 50)) {
+            final org.l2start.bots.api.Pos to = BotWorld.toPost(p, new org.l2start.bots.api.Pos(spot.x(), spot.y(), spot.z()), POST_RADIUS);
+            ctx.log().info((kind == Kind.CLAN ? "clan" : "academy") + " recruiter " + r.name() + " to its post at the GK of " + spot.town() + ": " + to);
         }
         if (halls != null) {
             halls.ensureForRecruiter(row.clanId(), spot.x(), spot.y(), p);
         }
     }
 
-    private static void ensureTitle(Player p) {
-        if (!isRecruiterTitle(p.getTitle())) {
-            p.setTitle(pickTitle());
+    private void ensureTitle(Player p) {
+        if (!ownTitle(p.getTitle())) {
+            p.setTitle(title());
             p.broadcastUserInfo();
         }
     }
@@ -457,14 +568,23 @@ public final class AcademyRecruiters {
         final String name = clan == null ? "?" : clan.getName();
         final int lvl = clan == null ? 0 : clan.getLevel();
         String town = ClanHallAssign.hallTownLabel(clan);
+        if (kind == Kind.CLAN) {
+            return clanShoutLine(name, lvl, town, clan == null ? 0 : clan.getMembersCount(), slot.spot.town());
+        }
         if (town.isBlank()) {
             town = slot.spot.town();
         }
-        return ClanHallAssign.shoutLine(name, lvl, town, joinReward, gradReward);
+        return ClanHallAssign.shoutLine(name, lvl, town, joinReward, gradReward) + " " + standsAt(slot.spot.town());
     }
 
     private void tryInvite(Player live, Player bot, Slot slot, long now) {
         if ((live == null) || (bot == null) || (slot == null)) {
+            return;
+        }
+        if (kind == Kind.CLAN) {
+            if (clanEligible(live.getClan() != null, live.getLevel()) && ClanInvites.invite(bot, live, 0)) {
+                ctx.log().info("clan invite " + live.getName() + " <- " + bot.getName());
+            }
             return;
         }
         if (!AcademyRewards.eligible(live.getClan() != null, live.getLevel(), live.getPlayerClass().level())) {

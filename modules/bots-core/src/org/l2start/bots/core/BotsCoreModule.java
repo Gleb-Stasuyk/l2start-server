@@ -58,6 +58,8 @@ public final class BotsCoreModule implements GameModule {
     private org.l2start.bots.clan.ClanHallBids clanHallBids;
     private org.l2start.bots.clan.ClanHallAssign clanHallAssign;
     private org.l2start.bots.clan.AcademyRecruiters academyRecruiters;
+    /** Clan recruiters (main clan) at the gatekeepers of Dion, Giran, Aden and Goddard. */
+    private org.l2start.bots.clan.AcademyRecruiters clanRecruiters;
     private org.l2start.bots.clan.AcademyRewards academyRewards;
     private volatile boolean clanInvitePlayers = true;
     private volatile boolean clanJoinPlayers = true;
@@ -78,6 +80,10 @@ public final class BotsCoreModule implements GameModule {
         world = new BotWorld(repo, ctx.log());
         academyRecruiters = new org.l2start.bots.clan.AcademyRecruiters(ctx, clans, registry, world);
         academyRecruiters.setHalls(clanHallAssign);
+        clanRecruiters = new org.l2start.bots.clan.AcademyRecruiters(ctx, clans, registry, world, org.l2start.bots.clan.AcademyRecruiters.Kind.CLAN);
+        clanRecruiters.setHalls(clanHallAssign);
+        academyRecruiters.setBusyLeader(id -> clanRecruiters.isRecruiter(id));
+        clanRecruiters.setBusyLeader(id -> academyRecruiters.isRecruiter(id));
         brains = new BrainHost(ctx, registry, world, this::brainLogout);
         world.setListener(new BotWorld.Listener() {
             @Override
@@ -290,7 +296,7 @@ public final class BotsCoreModule implements GameModule {
 
     /** Phase 7f: director must not logout academy recruiters while on duty. */
     public boolean isAcademyRecruiter(int botId) {
-        return (academyRecruiters != null) && academyRecruiters.isRecruiter(botId);
+        return ((academyRecruiters != null) && academyRecruiters.isRecruiter(botId)) || ((clanRecruiters != null) && clanRecruiters.isRecruiter(botId));
     }
 
     /**
@@ -385,6 +391,25 @@ public final class BotsCoreModule implements GameModule {
                     clanHallAssign.maintainAllOwned();
                 } catch (Exception e) {
                     ctx.log().warn("clan hall cwh top-up: " + e.getMessage());
+                }
+            });
+        }
+        if (clanRecruiters != null) {
+            if (director != null) {
+                clanRecruiters.setForceEnter(director::requestClanLeaderEnter);
+            }
+            ctx.scheduler().fixedRate("clan recruiters presence", Duration.ofSeconds(25), Duration.ofSeconds(10), () -> {
+                try {
+                    clanRecruiters.presence();
+                } catch (Exception e) {
+                    ctx.log().warn("clan recruiters presence: " + e.getMessage());
+                }
+            });
+            ctx.scheduler().fixedRate("clan recruiters tick", Duration.ofSeconds(17), Duration.ofSeconds(5), () -> {
+                try {
+                    clanRecruiters.tick();
+                } catch (Exception e) {
+                    ctx.log().warn("clan recruiters: " + e.getMessage());
                 }
             });
         }
@@ -763,6 +788,11 @@ public final class BotsCoreModule implements GameModule {
             final int[] shout = org.l2start.bots.clan.AcademyRecruiters.parseIntervalSec(ctx.config().getString("AcademyShoutIntervalSec"));
             academyRecruiters.setShoutIntervalSec(shout[0], shout[1]);
         }
+        if (clanRecruiters != null) {
+            clanRecruiters.configure(ctx.config().getBoolean("ClanRecruiters"));
+            final int[] shout = org.l2start.bots.clan.AcademyRecruiters.parseIntervalSec(ctx.config().getString("AcademyShoutIntervalSec"));
+            clanRecruiters.setShoutIntervalSec(shout[0], shout[1]);
+        }
         if (academyRewards != null) {
             long join = 50_000L;
             long grad = 150_000L;
@@ -909,6 +939,9 @@ public final class BotsCoreModule implements GameModule {
                 r.whisper(from.getName(), e.getText());
                 ctx.metrics().counter("whispersReceived").inc();
                 if ((academyRecruiters != null) && academyRecruiters.onWhisper(from, r, e.getText())) {
+                    return;
+                }
+                if ((clanRecruiters != null) && clanRecruiters.onWhisper(from, r, e.getText())) {
                     return;
                 }
                 brains.post(r, new BotEvent.Whisper(from.getName(), e.getText()));

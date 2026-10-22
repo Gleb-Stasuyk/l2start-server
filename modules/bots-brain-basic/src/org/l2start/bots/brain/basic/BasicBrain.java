@@ -293,6 +293,9 @@ public final class BasicBrain implements Brain {
         if ((o != null) && (o.kind() == Assignment.Kind.TRANSIT)) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.TRANSIT, false, phaseSince);
         }
+        if ((gkAfkSince > 0) && (now < gkAfkUntil)) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.AFK_TOWN, false, gkAfkSince);
+        }
         if (afkUntil > now) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.AFK, false, afkSince);
         }
@@ -1289,6 +1292,9 @@ public final class BasicBrain implements Brain {
 
     private void newOrder(BrainContext ctx, SelfView me, long now, Assignment a) {
         ctx.note("order " + a);
+        gkAfkSpot = null;
+        gkAfkSince = 0;
+        gkAfkUntil = 0;
         errand = null;
         arrivedAt = 0;
         stuck = 0;
@@ -1397,6 +1403,57 @@ public final class BasicBrain implements Brain {
     private final java.util.Set<Pos> badAnchors = new java.util.HashSet<>();
 
     /** Errands in town: purposeful runs between gatekeeper, shops, warehouse and trainers; groups; never sits. */
+    // ------------------------------------------------------------------ AFK crowd at a big town's gatekeeper
+
+    static final long GK_AFK_MIN_MS = 20 * 60_000L;
+    static final long GK_AFK_MAX_MS = 120 * 60_000L;
+    private Pos gkAfkSpot;
+    private long gkAfkSince;
+    private long gkAfkUntil;
+
+    /** Pure: how long a crowd member stays AFK at the gatekeeper (20 min .. 2 h). */
+    static long gkAfkStay(double roll) {
+        return GK_AFK_MIN_MS + (long) (Math.max(0, Math.min(1, roll)) * (GK_AFK_MAX_MS - GK_AFK_MIN_MS));
+    }
+
+    /** One of the crowd at the gatekeeper: walks to its own spot near the GK, stands or sits there AFK, then logs out. */
+    private long gkAfk(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a) {
+        Assignment.Anchor gk = null;
+        for (Assignment.Anchor x : a.anchors()) {
+            if ("gk_afk".equals(x.kind())) {
+                gk = x;
+            }
+        }
+        if (gk == null) {
+            return 0;
+        }
+        if (gkAfkSpot == null) {
+            final double ang = ctx.rnd().nextDouble() * Math.PI * 2;
+            final int r = 90 + ctx.rnd().nextInt(260);
+            gkAfkSpot = new Pos(gk.pos().x() + (int) (Math.cos(ang) * r), gk.pos().y() + (int) (Math.sin(ang) * r), gk.pos().z());
+        }
+        if (gkAfkSince == 0) {
+            if (me.pos().distance2d(gkAfkSpot) > 80) {
+                detail = "to the gatekeeper crowd";
+                return walk(ctx, w, me, gkAfkSpot, now);
+            }
+            gkAfkSince = now;
+            gkAfkUntil = now + gkAfkStay(ctx.rnd().nextDouble());
+            ctx.act().stop();
+            if (ctx.rnd().nextDouble() < 0.4) {
+                ctx.act().sit();
+            }
+            ctx.note("AFK at the gatekeeper for " + ((gkAfkUntil - now) / 60_000) + " min");
+        }
+        if (now >= gkAfkUntil) {
+            ctx.note("AFK over: teleported away (logout at the gatekeeper)");
+            ctx.act().logout();
+            return 5000;
+        }
+        detail = "AFK at the gatekeeper";
+        return 5000;
+    }
+
     private long town(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
@@ -1407,6 +1464,10 @@ public final class BasicBrain implements Brain {
         if ((attacker != null) && !me.inPeaceZone()) {
             standIfSitting(ctx, me);
             return startFight(ctx, me, attacker, now);
+        }
+        final long crowd = gkAfk(ctx, w, me, now, a);
+        if (crowd > 0) {
+            return crowd;
         }
         if (me.sitting()) { // nobody sits in town
             ctx.act().stand();
@@ -2985,8 +3046,15 @@ public final class BasicBrain implements Brain {
     }
 
     /** Phase 6d: in town near a live player, occasionally shout LFP/LFM. */
+    /** Below this level a bot never looks for a party in shout or trade chat. */
+    static final int LFP_MIN_LEVEL = 40;
+
+    static boolean lfpAllowed(int level) {
+        return level >= LFP_MIN_LEVEL;
+    }
+
     private void maybeShoutLfp(BrainContext ctx, WorldView w, SelfView me, long now) {
-        if (!social || (ptMateId != 0) || me.dead() || leavingSocial(ctx)) {
+        if (!social || (ptMateId != 0) || me.dead() || leavingSocial(ctx) || !lfpAllowed(me.level())) {
             return;
         }
         if (!inTownForLfp(ctx, me)) {
@@ -3014,7 +3082,7 @@ public final class BasicBrain implements Brain {
         final String intent = botParty && (w.partyLeader() || (w.party().size() <= 1)) ? "LFM" : "LFP";
         final Assignment order = ctx.assignment();
         final String spot = (order == null) || (order.place() == null) ? "" : order.place();
-        final String channel = (me.level() >= 20) && ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
+        final String channel = ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
         final String lang = ctx.info().lang();
         speak(ctx, channel, null, intent,
             Map.of("level", Integer.toString(me.level()), "class", ClassLabels.name(me.classId(), lang),
@@ -3689,7 +3757,7 @@ public final class BasicBrain implements Brain {
             ptCatchingUp = true;
             ptWaiting = true; // "жди" / patience still means we try; phrase is WAIT
             speak(ctx, "PARTY", null, "WAIT", Map.of(), now + ctx.reactionDelay());
-            ctx.note("catches up to " + ptMate + " via gatekeeper (up to 10 min)");
+            ctx.note("catches up to " + ptMate + " (up to 10 min)");
         }
         if (fightId != 0) {
             final long d = fight(ctx, w, me, now);
@@ -3701,35 +3769,39 @@ public final class BasicBrain implements Brain {
             return startFight(ctx, me, attacker, now);
         }
         standIfSitting(ctx, me);
-        final Pos gk = ctx.act().nearestGk();
         final double meToMate = me.pos().distance2d(mate.pos());
-        if (gk != null) {
-            final double dGk = me.pos().distance2d(gk);
-            // walk to the GK when it is not farther from the mate than we are (hop can help)
-            final boolean towardMate = gk.distance2d(mate.pos()) <= (meToMate + 200);
-            if ((dGk > 150) && towardMate) {
-                ptGkTriedAt = null;
-                detail = "catch-up to gk";
-                return walk(ctx, w, me, gk, now);
-            }
-            if (dGk <= 150) {
-                // hop already asked here with no move: same town — run to the mate
-                if ((ptGkTriedAt != null) && (ptGkTriedAt.distance2d(me.pos()) < 80)) {
-                    detail = "catch-up run";
-                    return walk(ctx, w, me, mate.pos(), now);
-                }
-                ptGkTriedAt = me.pos();
-                final org.l2start.bots.api.ActionResult r = ctx.act().teleportViaGk(mate.pos());
-                detail = "catch-up teleport";
-                if (r == org.l2start.bots.api.ActionResult.NOT_REACHABLE) {
-                    return walk(ctx, w, me, gk, now);
-                }
-                return 2500;
-            }
+        final String route = catchUpRoute(meToMate, now >= ptTeleportNextAt);
+        if (!route.equals(ptRoute)) {
+            ptRoute = route;
+            ctx.note("route to " + ptMate + " (" + (int) meToMate + " away): " + route);
         }
-        ptGkTriedAt = null;
+        if (route.equals(ROUTE_TELEPORT)) {
+            final org.l2start.bots.api.ActionResult r = ctx.act().teleportNear(mate.pos());
+            if (r.ok()) {
+                ctx.note("route: appeared near " + ptMate + " out of sight, runs to him");
+                detail = "catch-up teleport";
+                ptRoute = "";
+                return 1500;
+            }
+            ptTeleportNextAt = now + 10_000; // seen right now or no hidden spot: run, try again in a while
+        }
         detail = "catch-up run";
         return walk(ctx, w, me, mate.pos(), now);
+    }
+
+    static final String ROUTE_RUN = "run";
+    static final String ROUTE_TELEPORT = "teleport near him out of sight";
+    /** Closer than this a party bot just runs to its mate. */
+    static final int CATCH_UP_RUN = 6000;
+    private String ptRoute = "";
+    private long ptTeleportNextAt;
+
+    /**
+     * Pure: how a party bot gets to its mate (live test 2026-10-22: ToporGena hopped Giran-Dion-Giran by gatekeeper
+     * while its mate stood on an ad-hoc ground). Near: it runs; far: it appears near him out of his sight (no GK hops).
+     */
+    static String catchUpRoute(double distance, boolean mayTeleport) {
+        return (distance > CATCH_UP_RUN) && mayTeleport ? ROUTE_TELEPORT : ROUTE_RUN;
     }
 
     /** For //bots info. */

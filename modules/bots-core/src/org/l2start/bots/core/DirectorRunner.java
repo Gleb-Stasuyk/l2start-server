@@ -101,7 +101,7 @@ public final class DirectorRunner {
         final List<Director.Live> l = new ArrayList<>();
         for (Player p : World.getPlayers()) {
             if ((p.isOnlineInt() == 1) && !module.registry().isBot(p)) {
-                l.add(new Director.Live(p.getObjectId(), new Pos(p.getX(), p.getY(), p.getZ())));
+                l.add(new Director.Live(p.getObjectId(), new Pos(p.getX(), p.getY(), p.getZ()), p.getLevel()));
             }
         }
         int id = -1;
@@ -277,7 +277,7 @@ public final class DirectorRunner {
                 final int clanId = module.clans() == null ? 0 : module.clans().clanIdOf(r.botId());
                 final boolean stockPending = (module.clans() != null) && module.clans().needsStockPromotion(r.botId());
                 l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()),
-                    activity(r.persona(), now), clanId, stockPending));
+                    activity(r.persona(), now), clanId, stockPending, (r.persona() != null) && r.persona().pk()));
             }
         }
         return l;
@@ -317,6 +317,12 @@ public final class DirectorRunner {
     private final java.util.concurrent.atomic.AtomicInteger maxBotsSkipped = new java.util.concurrent.atomic.AtomicInteger();
     private volatile long maxBotsLogAt;
 
+    /** Pure: no PK in towns (town stays, gatekeeper transits, errands): PK personas only on hunting grounds and roads. */
+    static boolean pkMayGo(boolean pk, org.l2start.bots.api.Assignment.Kind kind) {
+        return !pk || !((kind == org.l2start.bots.api.Assignment.Kind.TOWN) || (kind == org.l2start.bots.api.Assignment.Kind.TRANSIT)
+            || (kind == org.l2start.bots.api.Assignment.Kind.ERRANDS));
+    }
+
     private void materialize(Director.Command.Materialize m) {
         final BotRecord known = m.botId() == 0 ? null : byId(m.botId());
         if (stopping || ((known != null) && !busy.add(known.botId()))) {
@@ -347,6 +353,10 @@ public final class DirectorRunner {
                     r.setProgress(m.level(), System.currentTimeMillis(), 1);
                 }
                 final BotRecord bot = r;
+                if (!pkMayGo(bot.persona() != null && bot.persona().pk(), m.assignment().kind())) {
+                    ctx.log().info("director: PK " + bot.name() + " is not sent to the town " + m.assignment().place() + " (no PK in towns)");
+                    return;
+                }
                 final long now = System.currentTimeMillis();
                 bot.setAssignment(m.assignment());
                 bot.setGroup(m.group());

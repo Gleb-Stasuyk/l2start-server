@@ -95,6 +95,7 @@
     "ClanHallBids": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7f: bot clans place stock ClanHallAuction bids." },
     "ClanHallBidShare": { "type": "string", "default": "0.55", "reloadable": true, "description": "Phase 7f: share of open clan-hall auctions bot clans bid on (~50-60%)." },
     "ClanHallBidBudget": { "type": "string", "default": "200000000", "reloadable": true, "description": "Phase 7f: max adena one bot clan may put into CH bids (funds CWH)." },
+    "ClanRecruiters": { "type": "bool", "default": true, "reloadable": true, "description": "Clan recruiters (main clan of bot clans) at the gatekeepers of Dion, Giran, Aden and Goddard: shout clan info and where they stand, invite players (level 20+, no clan) who whisper or come up to them." },
     "AcademyRecruiters": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7f: academy recruiters near GK in Gludin/Gludio/Dion/Giran." },
     "AcademyShoutIntervalSec": { "type": "string", "default": "30-100", "reloadable": true, "description": "Phase 7 polish: per-bot shout/trade-chat interval for academy recruiters (seconds, min-max). Outside the 6g SocialBoard world LFP limit." },
     "AcademyJoinReward": { "type": "string", "default": "50000", "reloadable": true, "description": "Phase 7f: adena paid once to a live player joining a bot-clan academy." },

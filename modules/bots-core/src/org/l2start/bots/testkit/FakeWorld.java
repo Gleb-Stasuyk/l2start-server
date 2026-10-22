@@ -1203,6 +1203,16 @@ public final class FakeWorld {
         }
 
         @Override
+        public ActionResult teleportNear(Pos target) {
+            if (dead || (target == null)) {
+                return ActionResult.INVALID;
+            }
+            sitting = false;
+            pos = new Pos(target.x() + 2000, target.y(), target.z());
+            return ActionResult.OK;
+        }
+
+        @Override
         public ActionResult teleportViaGk(Pos dest) {
             if (dead || sitting || (dest == null)) {
                 return ActionResult.INVALID;
