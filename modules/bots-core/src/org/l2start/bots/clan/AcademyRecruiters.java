@@ -47,7 +47,7 @@ public final class AcademyRecruiters {
 
     public static final List<String> CLAN_TITLES = List.of("Набор в клан", "Клан ищет людей");
     /** Clan recruiters take players from this level (lower ones go to the academies). */
-    public static final int CLAN_MIN_LEVEL = 20;
+    public static final int CLAN_MIN_LEVEL = 40;
     /** A clan recruiter invites a player who comes this close (once per {@link #APPROACH_AGAIN_MS}). */
     static final int APPROACH = 150;
     static final long APPROACH_AGAIN_MS = 30 * 60_000L;

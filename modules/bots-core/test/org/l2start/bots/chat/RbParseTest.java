@@ -65,4 +65,34 @@ class RbParseTest {
         assertFalse(RbParse.levelFits(37, 40));
         assertFalse(RbParse.levelFits(44, 40));
     }
+
+    private static long dd(String text) {
+        return RbParse.parse(text).stream().filter(x -> x.role() == RbParse.Role.DD).count();
+    }
+
+    @Test
+    void countsInBothLanguagesAndWordOrders() {
+        assertEquals(4, dd("lfp 4 dd rb"));
+        assertEquals(4, dd("ищу 4 дд на рб"));
+        assertEquals(3, dd("lf 3 dd for rb"));
+        assertEquals(4, dd("need dd x4 rb"));
+        assertEquals(4, dd("нужно дд х4 на рб"));
+        assertEquals(2, dd("2х дд рб"));
+        assertEquals(5, dd("LFP 5 DD RB"));
+        assertEquals(4, RbParse.parse("lfp 4 dd rb").size(), "exactly the places asked for");
+        assertEquals(RbParse.MAX_SLOTS, dd("lfp 9 dd rb"));
+        assertEquals(1, dd("lv 45 dd for rb"), "a level is not a count");
+    }
+
+    @Test
+    void englishRoleWords() {
+        assertEquals(List.of(RbParse.Role.TANK, RbParse.Role.BISHOP, RbParse.Role.PROPHET, RbParse.Role.DD, RbParse.Role.DD, RbParse.Role.DD),
+            roles("lf tank bish pp sh sps necro for rb"));
+        assertEquals(List.of(RbParse.Role.BISHOP), roles("need bishop for rb"));
+        assertEquals(Set.of(RbParse.SPELLHOWLER), RbParse.parse("lf sh rb").get(0).classes());
+        assertEquals(Set.of(RbParse.SPELLSINGER), RbParse.parse("lf sps rb").get(0).classes());
+        assertEquals(Set.of(RbParse.NECROMANCER), RbParse.parse("lf necro rb").get(0).classes());
+        assertEquals(2, RbParse.parse("need 2 sh for rb").size());
+        assertEquals(List.of(RbParse.Role.TANK, RbParse.Role.DD, RbParse.Role.DD), roles("rb: tank + 2 dd"));
+    }
 }

@@ -60,6 +60,23 @@ public final class RaidPlay {
     }
 
     /** Centre of the other party members (and the leader) that are alive and near. Null = nobody. */
+    /** The circle the one with the boss on it runs round the party: its radius stays within these. */
+    public static final int KITE_MIN = 250;
+    public static final int KITE_MAX = 500;
+    /** One step round the circle. */
+    public static final double KITE_STEP_DEG = 40;
+
+    /** The next point on the circle round {@code center} through (about) {@code at}, {@code dir} 1 or -1. */
+    public static Pos circleStep(Pos center, Pos at, int radius, double stepDeg, int dir) {
+        final double a = Math.atan2(at.y() - center.y(), at.x() - center.x()) + (Math.toRadians(stepDeg) * dir);
+        return new Pos((int) Math.round(center.x() + (Math.cos(a) * radius)), (int) Math.round(center.y() + (Math.sin(a) * radius)), at.z());
+    }
+
+    /** Radius of the kite circle: where it stands now, kept within {@link #KITE_MIN}..{@link #KITE_MAX}. */
+    public static int kiteRadius(Pos center, Pos at) {
+        return (int) Math.max(KITE_MIN, Math.min(KITE_MAX, center.distance2d(at)));
+    }
+
     public static Pos center(List<PartyMember> party, int range) {
         long x = 0;
         long y = 0;

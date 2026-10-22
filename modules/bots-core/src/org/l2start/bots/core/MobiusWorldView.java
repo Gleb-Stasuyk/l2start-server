@@ -257,6 +257,38 @@ final class MobiusWorldView implements WorldView {
         return n.isRaid() ? BOSS_RAID : BOSS_NONE;
     }
 
+    @Override
+    public List<PartyPet> partyPets() {
+        final List<PartyPet> out = new ArrayList<>();
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        final List<Player> owners = pt == null ? List.of(p) : pt.getMembers();
+        final Pos me = pos(p);
+        for (Player o : owners) {
+            final Summon s = o == null ? null : o.getSummon();
+            if ((s == null) || !s.isSpawned()) {
+                continue;
+            }
+            final Pos at = pos(s);
+            out.add(new PartyPet(s.getObjectId(), o.getObjectId(), s.getName(), at, at.distance(me), s.isDead()));
+        }
+        return out;
+    }
+
+    @Override
+    public int buffState(int objectId, int skillId) {
+        if (!(World.findObject(objectId) instanceof Creature c)) {
+            return BUFF_UNKNOWN;
+        }
+        final Skill s = org.l2jmobius.gameserver.data.xml.SkillData.getInstance().getSkill(skillId, 1);
+        if (c.getEffectList().isAffectedBySkill(skillId)) {
+            return BUFF_ON;
+        }
+        if ((s != null) && (s.getAbnormalType() != null) && (s.getAbnormalType() != AbnormalType.NONE) && (c.getEffectList().getBuffInfoByAbnormalType(s.getAbnormalType()) != null)) {
+            return BUFF_ON;
+        }
+        return BUFF_OFF;
+    }
+
     /** Aggro range of an aggressive monster (NPC data; the usual 300 when the data has none), else 0. */
     static int aggroRange(Npc n) {
         if (!n.isAggressive()) {
@@ -285,7 +317,7 @@ final class MobiusWorldView implements WorldView {
             return false;
         }
         return switch (s.getTargetType()) {
-            case SELF, ONE, PARTY, CLAN, PARTY_CLAN, AURA_FRIENDLY -> s.getEffectPoint() >= 0;
+            case SELF, ONE, PARTY, CLAN, PARTY_CLAN, AURA_FRIENDLY, PARTY_MEMBER, CLAN_MEMBER -> s.getEffectPoint() >= 0;
             default -> false;
         };
     }

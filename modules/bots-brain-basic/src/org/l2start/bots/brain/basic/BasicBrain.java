@@ -2022,7 +2022,7 @@ public final class BasicBrain implements Brain {
     /** One combat decision: mystics cast their nuke while MP lasts (>= 20 %), everyone else hits. */
     private void hit(BrainContext ctx, WorldView w, SelfView me, NpcView mob) {
         petAttack(ctx, me, mob, ctx.now());
-        if (petHeal(ctx, me, 50, ctx.now())) {
+        if (!rbNoHeal() && petHeal(ctx, me, 50, ctx.now())) {
             return;
         }
         final boolean petTanks = me.hasPet() && (mob.targetId() == me.petId());
@@ -2271,7 +2271,7 @@ public final class BasicBrain implements Brain {
 
     private long partyCare(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
         final List<PartyMember> pm = w.party();
-        if (!partyPlay || pm.isEmpty() || me.casting() || me.sitting() || (now < partyTried)) {
+        if (!partyPlay || pm.isEmpty() || me.casting() || me.sitting() || (now < partyTried) || rbNoHeal()) {
             return 0;
         }
         PartyMember hurt = null;
@@ -2281,12 +2281,23 @@ public final class BasicBrain implements Brain {
             }
         }
         if (rbInParty) {
-            // RB party: the bishop keeps the tank up first (it holds the boss), then the others
+            // RB party: first whoever the boss is on (the tank, or a DD it turned to), then the tank, then the others
+            final int on = rbAggroOn(w);
+            PartyMember holder = null;
             for (PartyMember m : pm) {
-                if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK) && (m.hpPct() < RB_TANK_HEAL_HP) && (m.distance() < 1200)
-                    && ((hurt == null) || (hurt.hpPct() > 30) || (PartyBuffs.roleOf(hurt.classId()) != PartyBuffs.Role.TANK))) {
-                    hurt = m;
-                    break;
+                if ((on != 0) && (m.objectId() == on) && !m.dead() && (m.hpPct() < RB_TANK_HEAL_HP) && (m.distance() < 1200)) {
+                    holder = m;
+                }
+            }
+            if (holder != null) {
+                hurt = holder;
+            } else {
+                for (PartyMember m : pm) {
+                    if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK) && (m.hpPct() < RB_TANK_HEAL_HP) && (m.distance() < 1200)
+                        && ((hurt == null) || (hurt.hpPct() > 30) || (PartyBuffs.roleOf(hurt.classId()) != PartyBuffs.Role.TANK))) {
+                        hurt = m;
+                        break;
+                    }
                 }
             }
         }
@@ -2329,8 +2340,8 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         final boolean peace = me.inPeaceZone();
-        if (rbInParty && (!"PROPHET".equals(rbRole) || (!peace && !rbBuffAsked))) {
-            return 0; // RB party: only the prophet buffs — Wind Walk in town, the full set when the party asks ("баф")
+        if (rbInParty && (!"PROPHET".equals(rbRole) || !peace || rbBuffAsked)) {
+            return 0; // RB party: only the prophet buffs — Wind Walk in town here; the full set on "баф" is rbBuffSession
         }
         for (PartyMember m : pm) {
             if (m.dead() || (m.distance() > 600)) {
@@ -3850,6 +3861,19 @@ public final class BasicBrain implements Brain {
 
     /** The bishop heals the tank below this HP % (the others below {@link #PARTY_HEAL_HP}). */
     static final double RB_TANK_HEAL_HP = 80;
+    /** A "баф" session gives up after this long (members out of reach, nothing to do). */
+    static final long RB_BUFF_SESSION_MS = 4 * 60_000L;
+    /** A buff that fails this often (refused, broken, never on the target) is left out. */
+    static final int RB_BUFF_TRIES = 3;
+    /** Buff range when the skill tells none. */
+    static final int RB_BUFF_RANGE = 600;
+    /** Summons get the buffs of a fighter (class 0). */
+    static final int RB_PET_CLASS = 0;
+    /** The tank / a DD with the boss on it takes a step round the party this often. */
+    static final long RB_KITE_MS = 1500;
+    /** Aura of Hate: the tank comes this close to the helpers first. */
+    static final int RB_AURA_REACH = 180;
+    static final long RB_AURA_MS = 8000;
     /** A tank turns the boss away from the party at most this often. */
     static final long RB_TURN_MS = 5000;
     /** Supports keep this far from the boss (heals reach, cleaves do not). */
@@ -3867,6 +3891,20 @@ public final class BasicBrain implements Brain {
     private long rbEngagedAt;
     private long rbQuietSince;
     private boolean rbBuffAsked;
+    /** The buffs still to put on, {skill id, object id, tries}: party members, their summons, the prophet itself. */
+    private List<int[]> rbBuffQueue;
+    /** The buff being cast now {skill id, object id}; checked on the target when the cast is over. */
+    private int[] rbBuffCasting;
+    private long rbBuffCastAt;
+    private long rbBuffUntil;
+    private boolean rbManaSaid;
+    private boolean rbBuffResting;
+    private int rbBuffsLanded;
+    private int rbKites;
+    private int rbKiteDir = 1;
+    private long rbKiteAt;
+    private int rbAuras;
+    private long rbAuraNext;
     private boolean rbGoAsked;
     private long rbGoAt;
     private long rbIdleSince;
@@ -3905,6 +3943,23 @@ public final class BasicBrain implements Brain {
 
     public int rbLeaving() {
         return rbLeaving;
+    }
+
+    public int rbKites() {
+        return rbKites;
+    }
+
+    public int rbAuras() {
+        return rbAuras;
+    }
+
+    public int rbBuffsLanded() {
+        return rbBuffsLanded;
+    }
+
+    /** Buffs still queued (-1 = no buff session). */
+    public int rbBuffsLeft() {
+        return rbBuffQueue == null ? -1 : rbBuffQueue.size();
     }
 
     public int rbTurns() {
@@ -3972,6 +4027,10 @@ public final class BasicBrain implements Brain {
         if (RaidPlay.wantsBuff(c.text())) {
             if ("PROPHET".equals(rbRole)) {
                 rbBuffAsked = true;
+                rbBuffQueue = null; // planned at the next decision: everyone, their summons, itself
+                rbBuffCasting = null;
+                rbManaSaid = false;
+                rbBuffResting = false;
                 partyBuffed.clear();
                 partyTried = 0;
                 ctx.note("rb party: " + c.from() + " asks for buffs");
@@ -4162,9 +4221,9 @@ public final class BasicBrain implements Brain {
         if (pc > 0) {
             return pc;
         }
-        if (rbBuffAsked && (now > (partyTried + 6000))) {
-            rbBuffAsked = false;
-            speak(ctx, "PARTY", null, "BUFFED", Map.of("player", lead.name()), now + ctx.reactionDelay());
+        final long buffing = rbBuffSession(ctx, w, me, lead, now, attacker);
+        if (buffing > 0) {
+            return buffing; // nothing else (no formation walk) breaks a buff
         }
         // when the fight starts: the leader hits a raid boss, or says "го"
         final NpcView t = lead.targetId() == 0 ? null : w.npc(lead.targetId());
@@ -4299,6 +4358,290 @@ public final class BasicBrain implements Brain {
      * party; the damage dealers wait for that a moment, then hit what the leader hits; the bishop and the prophet keep
      * back and heal (partyCare runs before this).
      */
+    /** A DD of an RB party only deals damage: no heals of itself, the others or its summon. */
+    private boolean rbNoHeal() {
+        return (rbCallerId != 0) && "DD".equals(rbRole);
+    }
+
+    /** Who the raid boss of the party is on now (0 = nobody, no boss). */
+    private int rbAggroOn(WorldView w) {
+        NpcView b = rbBossId == 0 ? null : w.npc(rbBossId);
+        if ((b == null) || b.dead()) {
+            b = null;
+            for (NpcView n : w.npcs()) {
+                if (!n.dead() && (n.distance() < 2500) && (w.bossKind(n.objectId()) == WorldView.BOSS_RAID)) {
+                    b = n;
+                    break;
+                }
+            }
+        }
+        return b == null ? 0 : b.targetId();
+    }
+
+    /**
+     * The one the boss is on runs a circle round the party (a step every {@link #RB_KITE_MS}): the boss chases instead
+     * of standing and hitting. A step the geodata does not allow goes the other way round; neither = 0 (fight on).
+     */
+    private long rbKite(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now, String what) {
+        if (now < rbKiteAt) {
+            return 0;
+        }
+        Pos center = RaidPlay.center(w.party(), 1500);
+        if (center == null) {
+            center = lead.pos();
+        }
+        final int radius = RaidPlay.kiteRadius(center, me.pos());
+        for (int turn = 0; turn < 2; turn++) {
+            final Pos step = RaidPlay.circleStep(center, me.pos(), radius, RaidPlay.KITE_STEP_DEG, rbKiteDir);
+            final Pos to = new Pos(step.x(), step.y(), w.geo().height(step));
+            if (w.geo().canMoveTo(me.pos(), to) && ctx.act().moveTo(to).ok()) {
+                rbKiteAt = now + RB_KITE_MS;
+                rbKites++;
+                detail = what;
+                return 900;
+            }
+            rbKiteDir = -rbKiteDir; // a wall: the other way round
+        }
+        rbKiteAt = now + 2000;
+        return 0;
+    }
+
+    /** The boss has helpers not on the tank: it runs up to them and pulls them all with Aura of Hate. */
+    private long rbAura(BrainContext ctx, WorldView w, SelfView me, NpcView boss, long now) {
+        final SkillView s = skill(me, HATE_AURA);
+        if ((now < rbAuraNext) || !usable(me, s)) {
+            return 0;
+        }
+        NpcView near = null;
+        int loose = 0;
+        for (NpcView n : w.npcs()) {
+            if (n.dead() || (n.objectId() == boss.objectId()) || !n.monster() || !n.attackable() || (n.targetId() == me.objectId())
+                || (n.pos().distance2d(boss.pos()) > 1200)) {
+                continue;
+            }
+            final boolean helper = (w.bossKind(n.objectId()) == WorldView.BOSS_MINION) || inParty(w, n.targetId());
+            if (helper) {
+                loose++;
+                if ((near == null) || (n.distance() < near.distance())) {
+                    near = n;
+                }
+            }
+        }
+        if ((near == null) || (near.distance() > 700)) {
+            return 0;
+        }
+        if (near.distance() > RB_AURA_REACH) {
+            standIfSitting(ctx, me);
+            detail = "goes to the helpers of " + boss.name();
+            ctx.act().moveTo(near.pos().toward(me.pos(), 60));
+            return 600;
+        }
+        final ActionResult r = ctx.act().cast(HATE_AURA, near.objectId());
+        rbAuraNext = now + (r.ok() ? RB_AURA_MS : 3000);
+        if (r.ok()) {
+            rbAuras++;
+            ctx.note("rb party: pulls " + loose + " helper(s) of " + boss.name() + " with Aura of Hate");
+            detail = "pulls the helpers of " + boss.name();
+            return 900;
+        }
+        return 0;
+    }
+
+    private static boolean inParty(WorldView w, int objectId) {
+        if (objectId == 0) {
+            return false;
+        }
+        if (objectId == w.self().objectId()) {
+            return true;
+        }
+        for (PartyMember m : w.party()) {
+            if (m.objectId() == objectId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Where a buff target is (itself, a member, a summon), null = gone or dead. */
+    private static Pos buffTargetAt(WorldView w, SelfView me, int objectId) {
+        if (objectId == me.objectId()) {
+            return me.pos();
+        }
+        for (PartyMember m : w.party()) {
+            if (m.objectId() == objectId) {
+                return m.dead() ? null : m.pos();
+            }
+        }
+        for (WorldView.PartyPet pet : w.partyPets()) {
+            if (pet.objectId() == objectId) {
+                return pet.dead() ? null : pet.pos();
+            }
+        }
+        return null;
+    }
+
+    /** "баф": the full set (town or not) for every member, every summon of the party and the prophet itself. */
+    private List<int[]> rbBuffPlan(WorldView w, SelfView me) {
+        final java.util.Set<Integer> known = new java.util.LinkedHashSet<>();
+        for (SkillView s : me.skills()) {
+            if (s != null) {
+                known.add(s.id());
+            }
+        }
+        final List<int[]> out = new ArrayList<>();
+        final List<PartyMember> pm = new ArrayList<>(w.party());
+        pm.sort(java.util.Comparator.comparing((PartyMember m) -> !m.leader())); // the leader first
+        for (PartyMember m : pm) {
+            if (!m.dead()) {
+                rbBuffFor(out, me, m.objectId(), m.classId(), known);
+            }
+        }
+        for (WorldView.PartyPet pet : w.partyPets()) {
+            if (!pet.dead()) {
+                rbBuffFor(out, me, pet.objectId(), RB_PET_CLASS, known);
+            }
+        }
+        rbBuffFor(out, me, me.objectId(), me.classId(), known);
+        return out;
+    }
+
+    private static void rbBuffFor(List<int[]> out, SelfView me, int objectId, int classId, java.util.Set<Integer> known) {
+        final List<Integer> ids = known.isEmpty() ? PartyBuffs.wanted(me.classId(), classId, false)
+            : PartyBuffs.filterLearnable(PartyBuffs.wanted(me.classId(), classId, false), known);
+        for (int id : ids) {
+            if (skill(me, id) != null) {
+                out.add(new int[] { id, objectId, 0 });
+            }
+        }
+    }
+
+    /**
+     * The prophet's buff session on "баф": one buff after another from the queue; it walks up to whoever is too far,
+     * nothing moves it while a buff is cast, a buff is done only when it is on the target, low MP: "мана", it sits and
+     * goes on. "забафал" when the queue is empty.
+     * @return the delay, 0 = no session (or a fight comes first)
+     */
+    private long rbBuffSession(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now, NpcView attacker) {
+        if (!rbBuffAsked || !"PROPHET".equals(rbRole) || (attacker != null) || (fightId != 0)) {
+            return 0;
+        }
+        if (rbBuffQueue == null) {
+            rbBuffQueue = rbBuffPlan(w, me);
+            rbBuffUntil = now + RB_BUFF_SESSION_MS;
+            rbBuffCasting = null;
+            ctx.note("rb party: buff session, " + rbBuffQueue.size() + " buffs");
+        }
+        if (rbBuffCasting != null) {
+            if ((me.casting() || "CAST".equals(me.intention()) || String.valueOf(me.intention()).endsWith("_CAST")) && ((now - rbBuffCastAt) < 15_000)) {
+                detail = "buffs";
+                return 300;
+            }
+            final int[] done = rbBuffCasting;
+            rbBuffCasting = null;
+            final int on = w.buffState(done[1], done[0]);
+            final int[] q = rbBuffQueue.stream().filter(x -> (x[0] == done[0]) && (x[1] == done[1])).findFirst().orElse(null);
+            if (on != WorldView.BUFF_OFF) {
+                rbBuffQueue.remove(q);
+                partyBuffed.put(done[0] + ">" + done[1], now + (18 * 60_000L));
+                partyBuffs++;
+                rbBuffsLanded++;
+            } else if ((q != null) && (++q[2] >= RB_BUFF_TRIES)) {
+                rbBuffQueue.remove(q);
+                ctx.note("rb party: buff " + done[0] + " never went on " + done[1]);
+            }
+        }
+        if (rbBuffQueue.isEmpty() || (now > rbBuffUntil)) {
+            final boolean all = rbBuffQueue.isEmpty();
+            rbBuffAsked = false;
+            rbBuffQueue = null;
+            rbBuffResting = false;
+            if (all) {
+                speak(ctx, "PARTY", null, "BUFFED", Map.of("player", lead.name()), now + ctx.reactionDelay());
+            } else {
+                ctx.note("rb party: buff session ran out of time");
+            }
+            return 800;
+        }
+        final int[] q = rbBuffQueue.get(0);
+        final SkillView s = skill(me, q[0]);
+        final Pos at = buffTargetAt(w, me, q[1]);
+        if ((s == null) || (at == null)) {
+            rbBuffQueue.remove(0); // no such skill now / the target is gone or dead
+            return 100;
+        }
+        int need = 0;
+        for (int[] x : rbBuffQueue) {
+            final SkillView xs = skill(me, x[0]);
+            need += xs == null ? 0 : xs.mpCost();
+        }
+        if (rbBuffResting) {
+            if ((me.mp() >= Math.min(need, me.maxMp() * 0.95)) || (me.mpPct() >= 95)) {
+                rbBuffResting = false;
+                ctx.act().stand();
+                return 1000;
+            }
+            if (!me.sitting()) {
+                ctx.act().sit();
+            }
+            detail = "sits for mana to buff";
+            return 2000;
+        }
+        if (s.mpCost() > me.mp()) {
+            if (!rbManaSaid) {
+                rbManaSaid = true;
+                speak(ctx, "PARTY", null, "RB_MANA", Map.of("player", lead.name()), now + ctx.reactionDelay());
+            }
+            if (me.moving() || me.attacking()) {
+                ctx.act().stop();
+                return 500;
+            }
+            rbBuffResting = true;
+            ctx.act().sit();
+            detail = "sits for mana to buff";
+            return 2000;
+        }
+        if (me.sitting()) {
+            ctx.act().stand();
+            return 1000;
+        }
+        if (!s.ready()) {
+            rbBuffQueue.add(rbBuffQueue.remove(0)); // reuse: the next one first
+            return 400;
+        }
+        final int range = s.castRange() >= 150 ? s.castRange() : RB_BUFF_RANGE; // self-only / unknown: the usual buff range
+        final double d = at.distance2d(me.pos());
+        if ((q[1] != me.objectId()) && (d > (range - 50))) {
+            if (d > 2500) {
+                if (++q[2] >= RB_BUFF_TRIES) {
+                    rbBuffQueue.remove(0);
+                } else {
+                    rbBuffQueue.add(rbBuffQueue.remove(0));
+                }
+                return 300;
+            }
+            ctx.act().setWalking(false);
+            detail = "goes up to buff";
+            return Math.min(1000, walk(ctx, w, me, at.toward(me.pos(), Math.max(100, range - 200)), now));
+        }
+        if (me.moving()) {
+            ctx.act().stop();
+            return 300;
+        }
+        final ActionResult r = ctx.act().cast(q[0], q[1]);
+        if (r.ok()) {
+            rbBuffCasting = new int[] { q[0], q[1] };
+            rbBuffCastAt = now;
+            detail = "buffs";
+            return 400;
+        }
+        if (++q[2] >= RB_BUFF_TRIES) {
+            rbBuffQueue.remove(0);
+        } else {
+            rbBuffQueue.add(rbBuffQueue.remove(0));
+        }
+        return r == ActionResult.COOLDOWN ? 500 : 300;
+    }
+
     private long rbFight(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now) {
         final NpcView boss = rbBossId == 0 ? null : w.npc(rbBossId);
         if ((boss != null) && boss.dead()) {
@@ -4329,6 +4672,12 @@ public final class BasicBrain implements Brain {
             case "BISHOP", "PROPHET" -> {
                 // supports keep back from the boss and near the party: heals and buffs come from partyCare
                 standIfSitting(ctx, me);
+                if (bossy && (target.targetId() == me.objectId()) && (tankOf(w) != null)) {
+                    final long k = rbKite(ctx, w, me, lead, now, "runs from " + target.name() + " till the tank takes it");
+                    if (k > 0) {
+                        return k;
+                    }
+                }
                 if (fightId != 0) {
                     endFight();
                     ctx.act().stop();
@@ -4348,20 +4697,22 @@ public final class BasicBrain implements Brain {
             }
             case "TANK" -> {
                 standIfSitting(ctx, me);
+                if (bossy) {
+                    final long aura = rbAura(ctx, w, me, target, now);
+                    if (aura > 0) {
+                        return aura;
+                    }
+                }
                 if (target.targetId() != me.objectId()) {
-                    taunt(ctx, me, target, now);
+                    taunt(ctx, me, target, now); // first, and again whenever the boss turns to somebody else
                 }
                 if (fightId != target.objectId()) {
                     return startFight(ctx, me, target, now, true);
                 }
-                if (bossy && (target.targetId() == me.objectId()) && (now >= rbTurnAt)) {
-                    final Pos center = RaidPlay.center(w.party(), 1500);
-                    if (RaidPlay.bossFacesParty(target.pos(), me.pos(), center)) {
-                        rbTurnAt = now + RB_TURN_MS;
-                        rbTurns++;
-                        ctx.act().moveTo(RaidPlay.tankSpot(target.pos(), center, 110));
-                        detail = "turns " + target.name() + " away from the party";
-                        return 1200;
+                if (bossy && (target.targetId() == me.objectId())) {
+                    final long k = rbKite(ctx, w, me, lead, now, "kites " + target.name() + " round the party");
+                    if (k > 0) {
+                        return k;
                     }
                 }
                 final long d = fight(ctx, w, me, now);
@@ -4375,6 +4726,12 @@ public final class BasicBrain implements Brain {
                     return 500;
                 }
                 standIfSitting(ctx, me);
+                if (bossy && (target.targetId() == me.objectId()) && (tank != null)) {
+                    final long k = rbKite(ctx, w, me, lead, now, "runs from " + target.name() + " till " + tank.name() + " takes it");
+                    if (k > 0) {
+                        return k;
+                    }
+                }
                 if (fightId != target.objectId()) {
                     detail = "assists " + lead.name();
                     return startFight(ctx, me, target, now, true);
@@ -4710,7 +5067,7 @@ public final class BasicBrain implements Brain {
         if (me.casting() || me.sitting() || me.inPeaceZone()) {
             return 0;
         }
-        if ((me.hpPct() < SELF_HEAL_HP) && (me.mpPct() >= 30) && (buffTried.getOrDefault(-1, 0L) <= now)) {
+        if ((me.hpPct() < SELF_HEAL_HP) && (me.mpPct() >= 30) && (buffTried.getOrDefault(-1, 0L) <= now) && !rbNoHeal()) {
             for (int id : HEALS) {
                 final SkillView s = skill(me, id);
                 if (usable(me, s)) {
@@ -4725,7 +5082,7 @@ public final class BasicBrain implements Brain {
                 }
             }
         }
-        if (petHeal(ctx, me, 70, now)) {
+        if (!rbNoHeal() && petHeal(ctx, me, 70, now)) {
             return 2500;
         }
         if (onGround) {

@@ -126,6 +126,11 @@
 		<ru>ну ок|ладно, видимо уже набрали|ок, не нужен так не нужен|ну ладно, удачи на рб</ru>
 		<en>ok nvm|ok, guess you're full|np, gl on rb|ok then</en>
 	</intent>
+	<!-- RB party: the prophet ran out of MP in the middle of the buffs, sits and goes on -->
+	<intent id="RB_MANA">
+		<ru>мана|сек, мана|мп кончилось, сажусь|мана, щас продолжу|сек, мп</ru>
+		<en>oom|mana, sec|out of mp, sitting|need mp, a sec|mp sec</en>
+	</intent>
 	<!-- RB party: the leader targets an epic (grand) boss -->
 	<intent id="RB_NO_EPIC">
 		<ru>не, на эпика не пойдём|эпика не потянем, давай обычного рб|на эпиков я пас|эпик не, только обычные рб</ru>
