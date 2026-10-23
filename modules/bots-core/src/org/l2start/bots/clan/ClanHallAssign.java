@@ -164,7 +164,11 @@ public final class ClanHallAssign {
                 ctx.log().info("bot clan " + clan.getName() + " assigned CH#" + pick.getId() + " (" + town + ")");
             }
         }
-        return ensureForRecruiter(clanId, nearX, nearY, actor);
+        final int r = ensureForRecruiter(clanId, nearX, nearY, actor);
+        if (clans != null) {
+            clans.gradeForTown(clanId, hallTownLabel(clan));
+        }
+        return r;
     }
 
     /** Maintain functions + CWH for a bot clan that already owns a hall. */
@@ -187,6 +191,7 @@ public final class ClanHallAssign {
                 continue;
             }
             maintainHall(clan, ownedHall(clan), onlineMember(clan));
+            clans.gradeForTown(row.clanId(), hallTownLabel(clan)); // migration too: existing clans take their town's grade
         }
     }
 

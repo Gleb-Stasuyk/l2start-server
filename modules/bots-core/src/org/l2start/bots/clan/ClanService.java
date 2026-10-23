@@ -837,6 +837,85 @@ public final class ClanService {
         return false;
     }
 
+    /**
+     * Grade of a bot clan by the town of its clan hall: clan level and the band of its members' levels (leader near the
+     * top). Gludio/Dion 5 (20-45), Giran 6 (35-60), Aden 7 (45-70), Goddard 8 (55-78); null = a town without a grade.
+     */
+    public record TownGrade(int clanLevel, int minLevel, int maxLevel, int leaderLevel) {
+    }
+
+    public static TownGrade townGrade(String town) {
+        return switch (town == null ? "" : town) {
+            case "Gludio", "Dion" -> new TownGrade(5, 20, 45, 44);
+            case "Giran" -> new TownGrade(6, 35, 60, 58);
+            case "Aden" -> new TownGrade(7, 45, 70, 68);
+            case "Goddard" -> new TownGrade(8, 55, 78, 76);
+            default -> null;
+        };
+    }
+
+    /** Pure: the level a member grows to in its clan's band (spread by its seed); levels never go down. */
+    public static int memberTarget(long seed, TownGrade g) {
+        final int span = (g.maxLevel() - g.minLevel()) + 1;
+        return g.minLevel() + (int) Math.floorMod(seed * 0x9E3779B97F4A7C15L >>> 17, (long) span);
+    }
+
+    /**
+     * Brings a bot clan to its hall town's grade: stock clan level set, offline members' paper levels raised into the
+     * band, the leader near its top (never lowered: real experience counts). Runs at start for every hall-owning bot clan.
+     */
+    public synchronized void gradeForTown(int clanId, String town) {
+        final TownGrade g = townGrade(town);
+        final ClanStore.Row row = byClan.get(clanId);
+        final Clan clan = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(clanId);
+        if ((g == null) || (row == null) || (clan == null)) {
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        int raised = 0;
+        if (clan.getLevel() != g.clanLevel()) {
+            clan.changeLevel(g.clanLevel());
+            try {
+                StockClanFactory.ensureAcademy(clan);
+            } catch (Exception e) {
+                ctx.log().warn("grade academy " + clan.getName() + ": " + e.getMessage());
+            }
+        }
+        for (Map.Entry<Integer, Integer> e : botClan.entrySet()) {
+            if (e.getValue() != clanId) {
+                continue;
+            }
+            final BotRecord r = byBot(e.getKey());
+            if ((r == null) || r.inWorld()) {
+                continue;
+            }
+            final int want = r.botId() == row.leaderBotId() ? g.leaderLevel() : memberTarget(r.persona() == null ? r.charId() : r.persona().seed(), g);
+            if (r.paperLevel(now) >= want) {
+                continue;
+            }
+            r.ensureMinPaperLevel(want, now);
+            raised++;
+            if (repo != null) {
+                try {
+                    repo.saveProgress(r.botId(), r.levelBase(), r.baseAt());
+                } catch (Exception ex) {
+                    ctx.log().warn("grade progress " + r.name() + ": " + ex.getMessage());
+                }
+            }
+        }
+        if ((row.level() != g.clanLevel()) || (raised > 0)) {
+            final ClanStore.Row graded = new ClanStore.Row(row.clanId(), row.templateId(), row.name(), g.clanLevel(), row.leaderBotId(), row.targetSize(), row.status());
+            try {
+                store.updateClan(graded);
+                byClan.put(clanId, graded);
+            } catch (Exception ex) {
+                ctx.log().warn("grade clan row " + row.name() + ": " + ex.getMessage());
+            }
+            ctx.log().info("bot clan " + row.name() + " graded for " + town + ": clan lv " + g.clanLevel() + ", members " + g.minLevel() + "-" + g.maxLevel()
+                + " (" + raised + " raised), leader " + g.leaderLevel());
+        }
+    }
+
     public void removeMemberForTest(int botId) throws Exception {
         store.removeMember(botId);
         botClan.remove(botId);

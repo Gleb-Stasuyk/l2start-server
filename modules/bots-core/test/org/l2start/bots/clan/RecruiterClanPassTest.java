@@ -43,4 +43,29 @@ class RecruiterClanPassTest {
         assertTrue(AcademyRecruiters.anyRecruiterTitle("Набор в академ"), "an old title is cleared too");
         assertTrue(AcademyRecruiters.anyRecruiterTitle("Набор в клан"));
     }
+
+    @Test
+    void clansAreGradedByTheirHallTown() {
+        assertEquals(5, ClanService.townGrade("Gludio").clanLevel());
+        assertEquals(5, ClanService.townGrade("Dion").clanLevel());
+        assertEquals(6, ClanService.townGrade("Giran").clanLevel());
+        assertEquals(7, ClanService.townGrade("Aden").clanLevel());
+        assertEquals(8, ClanService.townGrade("Goddard").clanLevel());
+        assertNull(ClanService.townGrade("Heine"));
+        String prev = null;
+        for (String t : java.util.List.of("Dion", "Giran", "Aden", "Goddard")) {
+            final ClanService.TownGrade g = ClanService.townGrade(t);
+            assertTrue((g.leaderLevel() <= g.maxLevel()) && (g.leaderLevel() >= (g.maxLevel() - 3)), t + ": leader near the top");
+            if (prev != null) {
+                final ClanService.TownGrade p = ClanService.townGrade(prev);
+                assertTrue((g.minLevel() > p.minLevel()) && (g.maxLevel() > p.maxLevel()), t + " above " + prev);
+            }
+            prev = t;
+            for (long seed = 0; seed < 200; seed++) {
+                final int lv = ClanService.memberTarget(seed * 7919, g);
+                assertTrue((lv >= g.minLevel()) && (lv <= g.maxLevel()), t + " " + lv);
+            }
+        }
+        assertTrue(AcademyRecruiters.clanShoutLine("NightHawk", 8, "Goddard", 39, "Goddard").contains("8 лвл"));
+    }
 }
