@@ -133,6 +133,79 @@ public final class Director {
         default boolean canSee(Pos from, Pos to) {
             return true;
         }
+
+        /** The live monsters (alive, ordinary: no raid boss, no minion) within {@code radius} of {@code at}; empty = unknown. */
+        default List<MobSpot> monstersNear(Pos at, int radius) {
+            return List.of();
+        }
+    }
+
+    /** A live monster: where it is, its level. */
+    public record MobSpot(Pos pos, int level) {
+    }
+
+    /** Monsters this close to the player are his: a bot sent to hunt near him does not count on them. */
+    public static final int PLAYER_MOBS = 800;
+    /** A place where a hunt found nothing is not hunted again for this long. */
+    public static final long BARREN_MS = 10 * 60_000L;
+    private final Map<String, Long> barren = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile long barrenSkips;
+
+    /** A bot hunted here and found nothing (bots-core idle watch): no hunting bots are sent here for {@link #BARREN_MS}. */
+    public void markBarren(String place, long now) {
+        if (place != null) {
+            barren.put(place, now + BARREN_MS);
+        }
+    }
+
+    public boolean isBarren(String place, long now) {
+        final Long until = place == null ? null : barren.get(place);
+        if ((until != null) && (until <= now)) {
+            barren.remove(place);
+            return false;
+        }
+        return until != null;
+    }
+
+    /**
+     * An ad-hoc hunting ground around a player who stands where the catalogue has none: built from the real monsters
+     * around him (their levels, where they are), the ones right by him left to him. Null = nothing a bot could hunt
+     * there: no hunting bot is sent then.
+     * @param nearbyGrounds catalogue grounds within reach (their spots and levels count too)
+     */
+    static WorldCatalog.Ground adHocGround(String id, String town, Pos player, int radius, List<MobSpot> mobs, List<WorldCatalog.Ground> nearbyGrounds) {
+        final List<Integer> levels = new ArrayList<>();
+        final List<Pos> spots = new ArrayList<>();
+        for (MobSpot m : mobs) {
+            if ((m.pos().distance2d(player) <= PLAYER_MOBS) || (m.pos().distance2d(player) > radius)) {
+                continue;
+            }
+            levels.add(m.level());
+            if ((spots.size() < 5) && spots.stream().noneMatch(x -> x.distance2d(m.pos()) < 400)) {
+                spots.add(m.pos());
+            }
+        }
+        if (levels.isEmpty()) {
+            for (WorldCatalog.Ground g : nearbyGrounds) {
+                if (g.center().distance2d(player) > (g.radius() + radius)) {
+                    continue;
+                }
+                for (Pos sp : g.spots()) {
+                    if ((sp.distance2d(player) <= radius) && (sp.distance2d(player) > PLAYER_MOBS) && (spots.size() < 5)) {
+                        spots.add(sp);
+                        levels.add(g.minLevel());
+                        levels.add(g.maxLevel());
+                    }
+                }
+            }
+        }
+        if (levels.isEmpty() || spots.isEmpty()) {
+            return null;
+        }
+        java.util.Collections.sort(levels);
+        final int lo = levels.get((int) Math.floor((levels.size() - 1) * 0.1));
+        final int hi = levels.get((int) Math.ceil((levels.size() - 1) * 0.9));
+        return new WorldCatalog.Ground(id, town, player, radius, lo, hi, levels.size(), 0.0, false, spots);
     }
 
     public sealed interface Command {
@@ -722,6 +795,7 @@ public final class Director {
         return "adhoc_" + player.id();
     }
     private long presenceTownTopups;
+    private long presenceNoMobs;
     private long presenceLeaves;
     
     /** Ensure visible presence: field (1-3 bots farming nearby) and town (per-town ranges, traders excluded). 
@@ -848,46 +922,18 @@ public final class Director {
                             }
                         }
                         
-                        // Real mob spots and mob levels around the player (any level: the ground's band follows them)
-                        final List<Pos> adHocSpots = new ArrayList<>();
-                        final List<Integer> mobLevels = new ArrayList<>();
-                        for (WorldCatalog.Ground nearby : catalog.groundsNear(player.pos(), c.unseenRadius())) {
-                            if (nearby.center().distance2d(player.pos()) <= (nearby.radius() + c.unseenRadius())) {
-                                mobLevels.add(nearby.maxLevel());
-                            }
-                            if (adHocSpots.size() < 5) {
-                                for (Pos mobSpot : nearby.spots()) {
-                                    if (player.pos().distance2d(mobSpot) <= c.unseenRadius()) {
-                                        adHocSpots.add(mobSpot);
-                                        if (adHocSpots.size() >= 5) {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
+                        // the real monsters around him (their levels, where they are), else the catalogue's spots near him;
+                        // nothing a bot could hunt there: no hunting bot at all (it would only run about)
+                        spot = adHocGround("adhoc_" + player.id(), adHocTown, player.pos(), c.unseenRadius(), terrain.monstersNear(player.pos(), c.unseenRadius()),
+                            catalog.groundsNear(player.pos(), c.unseenRadius()));
+                        if (spot == null) {
+                            presenceNoMobs++;
+                            continue;
                         }
-                        if (adHocSpots.isEmpty()) {
-                            // Fallback: use player position offset by 300-500 units (don't stack on player)
-                            final double angle = Math.random() * 2 * Math.PI;
-                            final int dist = 300 + (int) (Math.random() * 200);
-                            adHocSpots.add(new Pos(
-                                player.pos().x() + (int) (Math.cos(angle) * dist),
-                                player.pos().y() + (int) (Math.sin(angle) * dist),
-                                player.pos().z()
-                            ));
-                        }
-                        final int lvl = adHocLevel(player.level(), mobLevels);
-                        // huntLevels(): lo = maxLevel (aggressive 0), hi = maxLevel + 4 -> the band is lvl-2..lvl+2
-                        final int max = Math.max(1, lvl - 2);
-                        spot = new WorldCatalog.Ground(
-                            "adhoc_" + player.id(),
-                            adHocTown,  // Starting zone town or null
-                            player.pos(),
-                            c.unseenRadius(),
-                            Math.max(1, max - 3), max,
-                            10, 0.0, false,  // monsters=10, aggressive=0, indoor=false
-                            adHocSpots
-                        );
+                    }
+                    if (isBarren(spot.id(), now)) {
+                        barrenSkips++;
+                        continue;
                     }
                     
                     // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
@@ -1040,6 +1086,10 @@ public final class Director {
     }
 
     private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, List<BotNow> bots, Pool pool, Terrain terrain, boolean createdThisTick) {
+        if (!d.town() && isBarren(d.id(), now)) {
+            barrenSkips++;
+            return null; // a hunt there just found nothing
+        }
         final int lo;
         final int hi;
         if (d.town()) {
@@ -1599,7 +1649,7 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " presence=" + presenceFieldTopups + "/" + presenceTownTopups + " leaves=" + presenceLeaves + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " presence=" + presenceFieldTopups + "/" + presenceTownTopups + " leaves=" + presenceLeaves + " noMobs=" + presenceNoMobs + " barren=" + barrenSkips + (density < 1 ? " density=" + density : "");
     }
 
     /** Per-minute presence summary for INFO logging (separate line from DIRECTOR status). */

@@ -120,6 +120,9 @@ final class MobiusActuators implements Actuators {
         if (world.requireGeodata() && !GeoEngine.getInstance().hasGeo(to.x(), to.y())) {
             return done("moveTo", to, ActionResult.NOT_REACHABLE);
         }
+        if (MobiusGeo.water(to.x(), to.y(), GeoEngine.getInstance().hasGeo(to.x(), to.y()) ? GeoEngine.getInstance().getHeight(to.x(), to.y(), to.z()) : to.z())) {
+            return done("moveTo", to, ActionResult.NOT_REACHABLE); // bots never walk into the water of their own will
+        }
         if ((GeoEngineConfig.PATHFINDING == 0) && !GeoEngine.getInstance().canMoveToTarget(p.getX(), p.getY(), p.getZ(), to.x(), to.y(), to.z(), p.getInstanceId())) {
             return done("moveTo", to, ActionResult.NOT_REACHABLE);
         }

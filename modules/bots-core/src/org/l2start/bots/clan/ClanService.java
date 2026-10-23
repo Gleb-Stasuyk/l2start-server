@@ -805,6 +805,38 @@ public final class ClanService {
         return templateId.hashCode();
     }
 
+    /**
+     * A full bot clan makes room for a live player: one offline bot member (not the leader, not a trader) leaves it, on
+     * paper and in the stock clan. @return true when a place was freed
+     */
+    public synchronized boolean makeRoom(int clanId) {
+        final Clan clan = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(clanId);
+        if (clan == null) {
+            return false;
+        }
+        for (Map.Entry<Integer, Integer> e : botClan.entrySet()) {
+            if ((e.getValue() != clanId) || isLeader(e.getKey())) {
+                continue;
+            }
+            final BotRecord r = registry.all().stream().filter(x -> x.botId() == e.getKey()).findFirst().orElse(null);
+            if ((r == null) || r.inWorld() || (r.status() == BotRecord.Status.TRADER) || (clan.getClanMember(r.charId()) == null)
+                || (clan.getClanMember(r.charId()).getPledgeType() != 0)) {
+                continue;
+            }
+            try {
+                store.removeMember(r.botId());
+                botClan.remove(r.botId());
+                clan.removeClanMember(r.charId(), 0);
+                ctx.log().info("bot clan " + clan.getName() + " full: " + r.name() + " leaves it to make room for a player");
+                return true;
+            } catch (Exception ex) {
+                ctx.log().warn("make room in " + clan.getName() + ": " + ex.getMessage());
+                return false;
+            }
+        }
+        return false;
+    }
+
     public void removeMemberForTest(int botId) throws Exception {
         store.removeMember(botId);
         botClan.remove(botId);

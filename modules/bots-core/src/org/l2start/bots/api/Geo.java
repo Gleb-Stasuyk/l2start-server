@@ -20,4 +20,9 @@ public interface Geo {
     default boolean pathfinding() {
         return false;
     }
+
+    /** The point is in water (a water zone): bots never pick it as a place to go; false = dry or unknown. */
+    default boolean water(Pos p) {
+        return false;
+    }
 }

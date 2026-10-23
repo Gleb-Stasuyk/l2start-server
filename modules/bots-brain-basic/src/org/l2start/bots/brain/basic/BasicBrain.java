@@ -118,6 +118,32 @@ public final class BasicBrain implements Brain {
         return fightId != 0;
     }
 
+    /** A hunt that has found nothing to fight for this long gives the place up (the idle watch reports it). */
+    static final long HUNT_EMPTY_MS = 4 * 60_000L;
+    /** Since when the hunt (on its ground) has found nothing to fight; 0 = it is fighting / not hunting. */
+    private long huntIdleSince;
+    private long huntIdleSeq = Long.MIN_VALUE;
+
+    @Override
+    public boolean huntEmpty() {
+        return (huntIdleSince > 0) && ((ctxNow - huntIdleSince) >= HUNT_EMPTY_MS) && (currentOrder != null) && (currentOrder.kind() == Assignment.Kind.HUNT);
+    }
+
+    /** In the water (it never goes there by itself, but got there somehow): walks to the nearest dry ground. */
+    private long outOfWater(BrainContext ctx, WorldView w, SelfView me, long now) {
+        for (int radius : new int[] { 600, 1200, 2000 }) {
+            for (int i = 0; i < 4; i++) {
+                final Optional<Pos> p = w.geo().randomReachablePoint(me.pos(), radius, ctx.rnd());
+                if (p.isPresent() && !w.geo().water(p.get())) {
+                    detail = "out of the water";
+                    ctx.act().moveTo(p.get());
+                    return 2000;
+                }
+            }
+        }
+        return 0;
+    }
+
     @Override
     public void stop(BrainContext ctx) {
         claims.releaseAll(botId);
@@ -202,6 +228,12 @@ public final class BasicBrain implements Brain {
         }
         if (me.teleporting()) {
             return 500;
+        }
+        if ((fightId == 0) && w.geo().water(me.pos())) {
+            final long dry = outOfWater(ctx, w, me, now);
+            if (dry > 0) {
+                return dry;
+            }
         }
         // phase 7b: PvP before companion / director so protect of a live party mate still runs
         final long pv = pvp(ctx, w, me, now);
@@ -1891,7 +1923,12 @@ public final class BasicBrain implements Brain {
             final NpcView mob = chooseMob(ctx, w, me, now);
             if (mob != null) {
                 errand = null;
+                huntIdleSince = 0;
                 return startFight(ctx, me, mob, now);
+            }
+            if ((huntIdleSince == 0) || (huntIdleSeq != a.seq())) {
+                huntIdleSince = now; // on the ground, nothing to fight: the clock starts
+                huntIdleSeq = a.seq();
             }
         }
         if (toZone > a.radius() && (errand == null)) {
@@ -2978,7 +3015,8 @@ public final class BasicBrain implements Brain {
 
     private Map<String, String> whisperVars(BrainContext ctx, SelfView me, PlayerView from, String lang) {
         final Assignment order = ctx.assignment();
-        String spot = (order == null) || (order.place() == null) || order.place().isBlank() ? "" : order.place();
+        String spot = (order == null) || (order.kind() != Assignment.Kind.HUNT) || (order.place() == null) || order.place().startsWith("adhoc_") ? ""
+            : org.l2start.bots.api.PlaceNames.say(order.place(), lang == null ? ctx.info().lang() : lang);
         if (spot.isEmpty()) {
             spot = (lang != null && lang.toUpperCase(java.util.Locale.ROOT).startsWith("EN")) ? "around here" : "тут рядом";
         }
@@ -3117,14 +3155,27 @@ public final class BasicBrain implements Brain {
         final boolean botParty = !w.party().isEmpty() && allBots(w.party());
         final String intent = botParty && (w.partyLeader() || (w.party().size() <= 1)) ? "LFM" : "LFP";
         final Assignment order = ctx.assignment();
-        final String spot = (order == null) || (order.place() == null) ? "" : order.place();
-        final String channel = ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
         final String lang = ctx.info().lang();
+        final String spot = lfpSpot(order, me, lang, ctx.rnd());
+        final String channel = ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
         speak(ctx, channel, null, intent,
             Map.of("level", Integer.toString(me.level()), "class", ClassLabels.name(me.classId(), lang),
                 "role", roleWord(me.classId(), lang), "spot", spot, "player", ""), now);
         lfpShoutAt = now;
         ctx.note("lfp " + intent + " via " + channel);
+    }
+
+    /**
+     * Where a party search goes: a hunting ground fitting its level (its own HUNT ground, else a catalogue ground near it),
+     * never a town; said by its human name. "" = no fitting ground (the phrase goes without a place).
+     */
+    static String lfpSpot(Assignment order, SelfView me, String lang, java.util.Random rnd) {
+        if ((order != null) && (order.kind() == Assignment.Kind.HUNT) && (order.place() != null) && !order.place().startsWith("adhoc_")
+            && (me.level() >= (order.minLevel() - 2)) && (me.level() <= (order.maxLevel() + 3))) {
+            return org.l2start.bots.api.PlaceNames.say(order.place(), lang);
+        }
+        final org.l2start.bots.api.PlaceNames.Ground g = org.l2start.bots.api.PlaceNames.forLevel(me.level(), me.pos(), rnd);
+        return g == null ? "" : org.l2start.bots.api.PlaceNames.say(g.id(), lang);
     }
 
     private boolean inTownForLfp(BrainContext ctx, SelfView me) {

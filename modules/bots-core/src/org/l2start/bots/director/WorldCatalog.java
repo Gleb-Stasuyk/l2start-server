@@ -280,6 +280,21 @@ public final class WorldCatalog {
             grounds.add(new Ground(e.getAttribute("id"), e.getAttribute("town"), pos(e), num(e, "radius"), num(e, "minLevel"), num(e, "maxLevel"), num(e, "monsters"),
                 Double.parseDouble(e.getAttribute("aggressive")), Boolean.parseBoolean(e.getAttribute("indoor")), List.copyOf(spots)));
         }
+        final Map<String, String[]> names = new HashMap<>();
+        final List<org.l2start.bots.api.PlaceNames.Ground> named = new ArrayList<>();
+        for (Town t : towns) {
+            names.put(t.id(), new String[] { t.name(), t.name() });
+        }
+        for (int i = 0; i < gl.getLength(); i++) {
+            final Element e = (Element) gl.item(i);
+            // world.xml names every ground (CatalogDataTest fails otherwise); a hand-made test catalogue may not
+            final String ru = e.getAttribute("name").isBlank() ? org.l2start.bots.api.PlaceNames.humanize(e.getAttribute("id")) : e.getAttribute("name");
+            names.put(e.getAttribute("id"), new String[] { ru, e.getAttribute("nameEn").isBlank() ? ru : e.getAttribute("nameEn") });
+            if (num(e, "monsters") >= 6) {
+                named.add(new org.l2start.bots.api.PlaceNames.Ground(e.getAttribute("id"), ru, e.getAttribute("nameEn"), pos(e), num(e, "minLevel"), num(e, "maxLevel")));
+            }
+        }
+        org.l2start.bots.api.PlaceNames.register(names, named);
         return new WorldCatalog(towns, grounds);
     }
 

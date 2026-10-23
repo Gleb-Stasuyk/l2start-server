@@ -30,8 +30,11 @@ import org.l2start.platform.hooks.CoreHooks;
  */
 public final class AcademyRecruiters {
     /** Legacy default; prefer {@link #pickTitle()}. */
-    public static final String TITLE = "Набор в академ";
-    public static final List<String> TITLES = List.of("Набор в академ", "LF academ");
+    public static final String TITLE = "Набор в академию";
+    /** Academy recruiters' title while on duty (one fixed text, as Gleb asked; 16 chars = the client limit). */
+    public static final List<String> TITLES = List.of(TITLE);
+    /** Titles older builds used: still recognised (and cleared) as recruiter titles. */
+    static final List<String> OLD_TITLES = List.of("Набор в академ", "LF academ", "Клан ищет людей");
     private static final int NEAR = 6000;
     private static final long STAY_MS = 5 * 60_000L;
     private static final long SHOUT_GAP_MIN_MS = 30_000L;
@@ -45,7 +48,7 @@ public final class AcademyRecruiters {
         ACADEMY, CLAN
     }
 
-    public static final List<String> CLAN_TITLES = List.of("Набор в клан", "Клан ищет людей");
+    public static final List<String> CLAN_TITLES = List.of("Набор в клан");
     /** Clan recruiters take players from this level (lower ones go to the academies). */
     public static final int CLAN_MIN_LEVEL = 40;
     /** A clan recruiter invites a player who comes this close (once per {@link #APPROACH_AGAIN_MS}). */
@@ -115,7 +118,7 @@ public final class AcademyRecruiters {
 
     /** Pure: the clan recruiter's shout (clan info and where it stands). */
     public static String clanShoutLine(String clanName, int clanLevel, String hallTown, int members, String town) {
-        final String hall = (hallTown == null) || hallTown.isBlank() ? "" : ", КХ в " + hallTown;
+        final String hall = (hallTown == null) || hallTown.isBlank() ? "" : ", КХ в " + townRu(hallTown);
         return "Клан " + clanName + " (" + clanLevel + " лвл" + hall + ", " + members + " чел.) набирает людей " + CLAN_MIN_LEVEL + "+! "
             + standsAt(town) + " Пиши в ПМ или подходи";
     }
@@ -247,7 +250,12 @@ public final class AcademyRecruiters {
     }
 
     static boolean isRecruiterTitle(String title) {
-        return TITLES.contains(title) || TITLE.equals(title) || "Набор в академию".equals(title);
+        return TITLES.contains(title) || OLD_TITLES.contains(title);
+    }
+
+    /** Any recruiter title (academy, clan, old ones): a bot entering off duty drops it. */
+    public static boolean anyRecruiterTitle(String title) {
+        return isRecruiterTitle(title) || CLAN_TITLES.contains(title);
     }
 
     /** Parse {@code "30-100"} → {30, 100}; bad input → defaults. */
@@ -444,14 +452,14 @@ public final class AcademyRecruiters {
             if (slot.botId > 0) {
                 continue;
             }
-            final ClanStore.Row row = pickClan(usedClans);
+            final ClanStore.Row row = pickClan(usedClans, spot.town());
             if (row == null) {
                 break;
             }
             ensureAcademy(row.clanId());
             // assign hall ownership early (no payer yet); functions enabled after place()
             if (halls != null) {
-                halls.ensureForRecruiter(row.clanId(), spot.x(), spot.y(), null);
+                hall(row.clanId(), spot, null);
             }
             final BotRecord leader = byBot(row.leaderBotId());
             if (leader == null) {
@@ -469,7 +477,30 @@ public final class AcademyRecruiters {
         }
     }
 
-    private ClanStore.Row pickClan(Set<Integer> used) {
+    /** A clan recruiter's clan has its clan hall in the recruiter's own town (it says so in its shout). */
+    private void hall(int clanId, Spot spot, Player p) {
+        if (kind == Kind.CLAN) {
+            halls.ensureInTown(clanId, spot.town(), spot.x(), spot.y(), p);
+        } else {
+            halls.ensureForRecruiter(clanId, spot.x(), spot.y(), p);
+        }
+    }
+
+    /** Pure: how well a clan suits a clan recruiter of a town (higher = better): its hall there, room for a player, no hall elsewhere. */
+    public static int clanFit(String hallTown, String town, int members, int maxMembers) {
+        int s = 0;
+        if (town.equals(hallTown)) {
+            s += 4;
+        } else if ((hallTown == null) || hallTown.isBlank()) {
+            s += 1;
+        }
+        if (members < maxMembers) {
+            s += 2;
+        }
+        return s;
+    }
+
+    private ClanStore.Row pickClan(Set<Integer> used, String town) {
         final List<ClanStore.Row> cands = new ArrayList<>();
         for (ClanStore.Row r : clans.clans()) {
             if (used.contains(r.clanId()) || (r.level() < 5) || busyLeader.test(r.leaderBotId())) {
@@ -487,6 +518,22 @@ public final class AcademyRecruiters {
         }
         if (cands.isEmpty()) {
             return null;
+        }
+        if (kind == Kind.CLAN) {
+            int best = -1;
+            final List<ClanStore.Row> top = new ArrayList<>();
+            for (ClanStore.Row r : cands) {
+                final Clan c = ClanTable.getInstance().getClan(r.clanId());
+                final int f = clanFit(ClanHallAssign.hallTownLabel(c), town, c.getSubPledgeMembersCount(0), c.getMaxNrOfMembers(0));
+                if (f > best) {
+                    best = f;
+                    top.clear();
+                }
+                if (f == best) {
+                    top.add(r);
+                }
+            }
+            return top.get(ThreadLocalRandom.current().nextInt(top.size()));
         }
         return cands.get(ThreadLocalRandom.current().nextInt(cands.size()));
     }
@@ -527,7 +574,7 @@ public final class AcademyRecruiters {
             ctx.log().info((kind == Kind.CLAN ? "clan" : "academy") + " recruiter " + r.name() + " to its post at the GK of " + spot.town() + ": " + to);
         }
         if (halls != null) {
-            halls.ensureForRecruiter(row.clanId(), spot.x(), spot.y(), p);
+            hall(row.clanId(), spot, p);
         }
     }
 
@@ -582,8 +629,25 @@ public final class AcademyRecruiters {
             return;
         }
         if (kind == Kind.CLAN) {
-            if (clanEligible(live.getClan() != null, live.getLevel()) && ClanInvites.invite(bot, live, 0)) {
+            final Clan clan = bot.getClan();
+            if (clan == null) {
+                return;
+            }
+            if (clanEligible(live.getClan() != null, live.getLevel()) && (clan.getSubPledgeMembersCount(0) >= clan.getMaxNrOfMembers(0))) {
+                clans.makeRoom(clan.getId()); // a bot clan full of bots: an offline bot gives a live player its place
+            }
+            final String no = clanRefusal(live.getClan() == null ? null : live.getClan().getName(), live.getLevel(), live.getClanJoinExpiryTime(),
+                clan.getCharPenaltyExpiryTime(), clan.getSubPledgeMembersCount(0), clan.getMaxNrOfMembers(0), System.currentTimeMillis());
+            if (no != null) {
+                tell(bot, live, no);
+                ctx.log().info("clan invite " + live.getName() + " <- " + bot.getName() + " refused: " + no);
+                return;
+            }
+            if (ClanInvites.invite(bot, live, 0)) {
                 ctx.log().info("clan invite " + live.getName() + " <- " + bot.getName());
+            } else {
+                tell(bot, live, "Не выходит пригласить сейчас, попробуй чуть позже.");
+                ctx.log().info("clan invite " + live.getName() + " <- " + bot.getName() + " failed (stock join condition)");
             }
             return;
         }
@@ -595,6 +659,38 @@ public final class AcademyRecruiters {
             inviters.put(live.getObjectId(), bot.getObjectId());
             ctx.log().info("academy invite " + live.getName() + " <- " + bot.getName());
         }
+    }
+
+    /**
+     * Pure: why a clan recruiter cannot take this player (Russian, whispered back), null = it can. Same rules as the stock
+     * join check, in the order a player would want to hear them.
+     */
+    public static String clanRefusal(String playerClan, int level, long joinExpiry, long clanPenalty, int members, int maxMembers, long now) {
+        if (playerClan != null) {
+            return "Ты уже в клане " + playerClan + ". Выйди из него, тогда возьму.";
+        }
+        if (level < CLAN_MIN_LEVEL) {
+            return "Беру с " + CLAN_MIN_LEVEL + " лвл. Пока иди в академию, там тоже платят.";
+        }
+        if (joinExpiry > now) {
+            return "Ты недавно вышел из клана: вступить можно через " + hours(joinExpiry - now) + ".";
+        }
+        if (clanPenalty > now) {
+            return "Мы недавно исключили человека: принимать сможем через " + hours(clanPenalty - now) + ".";
+        }
+        if (members >= maxMembers) {
+            return "Клан сейчас полон, мест нет. Загляни позже.";
+        }
+        return null;
+    }
+
+    private static String hours(long ms) {
+        final long h = Math.max(1, (ms + 3_599_999L) / 3_600_000L);
+        return h + " ч.";
+    }
+
+    private static void tell(Player bot, Player live, String text) {
+        live.sendPacket(new CreatureSay(bot, ChatType.WHISPER, bot.getName(), text));
     }
 
     private Slot findSlot(int botId) {

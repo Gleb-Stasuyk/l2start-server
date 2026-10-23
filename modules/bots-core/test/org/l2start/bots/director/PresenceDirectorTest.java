@@ -40,7 +40,7 @@ class PresenceDirectorTest {
         int field = 0;
         // the bots never arrive within the window (still materializing): they stay pending and count
         for (; now < until; now += 2000) {
-            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> pool, p -> p)) {
+            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> pool, TestTerrain.mobsAround(1, 5))) {
                 if ((c instanceof Director.Command.Materialize m) && (m.assignment().kind() == Assignment.Kind.HUNT) && m.assignment().place().startsWith("adhoc_")) {
                     field++;
                 }
@@ -56,7 +56,7 @@ class PresenceDirectorTest {
         long now = 1_000_000_000L;
         int created = 0;
         for (int t = 0; t < 10; t++, now += 2000) {
-            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> List.of(), p -> p)) {
+            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> List.of(), TestTerrain.mobsAround(1, 5))) {
                 if ((c instanceof Director.Command.Materialize m) && (m.botId() == 0) && (m.assignment().kind() == Assignment.Kind.HUNT)) {
                     created++;
                     assertEquals(3, m.race(), "an orc for the orc starting zone");
@@ -111,7 +111,7 @@ class PresenceDirectorTest {
         long now = 1_000_000_000L;
         Director.Command.Materialize top = null;
         for (int t = 0; (t < 20) && (top == null); t++, now += 2000) {
-            for (Director.Command c : d.tick(now, 20, List.of(me), List.of(), (lo, hi, x) -> pool, p -> p)) {
+            for (Director.Command c : d.tick(now, 20, List.of(me), List.of(), (lo, hi, x) -> pool, TestTerrain.mobsAround(1, 5))) {
                 if ((c instanceof Director.Command.Materialize m) && m.assignment().place().startsWith("adhoc_")) {
                     top = m;
                 }
@@ -123,7 +123,7 @@ class PresenceDirectorTest {
         final Pos far = new Pos(ORC_CREATION.x() + 3800, ORC_CREATION.y(), ORC_CREATION.z());
         for (int t = 0; t < 60; t++, now += 2000) {
             final Director.BotNow b = new Director.BotNow(id, far, top.assignment(), false, 1);
-            for (Director.Command c : d.tick(now, 20, List.of(me), List.of(b), (lo, hi, x) -> pool, p -> p)) {
+            for (Director.Command c : d.tick(now, 20, List.of(me), List.of(b), (lo, hi, x) -> pool, TestTerrain.mobsAround(1, 5))) {
                 assertFalse((c instanceof Director.Command.Logout l) && (l.botId() == id), "presence bot logged out while walking in: " + c);
             }
         }
@@ -135,7 +135,7 @@ class PresenceDirectorTest {
         d.setCanCreate(false);
         long now = 1_000_000_000L;
         for (int t = 0; t < 10; t++, now += 2000) {
-            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> List.of(), p -> p)) {
+            for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(), (lo, hi, x) -> List.of(), TestTerrain.mobsAround(1, 5))) {
                 assertFalse((c instanceof Director.Command.Materialize m) && (m.botId() == 0), "ordered a new persona over the cap: " + c);
             }
         }
@@ -153,7 +153,7 @@ class PresenceDirectorTest {
         int existing = 0;
         for (int t = 0; t < 10; t++, now += 2000) {
             for (Director.Command c : d.tick(now, 20, List.of(new Director.Live(1, ORC_CREATION)), List.of(),
-                (lo, hi, x) -> pool.stream().filter(k -> (k.level() >= lo) && (k.level() <= hi)).toList(), p -> p)) {
+                (lo, hi, x) -> pool.stream().filter(k -> (k.level() >= lo) && (k.level() <= hi)).toList(), TestTerrain.mobsAround(1, 5))) {
                 if ((c instanceof Director.Command.Materialize m) && m.assignment().place().startsWith("adhoc_") && (m.botId() != 0)) {
                     existing++;
                 }

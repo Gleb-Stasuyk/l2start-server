@@ -93,6 +93,16 @@ public final class Phrases {
     }
 
     /** {player} etc. filled in; unknown variables stay as they are. */
+    /** A line whose placeholder would be filled with nothing is not said (no "ищу пати на "). */
+    public static boolean usable(String line, Map<String, String> vars) {
+        for (Map.Entry<String, String> e : vars.entrySet()) {
+            if (((e.getValue() == null) || e.getValue().isBlank()) && line.contains("{" + e.getKey() + "}")) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public static String fill(String line, Map<String, String> vars) {
         String s = line;
         for (Map.Entry<String, String> e : vars.entrySet()) {

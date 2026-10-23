@@ -722,7 +722,7 @@ class DirectorTest {
         long now = 1_000_000_000L;
         int fieldBots = 0;
         for (int t = 0; t < 60; t++, now += 2000) {
-            final List<Director.Command> cmds = d.tick(now, 20, at(orcCreation), List.of(), (lo, hi, x) -> pool, p -> p);
+            final List<Director.Command> cmds = d.tick(now, 20, at(orcCreation), List.of(), (lo, hi, x) -> pool, TestTerrain.mobsAround(1, 5));
             for (Director.Command c : cmds) {
                 if (c instanceof Director.Command.Materialize m) {
                     if (m.assignment().kind() == Assignment.Kind.HUNT) {

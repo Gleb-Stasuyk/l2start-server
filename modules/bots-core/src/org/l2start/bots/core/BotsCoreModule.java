@@ -86,6 +86,12 @@ public final class BotsCoreModule implements GameModule {
         academyRecruiters.setBusyLeader(id -> clanRecruiters.isRecruiter(id));
         clanRecruiters.setBusyLeader(id -> academyRecruiters.isRecruiter(id));
         brains = new BrainHost(ctx, registry, world, this::brainLogout);
+        brains.onBarren((place, now) -> {
+            final DirectorRunner d = director;
+            if (d != null) {
+                d.director().markBarren(place, now);
+            }
+        });
         world.setListener(new BotWorld.Listener() {
             @Override
             public void entered(BotRecord r) {
@@ -94,6 +100,11 @@ public final class BotsCoreModule implements GameModule {
                 }
                 if ((clans != null) && (r.player() != null)) {
                     clans.attachPlayer(r, r.player()); // phase 7d
+                }
+                final org.l2jmobius.gameserver.entity.actor.Player ep = r.player();
+                if ((ep != null) && !r.post() && org.l2start.bots.clan.AcademyRecruiters.anyRecruiterTitle(ep.getTitle())) {
+                    ep.setTitle(""); // a recruiter title left over from an old duty (recruiters set it again at their post)
+                    ep.broadcastUserInfo();
                 }
                 brains.entered(r);
             }

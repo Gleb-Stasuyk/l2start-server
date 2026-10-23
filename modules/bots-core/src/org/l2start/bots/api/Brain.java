@@ -29,4 +29,9 @@ public interface Brain {
     default Activity activity() {
         return null;
     }
+
+    /** On a HUNT order it has found nothing to fight for minutes: the place is barren (the idle watch reassigns / logs it out). */
+    default boolean huntEmpty() {
+        return false;
+    }
 }

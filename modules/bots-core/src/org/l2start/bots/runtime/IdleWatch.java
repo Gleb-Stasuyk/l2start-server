@@ -122,6 +122,21 @@ public final class IdleWatch {
         return !seenByLive;
     }
 
+    /** A bot idle again in sight of a live player waits this long for him to look away, then reads a Scroll of Escape. */
+    public static final long SEEN_WAIT_MS = 30_000L;
+    /** The scroll's cast (stock SoE: 20 s) plus slack; past it the escape counts as done anyway. */
+    public static final long ESCAPE_MS = 40_000L;
+
+    /** The wait in sight of a live player is over: it escapes by scroll (visible, not a sudden vanish). */
+    public static boolean escapeDue(long waitingSince, long now) {
+        return (waitingSince > 0) && ((now - waitingSince) >= SEEN_WAIT_MS);
+    }
+
+    /** The scroll did its work (it is far from where it read it) or its time is up: the bot logs out. */
+    public static boolean escaped(Pos from, Pos now, long startedAt, long at) {
+        return (from.distance2d(now) > 3000) || ((at - startedAt) >= ESCAPE_MS);
+    }
+
     /** Why the last idle verdict. */
     public String why() {
         return why;

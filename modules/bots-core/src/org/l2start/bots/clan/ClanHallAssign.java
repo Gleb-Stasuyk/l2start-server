@@ -127,6 +127,46 @@ public final class ClanHallAssign {
         return maintainHall(clan, hall, actor);
     }
 
+    /**
+     * A clan recruiter's clan: its hall is in the recruiter's town. A hall elsewhere is given back (bot clans only) and a
+     * free one of that town taken; no free hall there = it keeps what it has.
+     */
+    public int ensureInTown(int clanId, String town, int nearX, int nearY, Player actor) {
+        final Clan clan = ClanTable.getInstance().getClan(clanId);
+        if (clan == null) {
+            return 0;
+        }
+        final AuctionableHall owned = ownedHall(clan);
+        if ((owned != null) && !town.equals(owned.getLocation())) {
+            AuctionableHall free = null;
+            for (AuctionableHall h : ClanHallTable.getInstance().getFreeClanHalls().values()) {
+                if (town.equals(h.getLocation())) {
+                    free = h;
+                    break;
+                }
+            }
+            if (free == null) {
+                return maintainHall(clan, owned, actor);
+            }
+            ctx.log().info("bot clan " + clan.getName() + " gives up CH#" + owned.getId() + " (" + owned.getLocation() + ") for one in " + town);
+            ClanHallTable.getInstance().setFree(owned.getId());
+        }
+        if (ownedHall(clan) == null) {
+            AuctionableHall pick = null;
+            for (AuctionableHall h : ClanHallTable.getInstance().getFreeClanHalls().values()) {
+                if (town.equals(h.getLocation()) && ((pick == null) || (h.getId() < pick.getId()))) {
+                    pick = h;
+                }
+            }
+            if (pick != null) {
+                topUpWarehouse(clan, pick, actor != null ? actor : onlineMember(clan));
+                ClanHallTable.getInstance().setOwner(pick.getId(), clan);
+                ctx.log().info("bot clan " + clan.getName() + " assigned CH#" + pick.getId() + " (" + town + ")");
+            }
+        }
+        return ensureForRecruiter(clanId, nearX, nearY, actor);
+    }
+
     /** Maintain functions + CWH for a bot clan that already owns a hall. */
     public int ensureOwnedHall(int clanId, Player actor) {
         final Clan clan = ClanTable.getInstance().getClan(clanId);

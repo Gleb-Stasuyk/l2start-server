@@ -696,6 +696,22 @@ public final class FakeWorld {
 
     // ------------------------------------------------------------------ views
 
+    /** Water areas (circles: x, y, radius), as stock water zones. */
+    public final List<int[]> waters = new java.util.ArrayList<>();
+
+    public void addWater(int x, int y, int radius) {
+        waters.add(new int[] { x, y, radius });
+    }
+
+    public boolean inWater(Pos p) {
+        for (int[] c : waters) {
+            if (Math.hypot(p.x() - c[0], p.y() - c[1]) <= c[2]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private final Geo geo = new Geo() {
         @Override
         public boolean canMoveTo(Pos a, Pos b) {
@@ -713,12 +729,17 @@ public final class FakeWorld {
         }
 
         @Override
+        public boolean water(Pos p) {
+            return inWater(p);
+        }
+
+        @Override
         public Optional<Pos> randomReachablePoint(Pos center, int radius, Random r) {
             for (int i = 0; i < 20; i++) {
                 final double a = r.nextDouble() * Math.PI * 2;
                 final double d = r.nextDouble() * radius;
                 final Pos p = new Pos(center.x() + (int) (Math.cos(a) * d), center.y() + (int) (Math.sin(a) * d), center.z());
-                if (!blocked(center, p)) {
+                if (!blocked(center, p) && !inWater(p)) {
                     return Optional.of(p);
                 }
             }

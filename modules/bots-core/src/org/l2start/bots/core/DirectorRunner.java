@@ -160,6 +160,11 @@ public final class DirectorRunner {
                 final GeoEngine geo = GeoEngine.getInstance();
                 return !geo.hasGeo(from.x(), from.y()) || geo.canSeeTarget(from.x(), from.y(), from.z() + 40, to.x(), to.y(), to.z() + 40);
             }
+
+            @Override
+            public List<Director.MobSpot> monstersNear(Pos at, int radius) {
+                return DirectorRunner.monstersNear(at, radius);
+            }
         });
         for (Director.Command c : cmds) {
             switch (c) {
@@ -312,7 +317,31 @@ public final class DirectorRunner {
         if (Math.abs(z - approx.z()) > 2000) {
             return null;
         }
+        if (MobiusGeo.water(approx.x(), approx.y(), z)) {
+            return null; // never a spot in the water (a bot would swim)
+        }
         return new Pos(approx.x(), approx.y(), z);
+    }
+
+    /** The live ordinary monsters around a live player standing at {@code at} (the world is asked around him). */
+    static List<Director.MobSpot> monstersNear(Pos at, int radius) {
+        Player by = null;
+        for (Player p : World.getPlayers()) {
+            if ((p != null) && (Math.hypot(p.getX() - at.x(), p.getY() - at.y()) < 300)) {
+                by = p;
+                break;
+            }
+        }
+        if (by == null) {
+            return List.of();
+        }
+        final List<Director.MobSpot> out = new ArrayList<>();
+        for (org.l2jmobius.gameserver.entity.actor.Npc n : World.getVisibleObjectsInRange(by, org.l2jmobius.gameserver.entity.actor.Npc.class, radius)) {
+            if (n.isMonster() && !n.isDead() && !n.isRaid() && !n.isRaidMinion() && n.isAttackable() && !MobiusGeo.water(n.getX(), n.getY(), n.getZ())) {
+                out.add(new Director.MobSpot(new Pos(n.getX(), n.getY(), n.getZ()), n.getLevel()));
+            }
+        }
+        return out;
     }
 
     private final java.util.concurrent.atomic.AtomicInteger maxBotsSkipped = new java.util.concurrent.atomic.AtomicInteger();
