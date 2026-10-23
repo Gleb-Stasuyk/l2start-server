@@ -27,6 +27,9 @@ class RecruiterClanPassTest {
         assertTrue(ClanService.TOWN_CLAN_SIZE < ClanService.BIG_TARGET, "a town clan is never a big (mega) clan");
         assertTrue(ClanService.recruits(false));
         assertTrue(!ClanService.recruits(true), "mega clans: no recruiter, no shouts, no accepting");
+        final ClanStore.Row goddard = new ClanStore.Row(1, "storm_guard", "StormGuard", 8, 1, 40, "ACTIVE");
+        assertTrue(!ClanService.isBig(goddard, true), "Goddard's level-8 town clan is not a mega clan");
+        assertTrue(ClanService.isBig(goddard, false));
     }
 
     @Test

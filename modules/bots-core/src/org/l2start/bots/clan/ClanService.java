@@ -167,7 +167,12 @@ public final class ClanService {
     }
 
     public boolean isBig(ClanStore.Row r) {
-        return (r != null) && (r.level() >= BIG_LEVEL) && (r.targetSize() >= BIG_TARGET);
+        return isBig(r, (r != null) && (townOf(r.clanId()) != null));
+    }
+
+    /** Pure: a big (mega) clan: level 8, 40 strong, and not a town clan (Goddard's clan is level 8 too, but recruits). */
+    public static boolean isBig(ClanStore.Row r, boolean townClan) {
+        return (r != null) && !townClan && (r.level() >= BIG_LEVEL) && (r.targetSize() >= BIG_TARGET);
     }
 
     public List<ClanStore.Row> clans() {
@@ -219,6 +224,7 @@ public final class ClanService {
      */
     public synchronized void ensureFilled() {
         try {
+            townClans.putAll(store.loadTownClans()); // before the big-clan rules: town clans are never big
             migratePaperToStock();
             ensureLeadersViable();
             normalizeBigTargets();
@@ -565,7 +571,7 @@ public final class ClanService {
     private void normalizeBigTargets() throws Exception {
         int bumped = 0;
         for (ClanStore.Row row : new ArrayList<>(byClan.values())) {
-            if ((row.level() < BIG_LEVEL) || (row.targetSize() >= BIG_TARGET)) {
+            if ((row.level() < BIG_LEVEL) || (row.targetSize() >= BIG_TARGET) || (townOf(row.clanId()) != null)) {
                 continue;
             }
             if (bumped >= bigClans) {
