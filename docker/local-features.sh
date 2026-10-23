@@ -2,6 +2,8 @@
 # l2start "local" features generated from env (written by L2Launcher into .env / docker/.env). Sourced by entrypoint.sh (game role).
 #   L2S_CLASS_MASTER     = off | any of 1,2,3 (e.g. "1,2,3")  -> stock Mobius ClassMaster popup (class-choice dialog at 20/40/76), free
 #   L2S_STOCK_NPC_BUFFER = on|off   -> spawn stock Scheme Buffer NPC 50008 "Thiago" next to the gatekeepers of the main towns
+#   L2S_ENCHANT_MAX      = N   -> maxEnchant of every scroll (EnchantItemData.xml) + upper bound of the rate groups
+#   L2S_ENCHANT_CHANCE   = %   -> chance above the safe enchant (EnchantItemGroups.xml, stock 66)
 #   L2S_BUFF_DURATION    = seconds  -> duration of every buff of the stock buffers (community board + scheme buffer); 0/empty = stock
 # Community board buffer / GM shop on/off are plain ini keys (Custom/CommunityBoard.ini CommunityEnableBuffs / CommunityEnableMultisells).
 
@@ -74,7 +76,24 @@ lf_buff_duration() {
   lf_log "buff duration: ${d}s for $(echo "$ids" | wc -w) buffer skills"
 }
 
+lf_enchant() {
+  d="$L2/game/data"
+  m="${L2S_ENCHANT_MAX:-}"; c="${L2S_ENCHANT_CHANCE:-}"
+  case "$m" in ''|*[!0-9]*) m="" ;; esac
+  case "$c" in ''|*[!0-9]*) c="" ;; esac
+  if [ -n "$m" ] && [ "$m" -ge 4 ] && [ "$m" -le 65000 ]; then
+    sed -i -E "s/maxEnchant=\"[0-9]+\"/maxEnchant=\"$m\"/g" "$d/EnchantItemData.xml"
+    sed -i -E "s/enchant=\"([0-9]+)-15\"/enchant=\"\1-$((m - 1))\"/g; s/enchant=\"16-65535\"/enchant=\"$m-65535\"/g" "$d/EnchantItemGroups.xml"
+    lf_log "enchant max: +$m"
+  fi
+  if [ -n "$c" ] && [ "$c" -le 100 ]; then
+    sed -i -E "s/chance=\"66\"/chance=\"$c\"/g" "$d/EnchantItemGroups.xml"
+    lf_log "enchant chance: $c%"
+  fi
+}
+
 apply_local_features() {
+  lf_enchant
   lf_class_master
   lf_npc_buffer
   lf_buff_duration
