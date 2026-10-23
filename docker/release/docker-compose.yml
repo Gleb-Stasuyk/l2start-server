@@ -1,0 +1,108 @@
+# L2Start local server (single player). Prebuilt image, no build on this PC.
+#   install.bat  - first install (checks Docker, pulls/loads the image, starts)
+#   start.bat / stop.bat, or L2Launcher -> "Local server"
+# Settings: settings.env (launcher), modules.env (bots modules), overrides/ (ini keys). Applied on restart.
+name: l2start-local
+
+x-server: &server
+  image: "${L2S_IMAGE:-ghcr.io/gleb-stasuyk/l2start-server}:${L2S_VERSION:?set L2S_VERSION in .env}"
+  pull_policy: missing
+  restart: "no"
+  environment: &server-env
+    DB_HOST: db
+    DB_NAME: l2start
+    DB_USER: root
+    DB_PASSWORD: "${L2S_DB_PASSWORD:?run install.bat first (creates .env)}"
+    L2_PROFILE: solo
+  env_file:
+    - path: ./settings.env
+      required: false
+    - path: ./modules.env
+      required: false
+  volumes:
+    - "./overrides:/opt/l2/overrides:ro"
+  networks: [l2l-net]
+
+services:
+  db:
+    image: mariadb:11.4
+    container_name: l2l-db
+    restart: "no"
+    environment:
+      MARIADB_ROOT_PASSWORD: "${L2S_DB_PASSWORD:?run install.bat first}"
+      MARIADB_DATABASE: l2start
+      MARIADB_AUTO_UPGRADE: "1"
+    command: ["--character-set-server=utf8mb3", "--collation-server=utf8mb3_unicode_ci", "--skip-name-resolve"]
+    volumes:
+      - l2l-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [l2l-net]
+
+  db-init:
+    <<: *server
+    container_name: l2l-db-init
+    command: ["db-init"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  login:
+    <<: *server
+    container_name: l2l-login
+    command: ["login"]
+    depends_on:
+      db-init: { condition: service_completed_successfully }
+    environment:
+      <<: *server-env
+      LOGIN_XMS: 128m
+      LOGIN_XMX: 256m
+    ports:
+      - "127.0.0.1:${L2S_LOGIN_PORT:-2106}:2106"
+    volumes:
+      - "./overrides:/opt/l2/overrides:ro"
+      - l2l-login-logs:/opt/l2/login/log
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2106 && nc -z 127.0.0.1 9014"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+    stop_grace_period: 20s
+
+  game:
+    <<: *server
+    container_name: l2l-game
+    command: ["game"]
+    depends_on:
+      login: { condition: service_healthy }
+    environment:
+      <<: *server-env
+      LOGIN_HOST: login
+      PUBLIC_HOST: 127.0.0.1
+      GAME_XMS: 512m
+      GAME_XMX: "${L2S_GAME_XMX:-3g}"
+    ports:
+      - "127.0.0.1:${L2S_GAME_PORT:-7777}:7777"
+    volumes:
+      - "./overrides:/opt/l2/overrides:ro"
+      - l2l-game-logs:/opt/l2/game/log
+      - "./geodata:/opt/l2/game/data/geodata:ro"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7777"]
+      interval: 10s
+      timeout: 3s
+      retries: 60
+      start_period: 600s
+    stop_grace_period: 120s
+
+volumes:
+  l2l-db-data: { name: l2l-db-data }
+  l2l-login-logs: { name: l2l-login-logs }
+  l2l-game-logs: { name: l2l-game-logs }
+
+networks:
+  l2l-net: { name: l2l-net }

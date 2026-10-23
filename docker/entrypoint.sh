@@ -137,6 +137,9 @@ case "$ROLE" in
     set_ini "$S" GameserverHostname 0.0.0.0
     apply_overrides game
     apply_platform_overrides
+    # launcher settings (settings.env): class master popup, stock NPC buffer, buff duration
+    . /local-features.sh
+    apply_local_features
     log "platform profile: ${L2_PROFILE:-solo}"
     # The login server hands this address to the client. Docker Desktop NATs the client
     # (it appears from a 172.x / 192.168.65.x address), so everything maps to PUBLIC_HOST.
