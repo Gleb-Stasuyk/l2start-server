@@ -298,6 +298,7 @@ public final class ClanService {
                 }
             }
             ensureCrestIntegrity();
+            ensureTownClans();
         } catch (Exception e) {
             ctx.log().warn("bot clans ensureFilled: " + e.getMessage(), e);
         }
@@ -842,6 +843,76 @@ public final class ClanService {
      * top). Gludio/Dion 5 (20-45), Giran 6 (35-60), Aden 7 (45-70), Goddard 8 (55-78); null = a town without a grade.
      */
     public record TownGrade(int clanLevel, int minLevel, int maxLevel, int leaderLevel) {
+    }
+
+    /** The recruiting towns: each has its own bot clan, clan hall there and recruiter (the clan's leader). */
+    public static final List<String> TOWNS = List.of("Gludio", "Dion", "Giran", "Aden", "Goddard");
+    /** Members a new town clan starts with (below a big clan's 40: town clans are never "big"). */
+    public static final int TOWN_CLAN_SIZE = 20;
+    private final Map<String, Integer> townClans = new ConcurrentHashMap<>();
+
+    /** The town's bot clan id, 0 = none yet. */
+    public int townClan(String town) {
+        return townClans.getOrDefault(town, 0);
+    }
+
+    /** Town of a town clan, null = not a town clan. */
+    public String townOf(int clanId) {
+        for (Map.Entry<String, Integer> e : townClans.entrySet()) {
+            if (e.getValue() == clanId) {
+                return e.getKey();
+            }
+        }
+        return null;
+    }
+
+    /** Pure: a clan recruiters (any kind) may recruit for: never a big (mega) clan, kept for wars and sieges. */
+    public static boolean recruits(boolean big) {
+        return !big;
+    }
+
+    /** Startup migration: every recruiting town without its clan gets one (a free template, the town's grade). */
+    private void ensureTownClans() throws Exception {
+        townClans.clear();
+        townClans.putAll(store.loadTownClans());
+        if (!townClans.containsKey("Gludio")) {
+            for (ClanStore.Row r : byClan.values()) {
+                if ("night_hawk".equals(r.templateId())) {
+                    store.setTownClan("Gludio", r.clanId()); // Gludio keeps NightHawk (Volk's clan, Ruby Hall)
+                    townClans.put("Gludio", r.clanId());
+                }
+            }
+        }
+        for (String town : TOWNS) {
+            final Integer cid = townClans.get(town);
+            if ((cid != null) && byClan.containsKey(cid) && (ClanTable.getInstance().getClan(cid) != null)) {
+                continue;
+            }
+            final TownGrade g = townGrade(town);
+            final ClanTemplate t = unusedSmallTemplate();
+            if (t == null) {
+                ctx.log().warn("town clan " + town + ": no free clan template left");
+                continue;
+            }
+            final List<Integer> free = freeClanEligibleBots();
+            if (free.size() < TOWN_CLAN_SIZE) {
+                ctx.log().info("town clan " + town + ": need " + TOWN_CLAN_SIZE + " free bots, have " + free.size());
+                continue;
+            }
+            if (!createStockClan(new ClanTemplate(t.id(), t.name(), g.clanLevel(), t.crestSeed(), false), g.clanLevel(), TOWN_CLAN_SIZE, free)) {
+                continue;
+            }
+            for (ClanStore.Row r : byClan.values()) {
+                if (r.templateId().equals(t.id())) {
+                    store.setTownClan(town, r.clanId());
+                    townClans.put(town, r.clanId());
+                    ctx.log().info("town clan " + town + ": " + r.name() + " created (lv " + g.clanLevel() + ")");
+                }
+            }
+        }
+        for (Map.Entry<String, Integer> e : townClans.entrySet()) {
+            gradeForTown(e.getValue(), e.getKey());
+        }
     }
 
     public static TownGrade townGrade(String town) {

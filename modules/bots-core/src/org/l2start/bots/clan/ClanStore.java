@@ -18,17 +18,33 @@ public final class ClanStore {
     private final String clans;
     private final String members;
     private final String playerClan;
+    private final String townClan;
 
     public ClanStore(ModuleDatabase db) {
         this.db = db;
         this.clans = db.table("clan");
         this.members = db.table("clan_member");
         this.playerClan = db.table("player_clan");
+        this.townClan = db.table("town_clan");
     }
 
     public List<Row> loadClans() throws Exception {
         return db.query("SELECT clan_id, template_id, name, level, leader_bot_id, target_size, status FROM " + clans + " WHERE status='ACTIVE' ORDER BY clan_id",
             rs -> new Row(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getInt(4), rs.getInt(5), rs.getInt(6), rs.getString(7)));
+    }
+
+    /** Recruiting town -> its bot clan (fixed mapping, V011). */
+    public java.util.Map<String, Integer> loadTownClans() throws Exception {
+        final java.util.Map<String, Integer> m = new java.util.LinkedHashMap<>();
+        for (Object[] r : db.query("SELECT town, clan_id FROM " + townClan, rs -> new Object[] { rs.getString(1), rs.getInt(2) })) {
+            m.put((String) r[0], (Integer) r[1]);
+        }
+        return m;
+    }
+
+    public void setTownClan(String town, int clanId) throws Exception {
+        db.update("INSERT INTO " + townClan + " (town, clan_id, created_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE clan_id=VALUES(clan_id)", town, clanId,
+            System.currentTimeMillis());
     }
 
     public List<Member> loadMembers() throws Exception {

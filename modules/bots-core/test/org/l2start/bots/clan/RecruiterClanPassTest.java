@@ -21,12 +21,12 @@ class RecruiterClanPassTest {
     }
 
     @Test
-    void recruiterPrefersTheClanWithItsHallInItsTown() {
-        final int own = AcademyRecruiters.clanFit("Goddard", "Goddard", 30, 40);
-        final int none = AcademyRecruiters.clanFit("", "Goddard", 30, 40);
-        final int elsewhere = AcademyRecruiters.clanFit("Gludio", "Goddard", 30, 40);
-        assertTrue((own > none) && (none > elsewhere));
-        assertTrue(AcademyRecruiters.clanFit("", "Goddard", 30, 40) > AcademyRecruiters.clanFit("", "Goddard", 40, 40), "room for a player counts");
+    void fiveTownsEachWithItsClanAndMegaClansNeverRecruit() {
+        assertEquals(java.util.List.of("Gludio", "Dion", "Giran", "Aden", "Goddard"), ClanService.TOWNS);
+        assertEquals(ClanService.TOWNS, AcademyRecruiters.CLAN_TOWNS.stream().map(AcademyRecruiters.Spot::town).toList(), "one clan recruiter per town clan");
+        assertTrue(ClanService.TOWN_CLAN_SIZE < ClanService.BIG_TARGET, "a town clan is never a big (mega) clan");
+        assertTrue(ClanService.recruits(false));
+        assertTrue(!ClanService.recruits(true), "mega clans: no recruiter, no shouts, no accepting");
     }
 
     @Test

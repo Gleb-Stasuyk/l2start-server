@@ -128,28 +128,13 @@ public final class ClanHallAssign {
     }
 
     /**
-     * A clan recruiter's clan: its hall is in the recruiter's town. A hall elsewhere is given back (bot clans only) and a
-     * free one of that town taken; no free hall there = it keeps what it has.
+     * A town clan's hall: the one it owns stays (fixed: a clan never gives its hall up and moves); none = a free hall of
+     * its town is taken.
      */
-    public int ensureInTown(int clanId, String town, int nearX, int nearY, Player actor) {
+    public int ensureHallIn(int clanId, String town, Player actor) {
         final Clan clan = ClanTable.getInstance().getClan(clanId);
         if (clan == null) {
             return 0;
-        }
-        final AuctionableHall owned = ownedHall(clan);
-        if ((owned != null) && !town.equals(owned.getLocation())) {
-            AuctionableHall free = null;
-            for (AuctionableHall h : ClanHallTable.getInstance().getFreeClanHalls().values()) {
-                if (town.equals(h.getLocation())) {
-                    free = h;
-                    break;
-                }
-            }
-            if (free == null) {
-                return maintainHall(clan, owned, actor);
-            }
-            ctx.log().info("bot clan " + clan.getName() + " gives up CH#" + owned.getId() + " (" + owned.getLocation() + ") for one in " + town);
-            ClanHallTable.getInstance().setFree(owned.getId());
         }
         if (ownedHall(clan) == null) {
             AuctionableHall pick = null;
@@ -158,17 +143,15 @@ public final class ClanHallAssign {
                     pick = h;
                 }
             }
-            if (pick != null) {
-                topUpWarehouse(clan, pick, actor != null ? actor : onlineMember(clan));
-                ClanHallTable.getInstance().setOwner(pick.getId(), clan);
-                ctx.log().info("bot clan " + clan.getName() + " assigned CH#" + pick.getId() + " (" + town + ")");
+            if (pick == null) {
+                ctx.log().warn("town clan " + clan.getName() + ": no free clan hall in " + town);
+                return 0;
             }
+            topUpWarehouse(clan, pick, actor != null ? actor : onlineMember(clan));
+            ClanHallTable.getInstance().setOwner(pick.getId(), clan);
+            ctx.log().info("town clan " + clan.getName() + " assigned CH#" + pick.getId() + " " + pick.getName() + " (" + town + ")");
         }
-        final int r = ensureForRecruiter(clanId, nearX, nearY, actor);
-        if (clans != null) {
-            clans.gradeForTown(clanId, hallTownLabel(clan));
-        }
-        return r;
+        return maintainHall(clan, ownedHall(clan), actor);
     }
 
     /** Maintain functions + CWH for a bot clan that already owns a hall. */
@@ -191,7 +174,12 @@ public final class ClanHallAssign {
                 continue;
             }
             maintainHall(clan, ownedHall(clan), onlineMember(clan));
-            clans.gradeForTown(row.clanId(), hallTownLabel(clan)); // migration too: existing clans take their town's grade
+        }
+        for (String town : ClanService.TOWNS) {
+            final int cid = clans.townClan(town);
+            if (cid != 0) {
+                ensureHallIn(cid, town, null); // a town clan without its hall takes a free one in its town
+            }
         }
     }
 

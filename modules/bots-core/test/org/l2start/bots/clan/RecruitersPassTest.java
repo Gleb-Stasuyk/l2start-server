@@ -20,7 +20,7 @@ class RecruitersPassTest {
 
     @Test
     void clanRecruitersInTheFourBigTowns() {
-        assertEquals(4, AcademyRecruiters.CLAN_TOWNS.size());
+        assertEquals(5, AcademyRecruiters.CLAN_TOWNS.size());
         assertTrue(AcademyRecruiters.CLAN_TOWNS.stream().map(AcademyRecruiters.Spot::town).toList().containsAll(java.util.List.of("Dion", "Giran", "Aden", "Goddard")));
         assertTrue(AcademyRecruiters.clanEligible(false, 40));
         assertTrue(AcademyRecruiters.clanEligible(false, 60));

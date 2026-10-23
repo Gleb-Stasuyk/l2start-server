@@ -59,6 +59,7 @@ public final class AcademyRecruiters {
 
     /** Gatekeepers of the towns with clan recruiters. */
     public static final List<Spot> CLAN_TOWNS = List.of(
+        new Spot("Gludio", -12736, 122816, -3114),
         new Spot("Dion", 15631, 142885, -2704),
         new Spot("Giran", 83396, 147904, -3404),
         new Spot("Aden", 146737, 25807, -2013),
@@ -480,31 +481,20 @@ public final class AcademyRecruiters {
     /** A clan recruiter's clan has its clan hall in the recruiter's own town (it says so in its shout). */
     private void hall(int clanId, Spot spot, Player p) {
         if (kind == Kind.CLAN) {
-            halls.ensureInTown(clanId, spot.town(), spot.x(), spot.y(), p);
+            halls.ensureHallIn(clanId, spot.town(), p);
         } else {
             halls.ensureForRecruiter(clanId, spot.x(), spot.y(), p);
         }
     }
 
-    /** Pure: how well a clan suits a clan recruiter of a town (higher = better): its hall there, room for a player, no hall elsewhere. */
-    public static int clanFit(String hallTown, String town, int members, int maxMembers) {
-        int s = 0;
-        if (town.equals(hallTown)) {
-            s += 4;
-        } else if ((hallTown == null) || hallTown.isBlank()) {
-            s += 1;
-        }
-        if (members < maxMembers) {
-            s += 2;
-        }
-        return s;
-    }
-
     private ClanStore.Row pickClan(Set<Integer> used, String town) {
         final List<ClanStore.Row> cands = new ArrayList<>();
         for (ClanStore.Row r : clans.clans()) {
-            if (used.contains(r.clanId()) || (r.level() < 5) || busyLeader.test(r.leaderBotId())) {
-                continue;
+            if (used.contains(r.clanId()) || (r.level() < 5) || busyLeader.test(r.leaderBotId()) || !ClanService.recruits(clans.isBig(r))) {
+                continue; // big (mega) clans never recruit: kept for clan wars and sieges
+            }
+            if ((kind == Kind.CLAN) ? (r.clanId() != clans.townClan(town)) : (clans.townOf(r.clanId()) != null)) {
+                continue; // clan recruiter: only its town's clan; academy recruiters: not the town clans (their leaders recruit for them)
             }
             final BotRecord leader = byBot(r.leaderBotId());
             if ((leader != null) && (leader.persona() != null) && leader.persona().pk()) {
@@ -518,22 +508,6 @@ public final class AcademyRecruiters {
         }
         if (cands.isEmpty()) {
             return null;
-        }
-        if (kind == Kind.CLAN) {
-            int best = -1;
-            final List<ClanStore.Row> top = new ArrayList<>();
-            for (ClanStore.Row r : cands) {
-                final Clan c = ClanTable.getInstance().getClan(r.clanId());
-                final int f = clanFit(ClanHallAssign.hallTownLabel(c), town, c.getSubPledgeMembersCount(0), c.getMaxNrOfMembers(0));
-                if (f > best) {
-                    best = f;
-                    top.clear();
-                }
-                if (f == best) {
-                    top.add(r);
-                }
-            }
-            return top.get(ThreadLocalRandom.current().nextInt(top.size()));
         }
         return cands.get(ThreadLocalRandom.current().nextInt(cands.size()));
     }
