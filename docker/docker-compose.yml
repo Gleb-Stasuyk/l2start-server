@@ -23,6 +23,8 @@ x-server: &server
   # Optional module switches / settings without editing files: L2_MODULE_<ID>=on|off, L2_MOD_<ID>__<KEY>=value,
   # L2_PLATFORM__<KEY>=value (see docs/MODULES.md). Copy modules.env.example to modules.env.
   env_file:
+    - path: ./settings.env
+      required: false
     - path: ./modules.env
       required: false
   volumes: &server-volumes
