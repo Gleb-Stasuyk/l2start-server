@@ -192,6 +192,8 @@ public final class BotsCoreModule implements GameModule {
         });
         // phase 5: store traders for economy-market (personas kept for a store place, no brain)
         ctx.services().provide(org.l2start.bots.trade.TraderPool.class, new TraderService(this, factory, repo, GearTable.load(ctx.resources().path("data/gear.xml"))));
+        // phase 9: olympiad nobles for bots-olympiad (separate pool; the director never uses them)
+        ctx.services().provide(org.l2start.bots.olympiad.OlympiadPool.class, new OlympiadService(this, factory, repo, GearTable.load(ctx.resources().path("data/gear.xml"))));
 
         // phase 6f: party mate gifts shots/potions via P6-BOT-TRADE (bot puts nothing, confirms last)
         final PartyTrades partyTrades = new PartyTrades(ctx, registry, memories);
@@ -1030,7 +1032,7 @@ public final class BotsCoreModule implements GameModule {
         for (var m : from.getClan().getMembers()) {
             final Player o = m == null ? null : m.getPlayer();
             final BotRecord r = o == null ? null : registry.byCharId(o.getObjectId());
-            if ((r == null) || !r.inWorld() || (r.status() == BotRecord.Status.TRADER) || (o == from)) {
+            if ((r == null) || !r.inWorld() || r.pooled() || (o == from)) {
                 continue;
             }
             brains.post(r, rally);
@@ -1046,7 +1048,7 @@ public final class BotsCoreModule implements GameModule {
         if (org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(requester, bot)) {
             return true;
         }
-        final boolean canLeave = (r.status() != BotRecord.Status.TRADER) && ((clans == null) || !clans.isLeader(r.botId()));
+        final boolean canLeave = !r.pooled() && ((clans == null) || !clans.isLeader(r.botId()));
         brains.post(r, new BotEvent.PledgeInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), pledgeType, canLeave,
             clanJoinPlayers));
         return true;
@@ -1278,8 +1280,8 @@ public final class BotsCoreModule implements GameModule {
         if (r == null) {
             return "No bot named " + name;
         }
-        if (r.status() == BotRecord.Status.TRADER) {
-            return name + " is a trader, not a PK";
+        if (r.pooled()) {
+            return name + " is a store trader or olympiad noble, not a PK";
         }
         org.l2start.bots.persona.Persona p = r.persona();
         if (p == null) {

@@ -135,7 +135,7 @@ public final class DirectorRunner {
         final List<Director.BotNow> bots = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
-            if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
+            if ((p != null) && !busy.contains(r.botId()) && !r.pooled() // store traders / olympiad nobles belong to other modules
                 && !withPlayer(p) // phase 6b: in a real player's party it is his companion, the director leaves it be
                 && !module.isAcademyRecruiter(r.botId()) // phase 7f: recruiters stay at GK
                 && !module.isRbPinned(r.botId())) { // RB party: answered a player's call, it is his until it leaves
@@ -540,7 +540,7 @@ public final class DirectorRunner {
     void cleanupAll() {
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
-            if ((p == null) || (r.status() == BotRecord.Status.TRADER)) {
+            if ((p == null) || r.pooled()) {
                 continue;
             }
             try {

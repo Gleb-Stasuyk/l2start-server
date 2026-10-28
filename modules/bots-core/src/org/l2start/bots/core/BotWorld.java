@@ -102,7 +102,7 @@ public final class BotWorld {
     }
 
     private String enter(BotRecord r, Location near, Location exact, java.util.function.Consumer<Player> prepare, int post) {
-        if ((r.status() != BotRecord.Status.ACTIVE) && (r.status() != BotRecord.Status.TRADER)) {
+        if ((r.status() != BotRecord.Status.ACTIVE) && (r.status() != BotRecord.Status.TRADER) && (r.status() != BotRecord.Status.OLYMPIAD)) {
             return r.name() + " is retired";
         }
         if (r.inWorld()) {

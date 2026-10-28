@@ -143,6 +143,10 @@ public final class AdminBots implements IAdminCommandHandler {
                     showDirector(gm, d);
                     return true;
                 }
+                case "oly":
+                case "olympiad":
+                    showOly(gm);
+                    return true;
                 case "near":
                     showNear(gm);
                     return true;
@@ -162,7 +166,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | spots [radius] | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | clans | clan <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | spots [radius] | oly | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | clans | clan <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -701,6 +705,60 @@ public final class AdminBots implements IAdminCommandHandler {
         }
         sb.append("<br><a action=\"bypass -h admin_bots director\">Director</a> <a action=\"bypass -h admin_bots list\">List</a></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Roster of olympiad nobles (status OLYMPIAD): size, class breakdown, noble flag. */
+    private void showOly(Player gm) {
+        int n = 0;
+        int inWorld = 0;
+        int noble = 0;
+        final java.util.Map<Integer, int[]> byClass = new java.util.TreeMap<>(); // [count, inWorld]
+        for (BotRecord r : core.registry().sorted()) {
+            if (r.status() != BotRecord.Status.OLYMPIAD) {
+                continue;
+            }
+            n++;
+            final Player p = r.player();
+            if (p != null) {
+                inWorld++;
+                if (p.isNoble()) {
+                    noble++;
+                }
+            }
+            final int cls = p != null ? p.getPlayerClass().getId() : thirdOf(r);
+            final int[] row = byClass.computeIfAbsent(cls, k -> new int[2]);
+            row[0]++;
+            if (p != null) {
+                row[1]++;
+            }
+        }
+        gm.sendMessage("Olympiad roster: " + n + " nobles, " + inWorld + " in world, " + noble + " noble now");
+        if (n == 0) {
+            gm.sendMessage("(none: enable bots-olympiad and wait for the competition window)");
+            return;
+        }
+        for (java.util.Map.Entry<Integer, int[]> e : byClass.entrySet()) {
+            gm.sendMessage("  class " + e.getKey() + " " + className(e.getKey()) + ": " + e.getValue()[0] + " (" + e.getValue()[1] + " in world)");
+        }
+    }
+
+    /** 3rd profession of an olympiad persona (from the live class, else the 3rd after its planned 2nd). */
+    private static int thirdOf(BotRecord r) {
+        final org.l2start.bots.persona.Persona p = r.persona();
+        if (p == null) {
+            return r.classId();
+        }
+        final PlayerClass second = PlayerClass.getPlayerClass(p.futureClassId());
+        if (second == null) {
+            return p.futureClassId();
+        }
+        if (second.level() >= 3) {
+            return second.getId();
+        }
+        for (PlayerClass t : second.getNextClasses()) {
+            return t.getId();
+        }
+        return p.futureClassId();
     }
 
     private static void button(StringBuilder sb, String label, String cmd) {

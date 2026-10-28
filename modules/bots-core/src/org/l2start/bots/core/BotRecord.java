@@ -8,8 +8,12 @@ import org.l2start.bots.persona.Persona;
 /** One bot: its stock character and account (persistent), plus what is going on right now (runtime). */
 public final class BotRecord {
     public enum Status {
-        /** TRADER (phase 5): a persona kept for a store place; never used by the director or the brain. */
-        ACTIVE, RETIRED, TRADER
+        ACTIVE,
+        RETIRED,
+        /** Phase 5: a persona kept for a store place; never used by the director or the brain. */
+        TRADER,
+        /** Phase 9: a noble persona of bots-olympiad; never used by the director. */
+        OLYMPIAD
     }
 
     private final int botId;
@@ -61,6 +65,8 @@ public final class BotRecord {
     public String name() { return name; }
     public int classId() { return classId; }
     public Status status() { return status; }
+    /** Store traders and olympiad nobles: the presence director does not pick or send them. */
+    public boolean pooled() { return (status == Status.TRADER) || (status == Status.OLYMPIAD); }
     public Player player() { return player; }
     public boolean inWorld() { return player != null; }
     public long inWorldSince() { return inWorldSince; }
