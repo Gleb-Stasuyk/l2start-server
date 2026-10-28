@@ -8,7 +8,8 @@ import org.l2jmobius.gameserver.entity.actor.Player;
 /**
  * Service of bots-core for Grand Olympiad nobles (phase 9, module bots-olympiad): personas kept for the olympiad
  * roster (status OLYMPIAD: the presence director never uses them), logged in near the Grand Olympiad Manager with
- * a 3rd profession, S-grade gear and {@code setNoble(true)}. They keep the basic brain: in a stadium match it
+ * a 3rd profession, mixed A/S gear and jewellery, regular SS+SPS (never blessed) and {@code setNoble(true)}.
+ * They keep the basic brain: in a stadium match it
  * fights 1v1 (phase 9 D); gather/idle is "far from starting villages" strolling around the manager.
  */
 public interface OlympiadPool {
@@ -32,7 +33,7 @@ public interface OlympiadPool {
 
     /**
      * Logs the noble in at x, y, z facing {@code heading}, at {@code level} (76-80) with the 3rd profession, skills
-     * and olympiad-grade gear, then {@code setNoble(true)}. {@code ready} runs in the world (may be null).
+     * and mixed A/S olympiad gear, then {@code setNoble(true)}. {@code ready} runs in the world (may be null).
      * @return null when done, else why not
      */
     String enter(int botId, int x, int y, int z, int heading, int level, Consumer<Player> ready);

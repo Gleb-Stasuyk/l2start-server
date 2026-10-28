@@ -25,9 +25,16 @@ final class Materializer {
     /** Arrows by grade (NONE, D, C, B, A, S): a bow needs them. */
     private static final int[] ARROWS = { 17, 1341, 1342, 1343, 1344, 1345 };
 
-    /** Soulshots and blessed spiritshots by grade (NONE, D, C, B, A, S). */
+    /** Soulshots and blessed spiritshots by grade (NONE, D, C, B, A, S). Hunters still get blessed SPS. */
     static final int[] SOULSHOTS = { 1835, 1463, 1464, 1465, 1466, 1467 };
     static final int[] SPIRITSHOTS = { 3947, 3948, 3949, 3950, 3951, 3952 };
+    /** Regular (not blessed) spiritshots by grade. Olympiad.ini disables blessed SPS; olympiad bots never charge blessed. */
+    static final int[] SPIRITSHOTS_PLAIN = { 2509, 2510, 2511, 2512, 2513, 2514 };
+    /** Beast Soulshot / Beast Spiritshot (not blessed 6647): for a servitor in the stadium. */
+    static final int BEAST_SOULSHOT = 6645;
+    static final int BEAST_SPIRITSHOT = 6646;
+    /** Cursed Bone: Soultaker Death Spike reagent (not an HP/MP potion). */
+    static final int CURSED_BONE = 2508;
 
     /** Phase 6f: item ids a party mate may gift through the trade window (any shot grade + HP potions). */
     static java.util.Set<Integer> partyGiftIds() {
@@ -90,6 +97,14 @@ final class Materializer {
 
     /** @return what was done, for the log ("lv 41, class 2, 6 items") */
     String prepare(Player p, BotRecord r, int level) {
+        return prepare(p, r, level, false);
+    }
+
+    /**
+     * @param olympiad true = Grand Olympiad kit (phase 9 E): mix of A/S gear and jewellery, regular SS+SPS (never
+     *        blessed), arrows, summon crystals; no HP/MP potions and no Scroll of Escape
+     */
+    String prepare(Player p, BotRecord r, int level, boolean olympiad) {
         final Persona persona = r.persona();
         final long seed = persona == null ? r.charId() : persona.seed();
         final int start = persona == null ? r.classId() : persona.classId();
@@ -119,11 +134,11 @@ final class Materializer {
         final PkLedger led = pk ? pkLedger : null;
         // before equip: empty ledger = first PK materialize (entry karma); washed PK keeps ledger rows → no cheat re-red
         final boolean firstPkGear = pk && ((led == null) || led.load(r.botId()).isEmpty());
-        final int lag = GearTable.lag(persona == null ? 0.5 : persona.traits().greed(), lagMin, lagMax);
-        final GearTable.Plan plan = gear.plan(future, target, seed, lag);
+        final int lag = olympiad ? 0 : GearTable.lag(persona == null ? 0.5 : persona.traits().greed(), lagMin, lagMax);
+        final GearTable.Plan plan = olympiad ? gear.olympiadPlan(future, seed) : gear.plan(future, target, seed, lag);
         if (!plan.items().isEmpty()) {
-            final int n = equip(p, plan, pk ? r.botId() : 0);
-            sb.append(", ").append(plan.grade()).append(" gear ").append(n).append(" new");
+            final int n = equip(p, plan, pk ? r.botId() : 0, olympiad);
+            sb.append(", ").append(olympiad ? "A/S" : plan.grade()).append(" gear ").append(n).append(" new");
             if (plan.weaponEnchant() > 0) {
                 sb.append(", weapon +").append(plan.weaponEnchant());
             }
@@ -140,10 +155,14 @@ final class Materializer {
             }
         }
         cleanup(p, pk);
-        sb.append(", ").append(potions(p, r, target)); // a thin wallet pays the potions first (to live), then shots
-        sb.append(", ").append(shots(p, r, target, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
-        p.getInventory().addItem(ItemProcessType.REWARD, SOE, 2, p, null); // like everybody: to end the hunt (phase 4d)
-        final String crystals = summonItems(p);
+        if (olympiad) {
+            sb.append(", ").append(olympiadShots(p));
+        } else {
+            sb.append(", ").append(potions(p, r, target)); // a thin wallet pays the potions first (to live), then shots
+            sb.append(", ").append(shots(p, r, target, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
+            p.getInventory().addItem(ItemProcessType.REWARD, SOE, 2, p, null); // like everybody: to end the hunt (phase 4d)
+        }
+        final String crystals = summonItems(p, olympiad);
         if (crystals != null) {
             sb.append(", ").append(crystals);
         }
@@ -177,11 +196,18 @@ final class Materializer {
      * @param pkBotId &gt; 0 = PK persona: newly added gear is recorded in the ledger (real drop on death)
      */
     private int equip(Player p, GearTable.Plan plan, int pkBotId) {
+        return equip(p, plan, pkBotId, false);
+    }
+
+    /**
+     * @param replaceJewels olympiad: jewellery in the plan replaces whatever was worn (hunters keep old jewels)
+     */
+    private int equip(Player p, GearTable.Plan plan, int pkBotId, boolean replaceJewels) {
         final Set<Integer> want = new HashSet<>(plan.items());
         final PkLedger led = (pkBotId > 0) ? pkLedger : null;
-        // old weapons and armour that are not in the plan go away (jewels stay); PK: forget ledger rows
+        // old weapons and armour that are not in the plan go away (jewels stay unless olympiad); PK: forget ledger rows
         for (Item it : new ArrayList<>(p.getInventory().getItems())) {
-            if ((it.isWeapon() || it.isArmor()) && !want.contains(it.getId()) && !jewel(it)) {
+            if ((it.isWeapon() || it.isArmor()) && !want.contains(it.getId()) && (replaceJewels || !jewel(it))) {
                 if (it.isEquipped()) {
                     p.getInventory().unEquipItemInSlot(it.getLocationSlot());
                 }
@@ -221,6 +247,70 @@ final class Materializer {
             }
         }
         return added;
+    }
+
+    /**
+     * Olympiad: every noble gets regular Soulshots and Spiritshots of A and S (mixed weapons), never blessed.
+     * Archers already received arrows in {@link #equip}. Beast shots when the class can summon.
+     */
+    private String olympiadShots(Player p) {
+        for (Integer old : new ArrayList<>(p.getAutoSoulShot())) {
+            p.removeAutoSoulShot(old);
+        }
+        final int a = GearTable.Grade.A.ordinal();
+        final int s = GearTable.Grade.S.ordinal();
+        final int spsA = SPIRITSHOTS_PLAIN[a];
+        final int spsS = SPIRITSHOTS_PLAIN[s];
+        final List<Integer> ids = new ArrayList<>();
+        ids.add(SOULSHOTS[a]);
+        ids.add(SOULSHOTS[s]);
+        ids.add(spsA);
+        ids.add(spsS);
+        if (needsBeastShots(p)) {
+            ids.add(BEAST_SOULSHOT);
+            ids.add(BEAST_SPIRITSHOT);
+        }
+        final StringBuilder sb = new StringBuilder("shots");
+        for (int id : ids) {
+            if (blessedShot(id)) {
+                continue; // belt: never auto-use blessed in olympiad
+            }
+            final Item have = p.getInventory().getItemByItemId(id);
+            final int want = ((id == spsA) || (id == spsS) || (id == BEAST_SPIRITSHOT)) ? 800 : 2000;
+            final int need = Math.max(0, want - ((have == null) ? 0 : (int) Math.min(want, have.getCount())));
+            if (need > 0) {
+                p.getInventory().addItem(ItemProcessType.REWARD, id, need, p, null);
+            }
+            p.addAutoSoulShot(id);
+            sb.append(' ').append(id);
+        }
+        if (p.getSkills().get(1148) != null) { // Death Spike
+            final Item have = p.getInventory().getItemByItemId(CURSED_BONE);
+            final int need = Math.max(0, 200 - ((have == null) ? 0 : (int) Math.min(200, have.getCount())));
+            if (need > 0) {
+                p.getInventory().addItem(ItemProcessType.REWARD, CURSED_BONE, need, p, null);
+            }
+            sb.append(", cursed bones");
+        }
+        return sb.toString();
+    }
+
+    static boolean blessedShot(int itemId) {
+        for (int id : SPIRITSHOTS) {
+            if (id == itemId) {
+                return true;
+            }
+        }
+        return itemId == 6647; // Blessed Beast Spiritshot
+    }
+
+    static boolean needsBeastShots(Player p) {
+        for (Skill s : p.getSkills().values()) {
+            if (SkillView.servitorSummon(s.getId()) || (s.getId() == 283)) { // Dark Panther
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Shots of the weapon's grade on auto-use, like every player farming (they vanish with the rest on logout). */
@@ -272,9 +362,17 @@ final class Materializer {
 
     /** Crystals for the servitor summons it knows (Summon Kat the Cat: D-grade crystals), like a summoner farming. */
     private static String summonItems(Player p) {
+        return summonItems(p, false);
+    }
+
+    /**
+     * @param olympiad also crystals for Dark Panther (Hell Knight) so it can summon in the stadium
+     */
+    private static String summonItems(Player p, boolean olympiad) {
         final java.util.Map<Integer, Integer> need = new java.util.TreeMap<>();
         for (Skill s : p.getSkills().values()) {
-            if (SkillView.servitorSummon(s.getId()) && (s.getItemConsumeId() > 0)) {
+            final boolean summon = SkillView.servitorSummon(s.getId()) || (olympiad && (s.getId() == 283));
+            if (summon && (s.getItemConsumeId() > 0)) {
                 need.merge(s.getItemConsumeId(), (Math.max(1, s.getItemConsumeCount()) * SUMMON_CASTS) + SUMMON_UPKEEP, Math::max);
             }
         }

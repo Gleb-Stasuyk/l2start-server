@@ -130,7 +130,7 @@ final class OlympiadService implements OlympiadPool {
             return "no olympiad noble " + botId;
         }
         final String why = core.world().enterPrepared(r, new Location(x, y, z), p -> {
-            materializer.prepare(p, r, level);
+            materializer.prepare(p, r, level, true);
             p.setHeading(heading);
             if (!p.isNoble()) {
                 p.setNoble(true);
