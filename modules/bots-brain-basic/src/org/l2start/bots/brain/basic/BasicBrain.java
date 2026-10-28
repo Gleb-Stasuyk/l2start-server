@@ -228,7 +228,11 @@ public final class BasicBrain implements Brain {
         }
         if (OlympiadCombat.shouldWait(true, me.olympiadStart(), false)) {
             olyFoeId = 0;
-            final long buff = selfBuff(ctx, me, now);
+            final long summonedNow = olympiadSummon(ctx, w, me, now);
+            if (summonedNow > 0) {
+                return summonedNow;
+            }
+            final long buff = selfBuff(ctx, me, now, true);
             if (buff > 0) {
                 return buff;
             }
@@ -257,25 +261,47 @@ public final class BasicBrain implements Brain {
         enter(ctx, Phase.LEVEL, "olympiad " + foe.name());
         detail = "olympiad fight " + foe.name();
         final NpcView as = OlympiadCombat.asTarget(foe);
+        final OlympiadCombat.Role role = OlympiadCombat.role(me.classId(), me.bow(), me.mage());
+        final long summonedNow = olympiadSummon(ctx, w, me, now);
+        if (summonedNow > 0) {
+            return summonedNow;
+        }
+        if (me.hasPet()) {
+            if (petHeal(ctx, me, 50, now)) {
+                return 2500;
+            }
+            petAttack(ctx, me, as, now);
+        }
+        final SkillView nukeSkill = me.mage() ? nuke(me, 0, badSkills, now) : null;
+        final int fightRange = OlympiadCombat.fightRange(role, me.attackRange(), nukeSkill == null ? 0 : nukeSkill.castRange());
+        if (OlympiadCombat.shouldCloseIn(role, foe.distance(), fightRange)) {
+            if (me.moving() || "MOVE_TO".equals(me.intention())) {
+                detail = "olympiad close " + foe.name();
+                return 300;
+            }
+            final Pos to = OlympiadCombat.closeInPoint(me.pos(), foe.pos(), fightRange);
+            if ((to != null) && ctx.act().moveTo(to).ok()) {
+                ctx.note("olympiad close " + foe.name());
+                detail = "olympiad close " + foe.name();
+                return 400;
+            }
+        }
         if (stance(ctx, me, me.mpPct() >= 15, now)) {
             return 400;
         }
         if (sneak(ctx, w, me, as, now)) {
             return 400;
         }
-        if (kite(ctx, w, me, as, now)) {
+        if ((role == OlympiadCombat.Role.ARCHER) && kite(ctx, w, me, as, now)) {
             return 400;
         }
         if (playstylePvp(ctx, w, me, as, now)) {
             return 500;
         }
-        if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
-            final SkillView nuke = nuke(me, 0, badSkills, now);
-            if ((nuke != null) && nuke.ready() && (nuke.mpCost() <= me.mp())) {
-                final ActionResult r = ctx.act().cast(nuke.id(), foe.objectId());
-                if (r.ok()) {
-                    return 700;
-                }
+        if (me.mage() && (me.mpPct() >= 20) && !me.casting() && (nukeSkill != null) && nukeSkill.ready() && (nukeSkill.mpCost() <= me.mp())) {
+            final ActionResult r = ctx.act().cast(nukeSkill.id(), foe.objectId());
+            if (r.ok()) {
+                return 700;
             }
         }
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != foe.objectId())) {
@@ -2371,7 +2397,21 @@ public final class BasicBrain implements Brain {
      * @return the delay, 0 = nothing to do
      */
     private long selfBuff(BrainContext ctx, SelfView me, long now) {
-        if (!selfBuffs || me.casting() || me.sitting() || me.inPeaceZone() || (me.mpPct() < (me.mage() ? 50 : 30))) {
+        return selfBuff(ctx, me, now, false);
+    }
+
+    /**
+     * @param olympiadWait stadium countdown: buffs are allowed in the PvP zone (not a town peace zone) with a
+     *        lower MP floor so a mage can still self-buff after summoning
+     */
+    private long selfBuff(BrainContext ctx, SelfView me, long now, boolean olympiadWait) {
+        if (!selfBuffs || me.casting() || me.sitting()) {
+            return 0;
+        }
+        if (!olympiadWait && me.inPeaceZone()) {
+            return 0;
+        }
+        if (me.mpPct() < (olympiadWait ? 20 : (me.mage() ? 50 : 30))) {
             return 0;
         }
         for (SkillView s : me.skills()) {
@@ -5317,6 +5357,37 @@ public final class BasicBrain implements Brain {
             }
         }
         return null;
+    }
+
+    /** Dark Panther (Hell Knight): a self-target summon, not a summoner-line servitor. */
+    static final int DARK_PANTHER = 283;
+
+    static SkillView olympiadSummonSkill(SelfView me, int botId) {
+        final SkillView s = servitorSkill(me, botId);
+        if (s != null) {
+            return s;
+        }
+        final SkillView panther = skill(me, DARK_PANTHER);
+        return ((panther != null) && (panther.kind() == SkillView.Kind.SUMMON)) ? panther : null;
+    }
+
+    private long olympiadSummon(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!summons || me.hasPet() || (buffTried.getOrDefault(-2, 0L) > now)) {
+            return 0;
+        }
+        final SkillView s = olympiadSummonSkill(me, botId);
+        if ((s == null) || !usable(me, s) || (me.mpPct() < 25) || ((s.itemId() > 0) && (w.itemCount(s.itemId()) < s.itemCount()))) {
+            return 0;
+        }
+        final ActionResult r = ctx.act().cast(s.id(), me.objectId());
+        buffTried.put(-2, now + (r.ok() ? 20_000 : (r == ActionResult.COOLDOWN ? 10_000 : 600_000)));
+        if (!r.ok()) {
+            return 0;
+        }
+        summoned++;
+        ctx.note("summons " + s.id());
+        detail = "olympiad summons";
+        return 3000;
     }
 
     private long summon(BrainContext ctx, WorldView w, SelfView me, long now) {

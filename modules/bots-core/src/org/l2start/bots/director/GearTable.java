@@ -248,6 +248,85 @@ public final class GearTable {
         return new Plan(grade, kind, armor, List.copyOf(items), w == null ? 0 : w.id(), weaponEnchant(seed, grade), armorEnchant(seed, grade));
     }
 
+    /**
+     * Grand Olympiad kit (phase 9 E): mix of A and S for the weapon, the armour set and jewellery. Never a full S
+     * set (if both weapon and armour roll S, the armour drops to A). Jewellery is always one A and one S of each
+     * paired slot (earrings, rings) plus an A or S necklace. Stable by persona seed.
+     */
+    public Plan olympiadPlan(int profession, long seed) {
+        final String kind = weaponKind(profession);
+        final Armor armor = armor(profession, seed);
+        Grade weaponGrade = asGrade(seed, 21);
+        Grade armorGrade = asGrade(seed, 22);
+        if ((weaponGrade == Grade.S) && (armorGrade == Grade.S)) {
+            armorGrade = Grade.A;
+        }
+        final double weaponRank = rank(seed, weaponGrade, 1);
+        final double armorRank = rank(seed, armorGrade, 1);
+        final List<Integer> items = new ArrayList<>();
+        final Weapon w = weapon(weaponGrade, kind, weaponRank);
+        if (w != null) {
+            items.add(w.id());
+        }
+        final ArmorSet s = set(armorGrade, armor, armorRank);
+        if (s != null) {
+            for (String slot : new String[] { "chest", "legs", "head", "gloves", "feet" }) {
+                final Integer id = s.parts().get(slot);
+                if (id != null) {
+                    items.add(id);
+                }
+            }
+            final Integer shield = s.parts().get("shield");
+            if ((shield != null) && SHIELD.contains(profession)) {
+                items.add(shield);
+            }
+        }
+        items.addAll(olympiadJewels(seed));
+        return new Plan(weaponGrade, kind, armor, List.copyOf(items), w == null ? 0 : w.id(), weaponEnchant(seed, weaponGrade),
+            armorEnchant(seed, armorGrade));
+    }
+
+    /** Interlude A / S jewellery: Phoenix or Majestic (A) and Tateossian (S). */
+    public static final int[] A_NECK = { 933, 924 }; // Phoenix Necklace, Majestic Necklace
+    public static final int[] A_EAR = { 871, 862 }; // Phoenix Earring, Majestic Earring
+    public static final int[] A_RING = { 902, 893 }; // Phoenix Ring, Majestic Ring
+    public static final int S_NECK = 920; // Tateossian Necklace
+    public static final int S_EAR = 858; // Tateossian Earring
+    public static final int S_RING = 889; // Tateossian Ring
+
+    /** Necklace + both earrings + both rings: mixed A and S, unique item ids so both ears/rings can be worn. */
+    public static List<Integer> olympiadJewels(long seed) {
+        final int aPick = rank(seed, Grade.A, 31) < 0.5 ? 0 : 1;
+        final int neck = asGrade(seed, 32) == Grade.S ? S_NECK : A_NECK[aPick];
+        return List.of(neck, A_EAR[aPick], S_EAR, A_RING[aPick], S_RING);
+    }
+
+    public static boolean olympiadJewel(int itemId) {
+        if ((itemId == S_NECK) || (itemId == S_EAR) || (itemId == S_RING)) {
+            return true;
+        }
+        for (int id : A_NECK) {
+            if (id == itemId) {
+                return true;
+            }
+        }
+        for (int id : A_EAR) {
+            if (id == itemId) {
+                return true;
+            }
+        }
+        for (int id : A_RING) {
+            if (id == itemId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Grade asGrade(long seed, int salt) {
+        return rank(seed, Grade.S, salt) < 0.5 ? Grade.A : Grade.S;
+    }
+
     private Weapon weapon(Grade grade, String kind, double rank) {
         for (int g = grade.ordinal(); g >= 0; g--) {
             final Grade gg = Grade.values()[g];
