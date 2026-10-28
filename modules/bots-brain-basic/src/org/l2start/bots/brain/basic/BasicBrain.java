@@ -115,7 +115,7 @@ public final class BasicBrain implements Brain {
 
     @Override
     public boolean inCombat() {
-        return fightId != 0;
+        return (fightId != 0) || (olyFoeId != 0);
     }
 
     /** A hunt that has found nothing to fight for this long gives the place up (the idle watch reports it). */
@@ -157,6 +157,12 @@ public final class BasicBrain implements Brain {
         final SelfView me = w.self();
         final long now = ctx.now();
         ctxNow = now;
+        if (olyMatch && !OlympiadCombat.inMatch(me)) {
+            leaveOlympiad(ctx, me, now);
+        }
+        if (OlympiadCombat.inMatch(me)) {
+            return olympiadTick(ctx, w, me, now);
+        }
         socialEvents(ctx, w, me, now);
         flushPendingWhisper(ctx, w, me, now);
         answerInvite(ctx, me, now);
@@ -170,6 +176,136 @@ public final class BasicBrain implements Brain {
         final long d = tickMain(ctx, w, me, now);
         final long due = socialDue();
         return due > 0 ? Math.max(100, Math.min(d, due - now)) : d;
+    }
+
+    // ------------------------------------------------------------------ olympiad stadium (phase 9 D)
+
+    /** Inside a Grand Olympiad match (wait or fight); world AI is gated off until the match ends. */
+    private boolean olyMatch;
+    /** Rival object id while fighting; 0 = waiting / no rival in sight. */
+    private int olyFoeId;
+
+    private void leaveOlympiad(BrainContext ctx, SelfView me, long now) {
+        olyMatch = false;
+        olyFoeId = 0;
+        village = new Village("HERE", me.pos(), 400);
+        idleUntil = Long.MAX_VALUE;
+        far = true;
+        nextIdleAction = now + ctx.reactionDelay();
+        enter(ctx, Phase.TOWN_IDLE, "far from the starting villages");
+    }
+
+    /**
+     * Dedicated 1v1 stance: fight with the class playstyle (PVP lines on), never potions/SoE, never sit, never flee
+     * the stadium. Wait until stock {@code isOlympiadStart}. World hunting / Giran stroll stay unchanged outside.
+     */
+    private long olympiadTick(BrainContext ctx, WorldView w, SelfView me, long now) {
+        olyMatch = true;
+        started = true; // never fall into village hunt when the match ends (Giran is "far")
+        for (BotEvent e : w.events()) {
+            if (e instanceof BotEvent.Died) {
+                enter(ctx, Phase.DEAD, "olympiad");
+                endFight();
+                olyFoeId = 0;
+            } else if (e instanceof BotEvent.Attacked at && at.byPlayer()) {
+                playerHits.put(at.attackerId(), now);
+            }
+        }
+        standIfSitting(ctx, me);
+        endFight();
+        pvpId = 0;
+        pvpFight = false;
+        if (me.dead()) {
+            if (phase != Phase.DEAD) {
+                enter(ctx, Phase.DEAD, "olympiad");
+            }
+            olyFoeId = 0;
+            detail = "olympiad: down";
+            return 2000;
+        }
+        if (phase == Phase.DEAD) {
+            enter(ctx, Phase.LEVEL, "olympiad");
+        }
+        if (OlympiadCombat.shouldWait(true, me.olympiadStart(), false)) {
+            olyFoeId = 0;
+            final long buff = selfBuff(ctx, me, now);
+            if (buff > 0) {
+                return buff;
+            }
+            if (me.moving() || "ATTACK".equals(me.intention()) || "MOVE_TO".equals(me.intention())) {
+                ctx.act().stop();
+            }
+            enter(ctx, Phase.LEVEL, "olympiad wait");
+            detail = "olympiad wait";
+            return 400;
+        }
+        final PlayerView foe = OlympiadCombat.rival(me, w.players());
+        if (foe == null) {
+            olyFoeId = 0;
+            enter(ctx, Phase.LEVEL, "olympiad: no rival");
+            return 400;
+        }
+        return olympiadHit(ctx, w, me, foe, now);
+    }
+
+    private long olympiadHit(BrainContext ctx, WorldView w, SelfView me, PlayerView foe, long now) {
+        if (olyFoeId != foe.objectId()) {
+            ctx.note("olympiad fight " + foe.name());
+        }
+        olyFoeId = foe.objectId();
+        fightName = foe.name();
+        enter(ctx, Phase.LEVEL, "olympiad " + foe.name());
+        detail = "olympiad fight " + foe.name();
+        final NpcView as = OlympiadCombat.asTarget(foe);
+        if (stance(ctx, me, me.mpPct() >= 15, now)) {
+            return 400;
+        }
+        if (sneak(ctx, w, me, as, now)) {
+            return 400;
+        }
+        if (kite(ctx, w, me, as, now)) {
+            return 400;
+        }
+        if (playstylePvp(ctx, w, me, as, now)) {
+            return 500;
+        }
+        if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
+            final SkillView nuke = nuke(me, 0, badSkills, now);
+            if ((nuke != null) && nuke.ready() && (nuke.mpCost() <= me.mp())) {
+                final ActionResult r = ctx.act().cast(nuke.id(), foe.objectId());
+                if (r.ok()) {
+                    return 700;
+                }
+            }
+        }
+        if (!"ATTACK".equals(me.intention()) || (me.targetId() != foe.objectId())) {
+            ctx.act().attack(foe.objectId());
+        }
+        return 400 + ctx.rnd().nextInt(300);
+    }
+
+    /** Class rotation with PVP lines (Ultimate Evasion, Trick, …); spoil/undead lines stay off. */
+    private boolean playstylePvp(BrainContext ctx, WorldView w, SelfView me, NpcView as, long now) {
+        if (!usePlaystyles || me.casting()) {
+            return false;
+        }
+        final Playstyles.Playstyle style = playstyles.of(me.classId(), me.bow());
+        styleName = style == null ? "none" : style.name();
+        final PlaystyleEngine.Pick pick = engine.pick(style, me, as, w, badSkills, now, true);
+        if (pick == null) {
+            return false;
+        }
+        final ActionResult r = ctx.act().cast(pick.skill().id(), pick.self() ? me.objectId() : as.objectId());
+        if (r == ActionResult.INVALID) {
+            badSkills.put(badKey(pick.skill().id(), as.npcId()), now + BAD_SKILL_MS);
+        }
+        engine.cast(pick, r.ok(), me.mage(), now);
+        if (!r.ok()) {
+            return false;
+        }
+        playstyleCasts++;
+        detail = "olympiad fight " + fightName + ": " + pick.entry().name();
+        return true;
     }
 
     private long tickMain(BrainContext ctx, WorldView w, SelfView me, long now) {
@@ -324,6 +460,9 @@ public final class BasicBrain implements Brain {
         final long now = ctxNow;
         if (phase == Phase.DEAD) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.DEAD, false, phaseSince);
+        }
+        if (olyMatch) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.FIGHT, false, phaseSince);
         }
         if ((ptMateId != 0) || (rbCallerId != 0)) {
             return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.PARTY, false, phaseSince);
@@ -2169,6 +2308,9 @@ public final class BasicBrain implements Brain {
                 sb.append(" → ").append(lastPvpTarget);
             }
             sb.append(", mode ").append(pvpMode.name().toLowerCase(java.util.Locale.ROOT));
+        }
+        if (olyMatch) {
+            sb.append("\nOlympiad: ").append(olyFoeId == 0 ? "wait" : ("fight " + fightName));
         }
         return sb.toString();
     }
@@ -5409,6 +5551,9 @@ public final class BasicBrain implements Brain {
 
     /** In a fight (a monster or a player on it) and HP below its threshold: an HP potion, its reuse respected. */
     private void drink(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!OlympiadCombat.allowConsumables(me.inOlympiadMatch())) {
+            return; // stock ItemSkills refuse potions in olympiad; do not try
+        }
         if (!potions || me.sitting() || (now < nextPotion) || (me.hpPct() >= potionAt(ctx.info().seed(), potionLo, potionHi))) {
             return;
         }

@@ -107,7 +107,7 @@ final class MobiusWorldView implements WorldView {
             p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills),
             p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW),
             p.getCharges(), petUp ? pet.getObjectId() : 0, petUp && (pet.getMaxHp() > 0) ? (pet.getCurrentHp() * 100) / pet.getMaxHp() : 0, petTarget == null ? 0 : petTarget.getObjectId(),
-            p.getClanId(), p.isClanLeader());
+            p.getClanId(), p.isClanLeader(), p.isInOlympiadMode(), p.getOlympiadGameId(), p.isOlympiadStart());
     }
 
     @Override
@@ -160,7 +160,8 @@ final class MobiusWorldView implements WorldView {
                 final WorldObject t = o.getTarget();
                 final boolean theirPeace = o.isInsideZone(ZoneId.PEACE) || o.isInsideZone(ZoneId.TOWN);
                 l.add(new PlayerView(o.getObjectId(), o.getName(), o.getLevel(), o.getPlayerClass().getId(), at, at.distance(self.pos()), o.getKarma(), o.getPvpFlag() != 0, o.isInCombat(),
-                    t == null ? 0 : t.getObjectId(), registry.isBot(o), o.isInStoreMode(), o.getLastFolkNPC() != null, !theirPeace, o.getClanId()));
+                    t == null ? 0 : t.getObjectId(), registry.isBot(o), o.isInStoreMode(), o.getLastFolkNPC() != null, !theirPeace, o.getClanId(),
+                    o.getMaxHp() <= 0 ? 0 : (o.getCurrentHp() * 100) / o.getMaxHp(), o.getHeading(), o.isInOlympiadMode(), o.getOlympiadGameId()));
             }
             l.sort(Comparator.comparingDouble(PlayerView::distance));
             players = l.size() > MAX_OBJECTS ? List.copyOf(l.subList(0, MAX_OBJECTS)) : l;

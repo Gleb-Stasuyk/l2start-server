@@ -1147,7 +1147,14 @@ public final class BotsCoreModule implements GameModule {
             }
         }
         brains.post(r, new BotEvent.Died(e.getAttacker() == null ? 0 : e.getAttacker().getObjectId()));
-        scheduleReturn(r);
+        if (!olympiadHoldsCorpse(dead.asPlayer())) {
+            scheduleReturn(r);
+        }
+    }
+
+    /** Stock olympiad owns the corpse until the match ends; never press "To village" from a stadium. */
+    static boolean olympiadHoldsCorpse(Player p) {
+        return (p != null) && (p.isInOlympiadMode() || (p.getOlympiadGameId() >= 0));
     }
 
     private long deathLogWindow;
@@ -1210,6 +1217,9 @@ public final class BotsCoreModule implements GameModule {
             if (p.isReviveRequested() && !p.isRevivingPet()) {
                 p.reviveAnswer(1);
                 ctx.metrics().counter("resurrected").inc();
+                return;
+            }
+            if (olympiadHoldsCorpse(p)) {
                 return;
             }
             if (System.currentTimeMillis() >= returnAt) {
@@ -1517,7 +1527,7 @@ public final class BotsCoreModule implements GameModule {
         }
         ctx.metrics().counter("logins").inc();
         final org.l2jmobius.gameserver.entity.actor.Player p = r.player();
-        if ((p != null) && p.isDead()) {
+        if ((p != null) && p.isDead() && !olympiadHoldsCorpse(p)) {
             scheduleReturn(r); // logged out dead (stock keeps it dead on login): back to town like after a death
         }
         return true;

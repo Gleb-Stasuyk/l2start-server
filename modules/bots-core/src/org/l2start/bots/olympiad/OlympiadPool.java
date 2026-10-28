@@ -8,8 +8,8 @@ import org.l2jmobius.gameserver.entity.actor.Player;
 /**
  * Service of bots-core for Grand Olympiad nobles (phase 9, module bots-olympiad): personas kept for the olympiad
  * roster (status OLYMPIAD: the presence director never uses them), logged in near the Grand Olympiad Manager with
- * a 3rd profession, S-grade gear and {@code setNoble(true)}. They keep the basic brain so they can fight in a
- * stadium; gather/idle is "far from starting villages" strolling around the manager.
+ * a 3rd profession, S-grade gear and {@code setNoble(true)}. They keep the basic brain: in a stadium match it
+ * fights 1v1 (phase 9 D); gather/idle is "far from starting villages" strolling around the manager.
  */
 public interface OlympiadPool {
     /** A new olympiad noble: 3rd profession (combat allow-list) and the sex of the generated persona. */

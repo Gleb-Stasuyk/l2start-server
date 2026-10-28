@@ -88,7 +88,15 @@ final class PlaystyleEngine {
      * @return what to cast now, null = nothing (the brain hits or nukes as before)
      */
     Pick pick(Playstyles.Playstyle p, SelfView me, NpcView mob, WorldView w, Map<Long, Long> bad, long now) {
-        if ((p == null) || (now < sharedUntil)) {
+        return pick(p, me, mob, w, bad, now, false);
+    }
+
+    /**
+     * @param pvp true = Grand Olympiad / 1v1: {@code PVP} lines fire, spoil/undead/mob-count lines do not, AOE is
+     *        allowed on the single rival (never used to pull standing monsters)
+     */
+    Pick pick(Playstyles.Playstyle p, SelfView me, NpcView mob, WorldView w, Map<Long, Long> bad, long now, boolean pvp) {
+        if ((p == null) || (mob == null) || (now < sharedUntil)) {
             return null;
         }
         target(mob.objectId());
@@ -110,10 +118,10 @@ final class PlaystyleEngine {
             if ((e.use() == Use.OPENER) && (opened || (mob.hpPct() < 95))) {
                 continue;
             }
-            if ((e.use() == Use.AOE) && (BasicBrain.onMe(w, me) < 2)) {
+            if ((e.use() == Use.AOE) && !pvp && (BasicBrain.onMe(w, me) < 2)) {
                 continue; // an area skill only on monsters already on the bot: never pull the ones standing around
             }
-            if (holds(e, me, mob, w, now)) {
+            if (holds(e, me, mob, w, now, pvp)) {
                 return new Pick(e, s, e.use() == Use.PANIC);
             }
         }
@@ -170,6 +178,10 @@ final class PlaystyleEngine {
     }
 
     boolean holds(Entry e, SelfView me, NpcView mob, WorldView w, long now) {
+        return holds(e, me, mob, w, now, false);
+    }
+
+    boolean holds(Entry e, SelfView me, NpcView mob, WorldView w, long now, boolean pvp) {
         for (Cond c : e.when()) {
             final boolean ok = switch (c) {
                 case ALWAYS, SELF_ABNORMAL_FREE, HEALER_READY -> true;
@@ -177,18 +189,19 @@ final class PlaystyleEngine {
                 case TARGET_HP_BELOW -> mob.hpPct() < e.hpBelow();
                 case TARGET_HP_ABOVE -> mob.hpPct() > e.hpAbove();
                 case SELF_HP_BELOW -> me.hpPct() < e.selfHpBelow();
-                case MOBS_NEAR -> mobsNear(w, mob) >= Math.max(2, e.mobsAtLeast());
+                case MOBS_NEAR -> !pvp && mobsNear(w, mob) >= Math.max(2, e.mobsAtLeast());
                 case DEBUFF_MISSING -> (now - castOnTarget.getOrDefault(e.skillId(), -DEBUFF_MS)) >= DEBUFF_MS;
                 case ONCE_PER_TARGET -> !onceOnTarget.contains(e.skillId());
-                case NOT_SPOILED -> !mob.spoiled() && (triesOnTarget.getOrDefault(e.skillId(), 0) < SPOIL_TRIES);
-                case MOBS_UNSPOILED -> unspoiledNear(w, mob) >= Math.max(2, e.mobsAtLeast());
+                case NOT_SPOILED -> !pvp && !mob.spoiled() && (triesOnTarget.getOrDefault(e.skillId(), 0) < SPOIL_TRIES);
+                case MOBS_UNSPOILED -> !pvp && unspoiledNear(w, mob) >= Math.max(2, e.mobsAtLeast());
                 case REAR -> mob.behind(me.pos(), REAR_DEG);
                 case CHARGES -> me.charges() >= Math.max(1, e.chargesAtLeast());
                 case CHARGES_BELOW -> me.charges() < e.chargesBelow();
-                case TARGET_UNDEAD -> mob.undead();
+                case TARGET_UNDEAD -> !pvp && mob.undead();
                 case DURABLE_TARGET -> (mob.hpPct() > 50) && (mob.level() >= (me.level() - 2));
                 case UNDER_ATTACK, FOCUS_ON_ME -> mob.targetId() == me.objectId();
-                case PVP, UNKNOWN -> false;
+                case PVP -> pvp;
+                case UNKNOWN -> false;
             };
             if (!ok) {
                 return false;
