@@ -101,6 +101,8 @@ public final class FakeWorld {
         public boolean undead;
         /** Spoil (254) worked on it: Sweeper (42) on the corpse gives {@link #SWEEP_ITEM}. */
         public boolean spoiled;
+        /** RB party tests: WorldView.BOSS_* of this monster. */
+        public int bossKind;
         long respawnAt = -1;
         long nextHitAt;
         long swingUntil;
@@ -219,7 +221,21 @@ public final class FakeWorld {
     public final List<String> partyCasts = new ArrayList<>();
     public static final int RESURRECTION = 1016;
     public static final int AGGRESSION = 28;
+    public static final int HATE_AURA = 18;
     public int taunts;
+    /** Aura of Hate casts that pulled at least one monster onto the bot. */
+    public int auraPulls;
+    /** RB party (iteration 2): buff effects on creatures, object id -> skill ids (the bot is {@link #SELF_ID}). */
+    public final Map<Integer, java.util.Set<Integer>> effects = new HashMap<>();
+    /** RB party (iteration 2): a buff on a friend takes this long to go off (0 = at once); moving or stopping breaks it. */
+    public long buffCastMs;
+    /** Buff casts broken before they went off. */
+    public int buffsInterrupted;
+    /** Summons of the party members (the bot's own is added by the view). */
+    public final List<WorldView.PartyPet> partyPets = new ArrayList<>();
+    private int pendingBuff;
+    private int pendingTarget;
+    private long pendingAt;
 
     /** Phase 6: what the bot said, whispered, answered (say:, party:, whisper:to:, social:, answerParty:, leaveParty, giveLeader:). */
     public final List<String> chat = new ArrayList<>();
@@ -403,6 +419,16 @@ public final class FakeWorld {
 
     private void step(long ms) {
         now += ms;
+        if (pendingBuff != 0) {
+            if (!"CAST".equals(intention) || dead || sitting) {
+                buffsInterrupted++;
+                pendingBuff = 0;
+            } else if (now >= pendingAt) {
+                effects.computeIfAbsent(pendingTarget, k -> new java.util.HashSet<>()).add(pendingBuff);
+                pendingBuff = 0;
+                intention = "ACTIVE";
+            }
+        }
         final double sec = ms / 1000.0;
         peaceZone = pos.distance2d(town) <= townRadius;
         // respawn
@@ -507,6 +533,9 @@ public final class FakeWorld {
                 }
             }
             case "CAST" -> {
+                if (pendingBuff != 0) {
+                    break; // a buff on a friend is being cast
+                }
                 final Mob m = mobs.get(targetId);
                 final Extra ex = extras.get(castSkill);
                 if ((ex != null) && (m != null) && (ex.kind() == SkillView.Kind.CORPSE)) {
@@ -667,6 +696,22 @@ public final class FakeWorld {
 
     // ------------------------------------------------------------------ views
 
+    /** Water areas (circles: x, y, radius), as stock water zones. */
+    public final List<int[]> waters = new java.util.ArrayList<>();
+
+    public void addWater(int x, int y, int radius) {
+        waters.add(new int[] { x, y, radius });
+    }
+
+    public boolean inWater(Pos p) {
+        for (int[] c : waters) {
+            if (Math.hypot(p.x() - c[0], p.y() - c[1]) <= c[2]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private final Geo geo = new Geo() {
         @Override
         public boolean canMoveTo(Pos a, Pos b) {
@@ -684,12 +729,17 @@ public final class FakeWorld {
         }
 
         @Override
+        public boolean water(Pos p) {
+            return inWater(p);
+        }
+
+        @Override
         public Optional<Pos> randomReachablePoint(Pos center, int radius, Random r) {
             for (int i = 0; i < 20; i++) {
                 final double a = r.nextDouble() * Math.PI * 2;
                 final double d = r.nextDouble() * radius;
                 final Pos p = new Pos(center.x() + (int) (Math.cos(a) * d), center.y() + (int) (Math.sin(a) * d), center.z());
-                if (!blocked(center, p)) {
+                if (!blocked(center, p) && !inWater(p)) {
                     return Optional.of(p);
                 }
             }
@@ -806,6 +856,29 @@ public final class FakeWorld {
             @Override
             public long itemCount(int itemId) {
                 return FakeWorld.this.itemCount(itemId);
+            }
+
+            @Override
+            public int bossKind(int objectId) {
+                final Mob m = mobs.get(objectId);
+                return m == null ? BOSS_NONE : m.bossKind;
+            }
+
+            @Override
+            public List<PartyPet> partyPets() {
+                final List<PartyPet> out = new ArrayList<>();
+                for (PartyPet pp : partyPets) {
+                    out.add(new PartyPet(pp.objectId(), pp.ownerId(), pp.name(), pp.pos(), pp.pos().distance(self.pos()), pp.dead()));
+                }
+                if (petId != 0) {
+                    out.add(new PartyPet(petId, SELF_ID, "pet", pos, 0, false));
+                }
+                return out;
+            }
+
+            @Override
+            public int buffState(int objectId, int skillId) {
+                return effects.getOrDefault(objectId, java.util.Set.of()).contains(skillId) ? BUFF_ON : BUFF_OFF;
             }
         };
     }
@@ -1203,6 +1276,16 @@ public final class FakeWorld {
         }
 
         @Override
+        public ActionResult teleportNear(Pos target) {
+            if (dead || (target == null)) {
+                return ActionResult.INVALID;
+            }
+            sitting = false;
+            pos = new Pos(target.x() + 2000, target.y(), target.z());
+            return ActionResult.OK;
+        }
+
+        @Override
         public ActionResult teleportViaGk(Pos dest) {
             if (dead || sitting || (dest == null)) {
                 return ActionResult.INVALID;
@@ -1274,6 +1357,21 @@ public final class FakeWorld {
             return ActionResult.COOLDOWN;
         }
         final Mob m = mobs.get(objectId);
+        if (e.id() == HATE_AURA) {
+            boolean pulled = false;
+            for (Mob x : mobs.values()) {
+                if (!x.dead() && (x.pos.distance2d(pos) <= 250)) {
+                    x.targetId = SELF_ID;
+                    pulled = true;
+                }
+            }
+            if (pulled) {
+                auraPulls++;
+                taunts++;
+            }
+            spend(e, objectId);
+            return ActionResult.OK;
+        }
         if ((e.id() == AGGRESSION) && (m != null) && !m.dead()) {
             m.targetId = SELF_ID; // pulled onto the bot
             taunts++;
@@ -1303,6 +1401,8 @@ public final class FakeWorld {
                 if (objectId == SELF_ID) {
                     if (HEALS.contains(e.id())) {
                         hp = Math.min(maxHp(), hp + (maxHp() * 0.3));
+                    } else {
+                        friendBuff(e.id(), objectId);
                     }
                     spend(e, objectId);
                     return ActionResult.OK;
@@ -1322,6 +1422,8 @@ public final class FakeWorld {
                         return ActionResult.INVALID;
                     } else if (HEALS.contains(e.id())) {
                         party.set(pi, new PartyMember(pm.objectId(), pm.name(), pm.classId(), pm.level(), pm.pos(), 0, Math.min(100, pm.hpPct() + 30), pm.mpPct(), false, pm.targetId(), pm.leader()));
+                    } else {
+                        friendBuff(e.id(), objectId);
                     }
                     partyCasts.add(e.id() + ">" + objectId);
                     spend(e, objectId);
@@ -1330,7 +1432,19 @@ public final class FakeWorld {
                 if ((petId != 0) && (objectId == petId)) {
                     if (HEALS.contains(e.id())) {
                         petHp = Math.min(petMaxHp(), petHp + (petMaxHp() * 0.3));
+                    } else {
+                        friendBuff(e.id(), objectId);
                     }
+                    spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                final WorldView.PartyPet pet = partyPets.stream().filter(x -> x.objectId() == objectId).findFirst().orElse(null);
+                if (pet != null) {
+                    if (pet.dead() || (pet.pos().distance(pos) > 900)) {
+                        return pet.dead() ? ActionResult.INVALID : ActionResult.NOT_REACHABLE;
+                    }
+                    partyCasts.add(e.id() + ">" + objectId);
+                    friendBuff(e.id(), objectId);
                     spend(e, objectId);
                     return ActionResult.OK;
                 }
@@ -1354,6 +1468,20 @@ public final class FakeWorld {
             intention = "CAST";
         }
         return ActionResult.OK;
+    }
+
+    /** A buff on a friend: on it at once, or after {@link #buffCastMs} of standing still (the bot casts meanwhile). */
+    private void friendBuff(int skillId, int objectId) {
+        if (buffCastMs <= 0) {
+            effects.computeIfAbsent(objectId, k -> new java.util.HashSet<>()).add(skillId);
+            return;
+        }
+        pendingBuff = skillId;
+        pendingTarget = objectId;
+        pendingAt = now + buffCastMs;
+        intention = "CAST";
+        castSkill = -1;
+        moveDest = null;
     }
 
     private void spend(Extra e, int objectId) {

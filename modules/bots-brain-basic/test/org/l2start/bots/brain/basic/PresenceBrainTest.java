@@ -228,6 +228,13 @@ class PresenceBrainTest {
             final int from = h.act().calls().size();
             beatenBy(w, h, pk, 0.6, 6000);
             beatenBy(w, h, pk, 0.15, 12_000);
+            // live test 2026-10-22: the scroll only once out of the player's sight (it runs on foot until then)
+            final int beforeRun = h.act().calls().size();
+            final boolean nearAtCheck = w.pos().distance2d(pk.pos()) <= BasicBrain.PVP_FLEE_UNSEEN;
+            if (nearAtCheck) {
+                assertTrue(h.act().calls().subList(from, beforeRun).stream().noneMatch(c -> c.action().equals("returnToTown")), "read a scroll in sight: " + h.notes());
+            }
+            h.run(MIN);
             final var calls = h.act().calls().subList(from, h.act().calls().size());
             int escape = -1;
             for (int i = 0; i < calls.size(); i++) {

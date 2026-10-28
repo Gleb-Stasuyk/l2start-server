@@ -237,7 +237,7 @@ class CompanionBrainTest {
     }
 
     @Test
-    void catchesUpViaGatekeeperWhenMateTeleports() {
+    void catchesUpWhenMateTeleports() {
         final FakeWorld w = BasicBrainTest.world(65, false);
         final BrainHarness h = joined(w, 65, false, 0.2);
         final Pos homeGk = new Pos(w.pos().x() + 80, w.pos().y(), 0);
@@ -249,7 +249,10 @@ class CompanionBrainTest {
         moveGleb(w, gleb(mateAt, 6));
         h.run(3 * MIN);
         assertFalse(w.chat.contains("leaveParty"), "left instead of catching up: " + h.notes());
-        assertTrue(w.gkTeleports >= 1, "never used the gatekeeper: " + h.act().calls() + " " + h.notes());
+        // live test 2026-10-22 (ToporGena Giran<->Dion): no gatekeeper hops; it appears near him out of sight and runs
+        assertEquals(0, w.gkTeleports, "gatekeeper hops: " + h.notes());
+        assertTrue(h.act().calls().stream().anyMatch(c -> c.action().equals("teleportNear")), "never came near: " + h.act().calls() + " " + h.notes());
+        assertTrue(h.notes().toString().contains("route to Gleb"), "route decision not logged: " + h.notes());
         assertTrue(w.pos().distance2d(mateAt) < BasicBrain.MATE_FAR, "did not catch up: bot=" + w.pos() + " mate=" + mateAt + " " + h.notes());
         assertTrue(brain(h).mateId() == GLEB, "left the party while catching up");
     }

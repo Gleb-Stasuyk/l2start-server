@@ -50,6 +50,7 @@ public final class BotsCoreModule implements GameModule {
     private Random seeds;
     private volatile PersonaGenerator personas;
     private DirectorRunner director;
+    private RbRecruit rbRecruit;
     /** The five starting zones (docs/STARTER_ZONES_PLAN.md), in both presence modes. */
     private volatile org.l2start.bots.director.StarterZones zones;
     private volatile org.l2start.bots.director.StockPoints stockPoints;
@@ -58,6 +59,8 @@ public final class BotsCoreModule implements GameModule {
     private org.l2start.bots.clan.ClanHallBids clanHallBids;
     private org.l2start.bots.clan.ClanHallAssign clanHallAssign;
     private org.l2start.bots.clan.AcademyRecruiters academyRecruiters;
+    /** Clan recruiters (main clan) at the gatekeepers of Dion, Giran, Aden and Goddard. */
+    private org.l2start.bots.clan.AcademyRecruiters clanRecruiters;
     private org.l2start.bots.clan.AcademyRewards academyRewards;
     private volatile boolean clanInvitePlayers = true;
     private volatile boolean clanJoinPlayers = true;
@@ -78,7 +81,17 @@ public final class BotsCoreModule implements GameModule {
         world = new BotWorld(repo, ctx.log());
         academyRecruiters = new org.l2start.bots.clan.AcademyRecruiters(ctx, clans, registry, world);
         academyRecruiters.setHalls(clanHallAssign);
+        clanRecruiters = new org.l2start.bots.clan.AcademyRecruiters(ctx, clans, registry, world, org.l2start.bots.clan.AcademyRecruiters.Kind.CLAN);
+        clanRecruiters.setHalls(clanHallAssign);
+        academyRecruiters.setBusyLeader(id -> clanRecruiters.isRecruiter(id));
+        clanRecruiters.setBusyLeader(id -> academyRecruiters.isRecruiter(id));
         brains = new BrainHost(ctx, registry, world, this::brainLogout);
+        brains.onBarren((place, now) -> {
+            final DirectorRunner d = director;
+            if (d != null) {
+                d.director().markBarren(place, now);
+            }
+        });
         world.setListener(new BotWorld.Listener() {
             @Override
             public void entered(BotRecord r) {
@@ -87,6 +100,11 @@ public final class BotsCoreModule implements GameModule {
                 }
                 if ((clans != null) && (r.player() != null)) {
                     clans.attachPlayer(r, r.player()); // phase 7d
+                }
+                final org.l2jmobius.gameserver.entity.actor.Player ep = r.player();
+                if ((ep != null) && !r.post() && org.l2start.bots.clan.AcademyRecruiters.anyRecruiterTitle(ep.getTitle())) {
+                    ep.setTitle(""); // a recruiter title left over from an old duty (recruiters set it again at their post)
+                    ep.broadcastUserInfo();
                 }
                 brains.entered(r);
             }
@@ -115,11 +133,6 @@ public final class BotsCoreModule implements GameModule {
         nodes.addAll(stockPoints.respawn());
         zones.setAvoid(nodes);
         zones.setStarts(stockPoints.starts());
-        try {
-            gremlinSpots = org.l2start.bots.director.StockPoints.gremlins(org.l2jmobius.gameserver.config.ServerConfig.DATAPACK_ROOT.toPath().resolve("data"));
-        } catch (Exception e) {
-            ctx.log().warn("gremlin spawns not read: " + e.getMessage());
-        }
         world.setStarterZones(zones, terrain());
         brains.setStarterZones(zones);
         factory.setHomePicker(race -> zones.villagePoint(race, List.of(), 0, terrain(), new java.util.Random()));
@@ -182,7 +195,21 @@ public final class BotsCoreModule implements GameModule {
 
         // phase 6f: party mate gifts shots/potions via P6-BOT-TRADE (bot puts nothing, confirms last)
         final PartyTrades partyTrades = new PartyTrades(ctx, registry, memories);
-        ctx.onBotTradeRequest(partyTrades::onTradeRequest);
+        // academy join reward by trade: the recruiter offers the adena, or takes the trade the player opens later
+        final AcademyTrades academyTrades = new AcademyTrades(ctx);
+        ctx.onBotTradeRequest((requester, bot) -> academyTrades.onTradeRequest(requester, bot) || partyTrades.onTradeRequest(requester, bot));
+        ctx.scheduler().fixedRate("academy trades", Duration.ofMillis(400), Duration.ofMillis(400), academyTrades::tick);
+        if (academyRewards != null) {
+            academyRewards.setJoinPayer((p, clanId, amount, onPaid) -> {
+                final int oid = academyRecruiters == null ? 0 : academyRecruiters.inviterOf(p.getObjectId());
+                final Player bot = oid == 0 ? null : org.l2jmobius.gameserver.entity.World.getPlayer(oid);
+                return academyTrades.offer(bot, p, amount, onPaid);
+            });
+            academyRewards.setGraduatePayer((p, clanId, amount, onPaid) -> {
+                final org.l2start.bots.clan.AcademyRecruiters.Leader l = academyRecruiters == null ? null : academyRecruiters.leaderAtPlace(clanId);
+                return (l != null) && academyTrades.offerAt(l.bot(), p, amount, l.place(), onPaid);
+            });
+        }
         ctx.scheduler().fixedRate("party trades", Duration.ofMillis(400), Duration.ofMillis(400), partyTrades::tick);
 
         ctx.botPresence(registry::isBot);
@@ -209,16 +236,14 @@ public final class BotsCoreModule implements GameModule {
         ctx.events().<OnCreatureDeath> onPlayers(EventType.ON_CREATURE_DEATH, this::onDeath);
         ctx.events().<OnCreatureDamageReceived> onPlayers(EventType.ON_CREATURE_DAMAGE_RECEIVED, this::onDamage);
         ctx.events().<OnPlayerLevelChanged> onPlayers(EventType.ON_PLAYER_LEVEL_CHANGED, this::onLevel);
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerCreate> onPlayers(EventType.ON_PLAYER_CREATE, this::onPlayerCreate);
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLogin> onPlayers(EventType.ON_PLAYER_LOGIN, this::onPlayerLogin);
         ctx.events().<OnAttackableKill> onMonsters(EventType.ON_ATTACKABLE_KILL, this::onKill);
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanJoin> onPlayers(
+        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanJoin> onGlobal( // Clan notifies the global container only
             EventType.ON_PLAYER_CLAN_JOIN, e -> {
                 if (academyRewards != null) {
                     academyRewards.onClanJoin(e);
                 }
             });
-        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanLeft> onPlayers(
+        ctx.events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.clan.OnPlayerClanLeft> onGlobal( // Clan notifies the global container only
             EventType.ON_PLAYER_CLAN_LEFT, e -> {
                 if (academyRewards != null) {
                     academyRewards.onClanLeft(e);
@@ -281,9 +306,18 @@ public final class BotsCoreModule implements GameModule {
         return academyRewards;
     }
 
+    /** RB party (iteration 1): the bot answered a live player's call for a raid boss; the director leaves it be. */
+    public boolean isRbPinned(int botId) {
+        return (rbRecruit != null) && rbRecruit.pinned(botId);
+    }
+
+    public RbRecruit rbRecruit() {
+        return rbRecruit;
+    }
+
     /** Phase 7f: director must not logout academy recruiters while on duty. */
     public boolean isAcademyRecruiter(int botId) {
-        return (academyRecruiters != null) && academyRecruiters.isRecruiter(botId);
+        return ((academyRecruiters != null) && academyRecruiters.isRecruiter(botId)) || ((clanRecruiters != null) && clanRecruiters.isRecruiter(botId));
     }
 
     /**
@@ -341,6 +375,8 @@ public final class BotsCoreModule implements GameModule {
             ctx.log().warn("no geodata: bots cannot enter the world (RequireGeodata=true). See docs/GEODATA.md");
         }
         relocateStarters();
+        rbRecruit = new RbRecruit(this);
+        ctx.scheduler().fixedRate("rb party", Duration.ofSeconds(10), Duration.ofSeconds(10), rbRecruit::tick);
         ctx.scheduler().fixedRate("teleports", Duration.ofMillis(500), Duration.ofMillis(500), () -> {
             final int n = world.completeTeleports(registry.all());
             if (n > 0) {
@@ -381,6 +417,25 @@ public final class BotsCoreModule implements GameModule {
                 }
             });
         }
+        if (clanRecruiters != null) {
+            if (director != null) {
+                clanRecruiters.setForceEnter(director::requestClanLeaderEnter);
+            }
+            ctx.scheduler().fixedRate("clan recruiters presence", Duration.ofSeconds(25), Duration.ofSeconds(10), () -> {
+                try {
+                    clanRecruiters.presence();
+                } catch (Exception e) {
+                    ctx.log().warn("clan recruiters presence: " + e.getMessage());
+                }
+            });
+            ctx.scheduler().fixedRate("clan recruiters tick", Duration.ofSeconds(17), Duration.ofSeconds(5), () -> {
+                try {
+                    clanRecruiters.tick();
+                } catch (Exception e) {
+                    ctx.log().warn("clan recruiters: " + e.getMessage());
+                }
+            });
+        }
         if (academyRecruiters != null) {
             if (director != null) {
                 academyRecruiters.setForceEnter(director::requestClanLeaderEnter);
@@ -416,6 +471,11 @@ public final class BotsCoreModule implements GameModule {
                 ctx.scheduler().fixedRate("director stats", every, every, () -> {
                     if ((director.director().pendingCount() > 0) || (registry.inWorld() > 0) || !director.live().isEmpty()) {
                         ctx.log().info(director.statsLine());
+                        // Separate per-minute presence summary
+                        final org.l2start.bots.director.Director.PresenceSummary ps = director.director().presenceSummary();
+                        if (ps != null) {
+                            ctx.log().info(ps.line());
+                        }
                     }
                     final int traders = world.drainTraderEnters();
                     if (traders > 0) {
@@ -440,86 +500,6 @@ public final class BotsCoreModule implements GameModule {
 
     org.l2start.bots.director.StarterZones zones() {
         return zones;
-    }
-
-    // ------------------------------------------------------------------ newbie companions (docs/STARTER_ZONES_PLAN.md S6)
-
-    private volatile List<Pos> gremlinSpots = List.of();
-
-    /** NewbieCompanions "min-max" (or "n"; 0 = off). */
-    static int[] newbieRange(String v) {
-        try {
-            final String[] p = v.trim().split("-");
-            final int lo = Math.max(0, Integer.parseInt(p[0].trim()));
-            final int hi = p.length > 1 ? Math.max(lo, Integer.parseInt(p[1].trim())) : lo;
-            return new int[] { lo, Math.min(hi, 5) };
-        } catch (RuntimeException e) {
-            return new int[] { 0, 0 };
-        }
-    }
-
-    /** A live player made a character (bots are made without a client). */
-    private void onPlayerCreate(org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerCreate e) {
-        if (e.getClient() == null) {
-            return;
-        }
-        final int charId = e.getObjectId();
-        ctx.scheduler().schedule("newbie " + charId, Duration.ZERO, () -> {
-            try {
-                repo.newbieCreated(charId, System.currentTimeMillis());
-            } catch (Exception ex) {
-                ctx.log().warn("newbie: cannot note character " + charId + ": " + ex.getMessage());
-            }
-        });
-    }
-
-    /** First login of a character made here, in a starting zone: 1-2 beginners of its race come in 1-3 minutes (once). */
-    private void onPlayerLogin(org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerLogin e) {
-        final Player p = e.getPlayer();
-        final DirectorRunner d = director;
-        if ((p == null) || (d == null) || registry.isBot(p) || (newbieRange(ctx.config().getString("NewbieCompanions"))[1] <= 0)) {
-            return;
-        }
-        final int charId = p.getObjectId();
-        ctx.scheduler().schedule("newbie " + charId, Duration.ZERO, () -> {
-            try {
-                if (!repo.newbieTake(charId, System.currentTimeMillis())) {
-                    return; // not made here, or had them already
-                }
-            } catch (Exception ex) {
-                ctx.log().warn("newbie: " + ex.getMessage());
-                return;
-            }
-            final long delay = 60_000 + ThreadLocalRandom.current().nextLong(120_000);
-            ctx.log().info("newbie: " + p.getName() + " is new here, companions in " + (delay / 1000) + " s");
-            ctx.scheduler().schedule("newbie companions " + charId, Duration.ofMillis(delay), () -> newbieCompanions(p));
-        });
-    }
-
-    private void newbieCompanions(Player p) {
-        final DirectorRunner d = director;
-        final org.l2start.bots.director.StarterZones z = zones;
-        if ((d == null) || (z == null) || !p.isOnline() || (p.getObjectId() == 0)) {
-            return;
-        }
-        final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
-        final int race = p.getRace().ordinal();
-        if ((race > 4) || (z.raceAt(at) < 0)) {
-            ctx.log().info("newbie: " + p.getName() + " is not in a starting zone any more: no companions");
-            return;
-        }
-        final Pos gremlins = org.l2start.bots.director.StockPoints.nearest(gremlinSpots, at, 8000);
-        if (gremlins == null) {
-            ctx.log().info("newbie: no gremlins near " + p.getName() + " at " + at);
-            return;
-        }
-        final int[] range = newbieRange(ctx.config().getString("NewbieCompanions"));
-        final int count = range[0] + ThreadLocalRandom.current().nextInt((range[1] - range[0]) + 1);
-        final org.l2start.bots.director.WorldCatalog.Town town = z.village(race);
-        final Pos home = z.villagePoint(race, List.of(), 0, terrain(), new Random());
-        if (d.director().requestNewbie(p.getObjectId(), race, count, gremlins, town.id(), home, System.currentTimeMillis())) {
-            ctx.log().info("newbie: " + count + " companion(s) of race " + race + " for " + p.getName() + " at " + at + ", gremlins " + gremlins);
-        }
     }
 
     /** Ground with geodata (RequireGeodata: no point without geodata), for village points. */
@@ -779,6 +759,11 @@ public final class BotsCoreModule implements GameModule {
             director.setConfig(directorConfig());
             director.director().setLife(life());
             director.director().setStarterTownMax(ctx.config().getInt("DirectorStarterTownMax"));
+            director.director().setPresenceField(ctx.config().getInt("PresenceFieldMin"), ctx.config().getInt("PresenceFieldMax"));
+            director.director().setPresenceTown("starter", ctx.config().getInt("PresenceTownStarterMin"), ctx.config().getInt("PresenceTownStarterMax"));
+            director.director().setPresenceTown("small", ctx.config().getInt("PresenceTownSmallMin"), ctx.config().getInt("PresenceTownSmallMax"));
+            director.director().setPresenceTown("medium", ctx.config().getInt("PresenceTownMediumMin"), ctx.config().getInt("PresenceTownMediumMax"));
+            director.director().setPresenceTown("large", ctx.config().getInt("PresenceTownLargeMin"), ctx.config().getInt("PresenceTownLargeMax"));
             director.director().setStarterZones(zones);
             try {
                 director.director().setPartyShare(Double.parseDouble(ctx.config().getString("PartyShare").trim()));
@@ -825,6 +810,11 @@ public final class BotsCoreModule implements GameModule {
             academyRecruiters.configure(ctx.config().getBoolean("AcademyRecruiters"));
             final int[] shout = org.l2start.bots.clan.AcademyRecruiters.parseIntervalSec(ctx.config().getString("AcademyShoutIntervalSec"));
             academyRecruiters.setShoutIntervalSec(shout[0], shout[1]);
+        }
+        if (clanRecruiters != null) {
+            clanRecruiters.configure(ctx.config().getBoolean("ClanRecruiters"));
+            final int[] shout = org.l2start.bots.clan.AcademyRecruiters.parseIntervalSec(ctx.config().getString("AcademyShoutIntervalSec"));
+            clanRecruiters.setShoutIntervalSec(shout[0], shout[1]);
         }
         if (academyRewards != null) {
             long join = 50_000L;
@@ -974,12 +964,19 @@ public final class BotsCoreModule implements GameModule {
                 if ((academyRecruiters != null) && academyRecruiters.onWhisper(from, r, e.getText())) {
                     return;
                 }
+                if ((clanRecruiters != null) && clanRecruiters.onWhisper(from, r, e.getText())) {
+                    return;
+                }
                 brains.post(r, new BotEvent.Whisper(from.getName(), e.getText()));
             }
             return;
         }
         if (type == ChatType.CLAN) {
             onClanChat(from, e.getText());
+            return;
+        }
+        // RB party (iteration 1): "ищу танка и биша на рб" in trade / shout — the roles named answer, not the LFP replies
+        if (((type == ChatType.TRADE) || (type == ChatType.SHOUT)) && (rbRecruit != null) && rbRecruit.onChat(from, e.getText())) {
             return;
         }
         final String channel = switch (type) {
@@ -1075,8 +1072,10 @@ public final class BotsCoreModule implements GameModule {
                 }
             }
         }
+        // RB party: a bot that answered his call is not limited by PartyBotsMax (a raid party is up to 8 bots)
+        final boolean called = (rbRecruit != null) && rbRecruit.calledBy(r.botId(), requester.getObjectId());
         brains.post(r, new BotEvent.PartyInvite(requester.getObjectId(), requester.getName(), requester.getLevel(), requester.getPlayerClass().getId(), members,
-            bots >= ctx.config().getInt("PartyBotsMax")));
+            !called && (bots >= ctx.config().getInt("PartyBotsMax"))));
         return true;
     }
 
@@ -1376,44 +1375,77 @@ public final class BotsCoreModule implements GameModule {
         return director;
     }
 
+    /** Personas kept ready (offline, ACTIVE) per race at starting levels; everything else is created on demand. */
+    static final int STARTER_MAX_LEVEL = 20;
+
+    /** Pure: the race (0..4) whose starter reserve is lowest and below {@code reserve}, -1 = all full. */
+    static int reserveGap(int[] ready, int reserve) {
+        int best = -1;
+        for (int race = 0; race < ready.length; race++) {
+            if ((ready[race] < reserve) && ((best < 0) || (ready[race] < ready[best]))) {
+                best = race;
+            }
+        }
+        return best;
+    }
+
+    /** ACTIVE bots in the world now: what MaxBots caps (traders and offline personas do not count). */
+    public int inWorldActive() {
+        int n = 0;
+        for (BotRecord r : registry.all()) {
+            if ((r.status() == BotRecord.Status.ACTIVE) && r.inWorld()) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     /**
-     * Pool warm-up (director): a new persona every 5 s (DirectorPoolWarmup a minute) until MaxBots exist, of every
-     * race and of levels spread over the game (fewer at the top), progress saved, so they are ready when needed.
+     * Pool warm-up (director): keeps a small reserve of offline personas of every race at starting levels
+     * (DirectorPoolReserve each, levels 1..20), at most DirectorPoolWarmup a minute. The database grows on demand:
+     * the director creates a persona of the right race and level when none fits.
      */
     private void warmUp() {
         final int perMin = ctx.config().getInt("DirectorPoolWarmup");
-        if ((perMin <= 0) || (director == null) || director.stopping()) {
+        final int reserve = ctx.config().getInt("DirectorPoolReserve");
+        if ((perMin <= 0) || (reserve <= 0) || (director == null) || director.stopping()) {
             return;
         }
-        final int max = ctx.config().getInt("MaxBots");
-        int n = Math.max(1, perMin / 12); // one database insert at a time keeps each call short (no "slow call")
         if ((perMin < 12) && (ThreadLocalRandom.current().nextInt(12) >= perMin)) {
             return;
         }
-        final ThreadLocalRandom rnd = ThreadLocalRandom.current();
-        int made = 0;
-        while ((n-- > 0) && (active().size() < max)) {
-            try {
-                final BotRecord r = factory.create(DirectorRunner.startClass(rnd.nextInt(5))); // quietly: no log line for each
-                ctx.metrics().counter("created").inc();
-                final int level = 1 + (int) (75 * Math.pow(rnd.nextDouble(), 1.4));
-                final long now = System.currentTimeMillis();
-                r.setProgress(level, now, 1);
-                repo.saveProgress(r.botId(), level, now);
-                made++;
-            } catch (Exception e) {
-                ctx.log().warn("pool warm-up: cannot create a persona", e);
-                return;
+        final long now = System.currentTimeMillis();
+        final int[] ready = new int[5];
+        for (BotRecord r : registry.all()) {
+            if ((r.status() == BotRecord.Status.ACTIVE) && !r.inWorld() && (r.paperLevel(now) <= STARTER_MAX_LEVEL)) {
+                final int race = DirectorRunner.race(r.persona() == null ? r.classId() : r.persona().classId());
+                if ((race >= 0) && (race < ready.length)) {
+                    ready[race]++;
+                }
             }
         }
-        if ((made > 0) && ((active().size() % 100) < made)) {
-            ctx.log().info("pool warm-up: " + active().size() + " of " + max + " personas");
+        final int race = reserveGap(ready, reserve);
+        if (race < 0) {
+            return;
+        }
+        try {
+            final BotRecord r = factory.create(DirectorRunner.startClass(race)); // quietly: no log line for each
+            ctx.metrics().counter("created").inc();
+            final int level = 1 + ThreadLocalRandom.current().nextInt(STARTER_MAX_LEVEL);
+            r.setProgress(level, now, 1);
+            repo.saveProgress(r.botId(), level, now);
+        } catch (Exception e) {
+            ctx.log().warn("pool warm-up: cannot create a persona", e);
         }
     }
 
-    /** One new persona with its account and character (director: when no existing persona fits). */
     BotRecord createOne(int classId) throws Exception {
-        final BotRecord r = factory.create(classId);
+        return createOne(classId, null);
+    }
+
+    /** @param adjust changes the generated persona before the character is made (RB party: the planned profession) */
+    BotRecord createOne(int classId, java.util.function.UnaryOperator<Persona> adjust) throws Exception {
+        final BotRecord r = factory.create(classId, adjust);
         final Persona p = r.persona();
         ctx.log().info("created " + r.name() + " (class " + r.classId() + ", " + p.nameStyle() + ", " + (p.female() ? "female" : "male") + ", " + p.chronotype() + ", " + p.timezone() + ", account " + r.accountName() + ")");
         ctx.metrics().counter("created").inc();
@@ -1432,13 +1464,8 @@ public final class BotsCoreModule implements GameModule {
 
     /** @return how many were created */
     public int create(int n, int classId, List<String> errors) {
-        final int max = ctx.config().getInt("MaxBots");
         int done = 0;
-        for (int i = 0; i < n; i++) {
-            if (active().size() >= max) {
-                errors.add("MaxBots=" + max + " reached");
-                break;
-            }
+        for (int i = 0; i < n; i++) { // MaxBots caps bots in the world, not characters in the database
             try {
                 final BotRecord r = factory.create(classId);
                 final Persona p = r.persona();

@@ -1,4 +1,4 @@
-# API платформы для модулей (версия 1.11.0)
+# API платформы для модулей (версия 1.12.0)
 
 Пакет `org.l2start.platform.api`. Модуль kind `jar` реализует `GameModule`; всё остальное приходит через `ModuleContext`.
 Правило: **регистрируй всё только через контекст** — тогда платформа знает, что принадлежит модулю, и снимает это
@@ -41,7 +41,7 @@ public interface GameModule {
 Классы модуля грузит отдельный class loader: сначала ядро и платформа, потом свой jar, потом jar'ы объявленных зависимостей.
 Другие модули невидимы.
 
-История: **1.11.0** (фаза 7e) — `onBotPledgeRequest` (хук `P7-BOT-PLEDGE`); **1.10.0** (фаза 7c) — `onBotAttackable` (хук `P7-ATTACKABLE`); **1.9.0** (фаза 7b) — `onBotDuelRequest` (хук `P7-BOT-DUEL`); **1.8.0** (фаза 6d) — `BotPartyListener.onPartyBusy` (хук `P6-BOT-PARTY` busy); **1.7.0** (extras) — `handlers().wrapBypass`; **1.6.0** (рейты) — `onDrops`, `onQuestReward`; **1.5.0** (фаза 6) — `onBotPartyRequest`; **1.4.0** (фаза 5) — `onBotTradeRequest`; **1.3.0** (фаза 5) — `onStoreDeal`; модули с `^1.0`–`^1.10` работают как раньше.
+История: **1.12.0** (стартовые зоны) — тип данных модуля `skills` (хук `P9-DATA-SKILLS`); **1.11.0** (фаза 7e) — `onBotPledgeRequest` (хук `P7-BOT-PLEDGE`); **1.10.0** (фаза 7c) — `onBotAttackable` (хук `P7-ATTACKABLE`); **1.9.0** (фаза 7b) — `onBotDuelRequest` (хук `P7-BOT-DUEL`); **1.8.0** (фаза 6d) — `BotPartyListener.onPartyBusy` (хук `P6-BOT-PARTY` busy); **1.7.0** (extras) — `handlers().wrapBypass`; **1.6.0** (рейты) — `onDrops`, `onQuestReward`; **1.5.0** (фаза 6) — `onBotPartyRequest`; **1.4.0** (фаза 5) — `onBotTradeRequest`; **1.3.0** (фаза 5) — `onStoreDeal`; модули с `^1.0`–`^1.11` работают как раньше.
 **1.2.0** (фаза 3) — `botPresence` и `cleanup` (модуль `bots-core`, хуки `P3-BOT-CHARINFO`, `P3-BOT-WHISPER`);
 модули с `^1.0`/`^1.1` работают как раньше.
 **1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);

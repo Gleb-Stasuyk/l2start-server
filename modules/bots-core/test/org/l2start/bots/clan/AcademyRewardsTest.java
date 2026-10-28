@@ -22,7 +22,7 @@ class AcademyRewardsTest {
         assertTrue(AcademyRewards.graduateEligible(true, false, 40));
         assertTrue(AcademyRewards.graduateEligible(true, false, 45));
         assertFalse(AcademyRewards.graduateEligible(true, false, 39));
-        assertFalse(AcademyRewards.graduateEligible(false, false, 40));
+        assertTrue(AcademyRewards.graduateEligible(false, false, 40), "join reward not taken: graduation still paid");
         assertFalse(AcademyRewards.graduateEligible(true, true, 40));
     }
 
@@ -48,5 +48,11 @@ class AcademyRewardsTest {
     @Test
     void noProactiveInvite() {
         assertFalse(AcademyRecruiters.proactiveInviteAllowed());
+    }
+
+    @Test
+    void graduateGets200kWhenJoinRewardNotTaken() {
+        org.junit.jupiter.api.Assertions.assertEquals(200_000L, AcademyRewards.graduateAmount(false, 50_000L, 150_000L));
+        org.junit.jupiter.api.Assertions.assertEquals(150_000L, AcademyRewards.graduateAmount(true, 50_000L, 150_000L));
     }
 }

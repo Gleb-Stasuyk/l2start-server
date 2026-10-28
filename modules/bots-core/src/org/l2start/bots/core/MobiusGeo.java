@@ -27,6 +27,16 @@ final class MobiusGeo implements Geo {
     }
 
     @Override
+    public boolean water(Pos p) {
+        return water(p.x(), p.y(), p.z());
+    }
+
+    /** Inside a stock water zone (sea, lakes, the canals of Heine): a bot never goes there on its own. */
+    static boolean water(int x, int y, int z) {
+        return org.l2jmobius.gameserver.managers.ZoneManager.getInstance().getZone(x, y, z, org.l2jmobius.gameserver.entity.zone.type.WaterZone.class) != null;
+    }
+
+    @Override
     public int height(Pos p) {
         return GeoEngine.getInstance().getHeight(p.x(), p.y(), p.z());
     }
@@ -40,7 +50,7 @@ final class MobiusGeo implements Geo {
             final int x = center.x() + (int) (Math.cos(a) * d);
             final int y = center.y() + (int) (Math.sin(a) * d);
             final int z = geo.getHeight(x, y, center.z());
-            if ((Math.abs(z - center.z()) < 500) && geo.canMoveToTarget(center.x(), center.y(), center.z(), x, y, z, 0)) {
+            if ((Math.abs(z - center.z()) < 500) && !water(x, y, z) && geo.canMoveToTarget(center.x(), center.y(), center.z(), x, y, z, 0)) {
                 return Optional.of(new Pos(x, y, z));
             }
         }

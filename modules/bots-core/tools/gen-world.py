@@ -28,6 +28,10 @@ MERGE = 2600          # territories this close (centre to centre) can be one gro
 LEVEL_GAP = 6         # ... when their mid levels differ at most this much
 MAX_RADIUS = 3600     # a ground is at most this big (else a new one starts)
 MIN_MONSTERS = 6
+# A smaller cluster (a lone territory of a few monsters, e.g. the west end of Alligator Beach) still becomes a ground:
+# a player hunting there must find it in the catalogue, else the presence director has nothing true to go by.
+# Such grounds are numbered after the regular ones of their file, so the ids of the regular grounds stay as they were.
+MIN_SMALL = 2
 TOWN_LEVELS = {"talking_island": (1, 18), "elven_village": (1, 18), "dark_elven_village": (1, 18), "orc_village": (1, 18),
                "dwarven_village": (1, 20), "gludin_village": (15, 30), "gludio_castle_town": (18, 35),
                "town_of_schuttgart": (40, 75), "rune_castle_town": (50, 78)}
@@ -173,7 +177,7 @@ def grounds(npcs):
     out = []
     for g in gs:
         m = g["m"]; n = sum(t["n"] for t in m)
-        if n < MIN_MONSTERS:
+        if n < MIN_SMALL:
             continue
         x = sum(t["x"] * t["n"] for t in m) / n; y = sum(t["y"] * t["n"] for t in m) / n
         z = round(sum(t["z"] * t["n"] for t in m) / n)
@@ -181,7 +185,7 @@ def grounds(npcs):
         lv = [l for t in m for l in t["lv"]]
         out.append(dict(stem=g["stem"], file=g["file"], indoor=g["indoor"], x=int(x), y=int(y), z=z, r=max(r, 600),
                         lo=pct(lv, 0.1), hi=pct(lv, 0.9), n=n, aggro=round(sum(t["aggro"] for t in m) / n, 2),
-                        spots=[(int(t["x"]), int(t["y"]), t["z"]) for t in sorted(m, key=lambda t: (t["x"], t["y"]))]))
+                        spots=[(int(t["x"]), int(t["y"]), t["z"]) for t in sorted(m, key=lambda t: (t["x"], t["y"]))], small=n < MIN_MONSTERS))
     return out
 
 def nearest_town(tws, x, y):
@@ -190,11 +194,72 @@ def nearest_town(tws, x, y):
 def slug(s):
     return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
 
+# Display names of the grounds (by id base): shouts and chat use them, never the id. A base without one fails the run.
+GROUND_NAMES = {
+    "alligatorbeach": ("Пляж Аллигаторов", "Alligator Beach"),
+    "alligatorisland": ("Остров Аллигаторов", "Alligator Island"),
+    "beehive": ("Улей", "Beehive"),
+    "blazingswamp": ("Пылающее Болото", "Blazing Swamp"),
+    "brekasstronghold": ("Крепость Брек", "Breka's Stronghold"),
+    "cemetery": ("Кладбище", "Cemetery"),
+    "crumamarshlands": ("Болота Крумы", "Cruma Marshlands"),
+    "darkelfstarting": ("Лес Темных Эльфов", "Dark Elven Forest"),
+    "deathpass": ("Перевал Смерти", "Death Pass"),
+    "devilsisle": ("Остров Дьявола", "Devil's Isle"),
+    "dragonvalleymonsters": ("Долина Драконов", "Dragon Valley"),
+    "dwarvenstarting": ("Земли Гномов", "Dwarven Lands"),
+    "elvenstarting": ("Эльфийский Лес", "Elven Forest"),
+    "enchantedvalley": ("Зачарованная Долина", "Enchanted Valley"),
+    "executiongrounds": ("Место Казни", "Execution Grounds"),
+    "fieldofsilence": ("Поле Безмолвия", "Field of Silence"),
+    "fieldofwhispers": ("Поле Шепота", "Field of Whispers"),
+    "fieldsofmassacre": ("Поля Резни", "Fields of Massacre"),
+    "forgeofgods": ("Кузница Богов", "Forge of the Gods"),
+    "gardenofbeasts": ("Сад Зверей", "Garden of Beasts"),
+    "gardenofeva": ("Сад Евы", "Garden of Eva"),
+    "giantscave": ("Пещера Гигантов", "Giant's Cave"),
+    "gorgonflowergarden": ("Сад Горгоны", "Gorgon Flower Garden"),
+    "hardinsacademy": ("Академия Хардина", "Hardin's Academy"),
+    "hotsprings": ("Горячие Источники", "Hot Springs"),
+    "ivorytower": ("Башня Слоновой Кости", "Ivory Tower"),
+    "ketraorcoutpost": ("Аванпост Кетра", "Ketra Orc Outpost"),
+    "near_heine": ("окрестности Гейна", "near Heine"),
+    "orcstarting": ("Земли Орков", "Orc Lands"),
+    "outlawforest": ("Лес Разбойников", "Outlaw Forest"),
+    "plainsofdion": ("Равнины Диона", "Plains of Dion"),
+    "plainsofglory": ("Равнины Славы", "Plains of Glory"),
+    "plainsofthelizardmen": ("Равнины Ящеров", "Plains of the Lizardmen"),
+    "primevalisle": ("Первобытный Остров", "Primeval Isle"),
+    "seaofspores": ("Море Спор", "Sea of Spores"),
+    "silentvalley": ("Долина Тишины", "Silent Valley"),
+    "skyshadowmeadow": ("Луг Небесной Тени", "Sky Shadow Meadow"),
+    "swampofscreams": ("Болото Криков", "Swamp of Screams"),
+    "talkingislandmonsters": ("Говорящий Остров", "Talking Island"),
+    "tanorcanyon": ("Каньон Танор", "Tanor Canyon"),
+    "theforbiddengateway": ("Запретные Врата", "Forbidden Gateway"),
+    "timakoutpost": ("Аванпост Тимак", "Timak Outpost"),
+    "towerofinsolence": ("Башня Дерзости", "Tower of Insolence"),
+    "turekorcs": ("Лагерь Турек", "Turek Orc Camp"),
+    "valleyofsaints": ("Долина Святых", "Valley of Saints"),
+    "varkaslenosoutpost": ("Аванпост Варка", "Varka Silenos Outpost"),
+    "wallofargos": ("Стена Аргоса", "Wall of Argos"),
+    "wartornplains": ("Разоренные Равнины", "War-Torn Plains"),
+    "wasteland": ("Пустоши", "Wasteland"),
+}
+
+def ground_name(gid):
+    base = re.sub(r"_\d+$", "", gid)
+    if base.startswith("near_") and base not in GROUND_NAMES:
+        raise SystemExit("no display name for ground base %s (add it to GROUND_NAMES)" % base)
+    if base not in GROUND_NAMES:
+        raise SystemExit("no display name for ground base %s (add it to GROUND_NAMES)" % base)
+    return GROUND_NAMES[base]
+
 def main():
     npcs = npc_table()
     tws = towns(npcs)
     gds = grounds(npcs)
-    gds.sort(key=lambda g: (g["file"], g["lo"], g["x"], g["y"]))
+    gds.sort(key=lambda g: (g["file"], g["small"], g["lo"], g["x"], g["y"]))
     # names: named spawn files keep their name, region files (Others/17_20.xml) take the nearest town
     count = {}
     for g in gds:
@@ -207,7 +272,7 @@ def main():
     # a few towns are set by hand (starting villages, and towns whose stock spawns sit far away)
     for t in tws:
         t["id"] = slug(t["name"])
-        near = [((g["lo"] + g["hi"]) // 2, g["n"]) for g in gds if g["town"] == t["id"]]
+        near = [((g["lo"] + g["hi"]) // 2, g["n"]) for g in gds if g["town"] == t["id"] and not g["small"]]
         t["lo"], t["hi"] = (pct(near, 0.15), pct(near, 0.85)) if near else (1, 20)
         if t["id"] in TOWN_LEVELS:
             t["lo"], t["hi"] = TOWN_LEVELS[t["id"]]
@@ -223,8 +288,9 @@ def main():
             out.append('\t\t<anchor kind="%s" x="%d" y="%d" z="%d" />%s' % (a[0], a[1], a[2], a[3], (" <!-- %s -->" % a[4].replace("--", "-")) if a[4] else ""))
         out.append('\t</town>')
     for g in gds:
-        out.append('\t<ground id="%s" town="%s" x="%d" y="%d" z="%d" radius="%d" minLevel="%d" maxLevel="%d" monsters="%d" aggressive="%.2f" indoor="%s">'
-                   % (g["id"], g["town"], g["x"], g["y"], g["z"], g["r"], g["lo"], g["hi"], g["n"], g["aggro"], str(g["indoor"]).lower()))
+        nm = ground_name(g["id"])
+        out.append('\t<ground id="%s" name="%s" nameEn="%s" town="%s" x="%d" y="%d" z="%d" radius="%d" minLevel="%d" maxLevel="%d" monsters="%d" aggressive="%.2f" indoor="%s">'
+                   % (g["id"], nm[0], nm[1], g["town"], g["x"], g["y"], g["z"], g["r"], g["lo"], g["hi"], g["n"], g["aggro"], str(g["indoor"]).lower()))
         out.append('\t\t<spots>%s</spots>' % " ".join("%d,%d,%d" % s for s in g["spots"]))
         out.append('\t</ground>')
     out.append('</world>')

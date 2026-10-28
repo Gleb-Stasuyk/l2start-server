@@ -675,4 +675,65 @@ class DirectorTest {
         }
         assertTrue(theirs > (others * 3), "their hours " + theirs + ", asleep " + others);
     }
+
+    /**
+     * Ad-hoc ground fallback: when a player is outside any predefined town/ground (e.g. character creation points),
+     * ensurePresence creates an ad-hoc ground and spawns field bots there. End-to-end test: Director.tick -> spawn.
+     */
+    @Test
+    void adHocGroundForPlayerOutsideDefinedAreas() throws Exception {
+        // Orc creation point: outside both village and grounds
+        final Pos orcCreation = new Pos(-56693, -113610, -690);
+        
+        // Load real catalog and zones
+        final WorldCatalog catalog = WorldCatalog.load(java.nio.file.Path.of("modules/bots-core/data/world.xml"));
+        final StarterZones zones = new StarterZones(catalog);
+        
+        // Use defaults but disable passers-by to avoid confusion in test
+        final DirectorConfig def = DirectorConfig.defaults();
+        final DirectorConfig cfg = new DirectorConfig(
+            def.clusterLink(), def.groundReach(), def.townMargin(),
+            def.hiddenMin(), def.hiddenMax(), def.seenRadius(), def.unseenRadius(),
+            def.unseenLogoutMs(), def.lingerMinMs(), def.lingerMaxMs(),
+            def.townNight(), def.townDay(), def.townEvening(),
+            def.groundMin(), def.groundMax(), def.indoorFactor(),
+            def.huntPerCluster(), def.huntPerExtraPlayer(),
+            def.maxPerCluster(), def.maxInWorld(),
+            def.spawnIntervalMinMs(), def.spawnIntervalMaxMs(), def.leaveIntervalMs(),
+            def.returnCooldownMs(), def.pendingTimeoutMs(), def.onlineCurve(),
+            def.transitMinMs(), def.transitMaxMs(), def.transitStarterFactor(),
+            999_999_999L, 999_999_999L, // Disable passers-by
+            2.0
+        );
+        
+        final Director d = new Director(catalog, cfg, new Random(42));
+        d.setStarterZones(zones);
+        
+        // Enable presence guarantee with field bots
+        d.setPresenceField(1, 3);
+        d.setPresenceTown("starter", 3, 5);
+        
+        // Pool of orc personas
+        final List<Director.Candidate> pool = new ArrayList<>();
+        for (int i = 1; i <= 50; i++) {
+            pool.add(new Director.Candidate(i, 1 + (i % 5), 0, 3)); // Orc race=3
+        }
+        
+        long now = 1_000_000_000L;
+        int fieldBots = 0;
+        for (int t = 0; t < 60; t++, now += 2000) {
+            final List<Director.Command> cmds = d.tick(now, 20, at(orcCreation), List.of(), (lo, hi, x) -> pool, TestTerrain.mobsAround(1, 5));
+            for (Director.Command c : cmds) {
+                if (c instanceof Director.Command.Materialize m) {
+                    if (m.assignment().kind() == Assignment.Kind.HUNT) {
+                        fieldBots++;
+                        // Ad-hoc ground should have orc_village as town (derived from zones)
+                        assertTrue(m.assignment().place().startsWith("adhoc_") || m.assignment().place().startsWith("orc"),
+                            "field bot should spawn on ad-hoc or orc ground: " + m.assignment().place());
+                    }
+                }
+            }
+        }
+        assertTrue(fieldBots > 0, "ad-hoc ground should spawn field bots at creation point");
+    }
 }

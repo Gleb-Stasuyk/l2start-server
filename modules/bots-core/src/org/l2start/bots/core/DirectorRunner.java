@@ -101,7 +101,7 @@ public final class DirectorRunner {
         final List<Director.Live> l = new ArrayList<>();
         for (Player p : World.getPlayers()) {
             if ((p.isOnlineInt() == 1) && !module.registry().isBot(p)) {
-                l.add(new Director.Live(p.getObjectId(), new Pos(p.getX(), p.getY(), p.getZ())));
+                l.add(new Director.Live(p.getObjectId(), new Pos(p.getX(), p.getY(), p.getZ()), p.getLevel()));
             }
         }
         int id = -1;
@@ -137,8 +137,9 @@ public final class DirectorRunner {
             final Player p = r.player();
             if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
                 && !withPlayer(p) // phase 6b: in a real player's party it is his companion, the director leaves it be
-                && !module.isAcademyRecruiter(r.botId())) { // phase 7f: recruiters stay at GK
-                bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
+                && !module.isAcademyRecruiter(r.botId()) // phase 7f: recruiters stay at GK
+                && !module.isRbPinned(r.botId())) { // RB party: answered a player's call, it is his until it leaves
+                bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group(), p.isInCombat()));
             }
         }
         if (live.isEmpty() && bots.isEmpty() && forceEnter.isEmpty()) {
@@ -146,6 +147,7 @@ public final class DirectorRunner {
             return; // nobody to show anything to: zero cost
         }
         director.setDensity(module.brains().overload().density());
+        director.setCanCreate(module.inWorldActive() < ctx.config().getInt("MaxBots")); // MaxBots = bots in the world
         final boolean needGeo = ctx.config().getBoolean("RequireGeodata");
         final List<Director.Command> cmds = director.tick(now, LocalTime.now().getHour(), live, bots, this::available, new Director.Terrain() {
             @Override
@@ -157,6 +159,11 @@ public final class DirectorRunner {
             public boolean canSee(Pos from, Pos to) {
                 final GeoEngine geo = GeoEngine.getInstance();
                 return !geo.hasGeo(from.x(), from.y()) || geo.canSeeTarget(from.x(), from.y(), from.z() + 40, to.x(), to.y(), to.z() + 40);
+            }
+
+            @Override
+            public List<Director.MobSpot> monstersNear(Pos at, int radius) {
+                return DirectorRunner.monstersNear(at, radius);
             }
         });
         for (Director.Command c : cmds) {
@@ -276,7 +283,7 @@ public final class DirectorRunner {
                 final int clanId = module.clans() == null ? 0 : module.clans().clanIdOf(r.botId());
                 final boolean stockPending = (module.clans() != null) && module.clans().needsStockPromotion(r.botId());
                 l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()),
-                    activity(r.persona(), now), clanId, stockPending));
+                    activity(r.persona(), now), clanId, stockPending, (r.persona() != null) && r.persona().pk()));
             }
         }
         return l;
@@ -310,10 +317,56 @@ public final class DirectorRunner {
         if (Math.abs(z - approx.z()) > 2000) {
             return null;
         }
+        if (MobiusGeo.water(approx.x(), approx.y(), z)) {
+            return null; // never a spot in the water (a bot would swim)
+        }
         return new Pos(approx.x(), approx.y(), z);
     }
 
+    /** The live ordinary monsters around a live player standing at {@code at} (the world is asked around him). */
+    static List<Director.MobSpot> monstersNear(Pos at, int radius) {
+        Player by = null;
+        for (Player p : World.getPlayers()) {
+            if ((p != null) && (Math.hypot(p.getX() - at.x(), p.getY() - at.y()) < 300)) {
+                by = p;
+                break;
+            }
+        }
+        if (by == null) {
+            return List.of();
+        }
+        final List<Director.MobSpot> out = new ArrayList<>();
+        for (org.l2jmobius.gameserver.entity.actor.Npc n : World.getVisibleObjectsInRange(by, org.l2jmobius.gameserver.entity.actor.Npc.class, radius)) {
+            if (n.isMonster() && !n.isDead() && !n.isRaid() && !n.isRaidMinion() && n.isAttackable() && !MobiusGeo.water(n.getX(), n.getY(), n.getZ())) {
+                out.add(new Director.MobSpot(new Pos(n.getX(), n.getY(), n.getZ()), n.getLevel()));
+            }
+        }
+        return out;
+    }
+
+    private final java.util.concurrent.atomic.AtomicInteger maxBotsSkipped = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile long maxBotsLogAt;
+
+    /** Pure: no PK in towns (town stays, gatekeeper transits, errands): PK personas only on hunting grounds and roads. */
+    static boolean pkMayGo(boolean pk, org.l2start.bots.api.Assignment.Kind kind) {
+        return !pk || !((kind == org.l2start.bots.api.Assignment.Kind.TOWN) || (kind == org.l2start.bots.api.Assignment.Kind.TRANSIT)
+            || (kind == org.l2start.bots.api.Assignment.Kind.ERRANDS));
+    }
+
     private void materialize(Director.Command.Materialize m) {
+        materialize(m, null, null);
+    }
+
+    /**
+     * RB party (iteration 1): bring this persona (null = create one with {@code create}) in at {@code m.at()} with the
+     * level, class, skills and gear of {@code m.level()}, like every director arrival; {@code arrived} runs once it is
+     * in the world. The director does not command it (bots-core pins it to the player who called).
+     */
+    void materializeFor(Director.Command.Materialize m, java.util.concurrent.Callable<BotRecord> create, java.util.function.Consumer<BotRecord> arrived) {
+        materialize(m, create, arrived);
+    }
+
+    private void materialize(Director.Command.Materialize m, java.util.concurrent.Callable<BotRecord> create, java.util.function.Consumer<BotRecord> arrived) {
         final BotRecord known = m.botId() == 0 ? null : byId(m.botId());
         if (stopping || ((known != null) && !busy.add(known.botId()))) {
             return;
@@ -326,10 +379,16 @@ public final class DirectorRunner {
                     return;
                 }
                 if (r == null) {
-                    if (module.active().size() >= ctx.config().getInt("MaxBots")) {
+                    if (module.inWorldActive() >= ctx.config().getInt("MaxBots")) {
+                        final long t = System.currentTimeMillis();
+                        maxBotsSkipped.incrementAndGet();
+                        if (t >= maxBotsLogAt) { // at most once a minute
+                            maxBotsLogAt = t + 60_000L;
+                            ctx.log().info("director: MaxBots=" + ctx.config().getInt("MaxBots") + " bots in the world, " + maxBotsSkipped.getAndSet(0) + " new persona(s) not created (last for " + m.assignment().place() + ")");
+                        }
                         return;
                     }
-                    r = module.createOne(startClass(m.race()));
+                    r = create != null ? create.call() : module.createOne(startClass(m.race()));
                     if (r == null) {
                         return;
                     }
@@ -337,6 +396,10 @@ public final class DirectorRunner {
                     r.setProgress(m.level(), System.currentTimeMillis(), 1);
                 }
                 final BotRecord bot = r;
+                if (!pkMayGo(bot.persona() != null && bot.persona().pk(), m.assignment().kind())) {
+                    ctx.log().info("director: PK " + bot.name() + " is not sent to the town " + m.assignment().place() + " (no PK in towns)");
+                    return;
+                }
                 final long now = System.currentTimeMillis();
                 bot.setAssignment(m.assignment());
                 bot.setGroup(m.group());
@@ -354,6 +417,11 @@ public final class DirectorRunner {
                     return;
                 }
                 final Player p = bot.player();
+                if ((p != null) && !p.isDead()) {
+                    // presence top-ups and every other arrival: full HP/MP/CP on entering (never rest right after arrival)
+                    p.setCurrentHpMp(p.getMaxHp(), p.getMaxMp());
+                    p.setCurrentCp(p.getMaxCp());
+                }
                 if (p != null) {
                     what[0] = what[0] + ", " + Materializer.arrivalBuffs(p, ArrivalBuffs.shares(ctx.config().getString("ArrivalBuffs")), java.util.concurrent.ThreadLocalRandom.current());
                 }
@@ -369,6 +437,9 @@ public final class DirectorRunner {
                 ctx.metrics().counter("materialized").inc();
                 bot.setGoal(m.assignment().kind() + " " + m.assignment().place());
                 module.brains().noteFor(bot, "director: " + m.assignment() + " (" + what[0] + ")");
+                if (arrived != null) {
+                    arrived.accept(bot);
+                }
             } catch (Exception e) {
                 ctx.log().warn("director: cannot bring " + (r == null ? "a new persona" : r.name()) + " in", e);
             } finally {
@@ -427,6 +498,11 @@ public final class DirectorRunner {
 
     public boolean stopping() {
         return stopping;
+    }
+
+    /** Coming in or going out right now. */
+    boolean isBusy(int botId) {
+        return busy.contains(botId);
     }
 
     /** Take a bot out (director decision, or its brain left by the gatekeeper). */

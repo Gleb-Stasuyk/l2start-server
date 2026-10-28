@@ -51,7 +51,7 @@ import org.l2start.platform.util.Semver;
  * bootstrap (discover, validate, resolve, migrate, load) -> data hooks -> enable -> ready -> shutdown.
  */
 public final class Platform {
-    public static final Semver API_VERSION = Semver.parse("1.11.0");
+    public static final Semver API_VERSION = Semver.parse("1.12.0");
     private static final Logger LOGGER = Logger.getLogger("Platform");
     private static final String HTML_PREFIX = "data/html/modules/";
 

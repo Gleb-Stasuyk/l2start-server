@@ -156,7 +156,21 @@ final class Materializer {
         // stock onPlayerEnter puts HP/MP/CP back to the values loaded from the database 300 ms after entering
         // (of the old, lower level): without this a bot raised to the zone's level arrives at 5-10 % HP and MP
         p.setOriginalCpHpMp(p.getMaxCp(), p.getMaxHp(), p.getMaxMp());
+        persist(p);
         return sb.toString();
+    }
+
+    /**
+     * Class, level and the skills given above go to the database together. Skills are written at once, the class and
+     * level only on a store: a server stop before the bot's logout left the old (base) class with the new class's
+     * skills, and the stock skill check on the next load reported "has invalid skill" to GMs and removed them.
+     */
+    static void persist(Player p) {
+        try {
+            p.store(false);
+        } catch (RuntimeException e) {
+            // the next regular store writes it
+        }
     }
 
     /**
@@ -315,5 +329,43 @@ final class Materializer {
             }
         }
         return n == 0 ? "no buffs" : (n + " buffs");
+    }
+
+    /** Highest item grade (0 none, 1 D, ... 5 S) a bot of this level may wear. */
+    static int maxGrade(int level) {
+        return org.l2start.bots.director.GearTable.Grade.of(Math.max(1, level)).ordinal();
+    }
+
+    /** Highest enchant a bot of this level may show: none below 20. */
+    static int maxEnchant(int level) {
+        return level < 20 ? 0 : Integer.MAX_VALUE;
+    }
+
+    /**
+     * Every entry (any path): gear above the bot's grade goes away, low-level bots lose visible enchants. Corrects
+     * personas that kept gear from an earlier, higher paper level (live: a level 8 with a D-grade +4 hammer).
+     * @return how many items were removed or reset
+     */
+    static int fixGear(Player p) {
+        final int lvl = p.getLevel();
+        final int grade = maxGrade(lvl);
+        final int ench = maxEnchant(lvl);
+        int n = 0;
+        for (Item it : new ArrayList<>(p.getInventory().getItems())) {
+            if (!it.getTemplate().isEquipable()) {
+                continue;
+            }
+            if (it.getTemplate().getCrystalType().ordinal() > grade) {
+                if (it.isEquipped()) {
+                    p.getInventory().unEquipItemInSlot(it.getLocationSlot());
+                }
+                p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
+                n++;
+            } else if (it.getEnchantLevel() > ench) {
+                it.setEnchantLevel(ench);
+                n++;
+            }
+        }
+        return n;
     }
 }

@@ -51,6 +51,11 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         final org.l2start.bots.runtime.IdleWatch idle = new org.l2start.bots.runtime.IdleWatch();
         volatile org.l2start.bots.api.Activity activity;
         Pos teleportPending;
+        long teleportPendingSince;
+        // escape by Scroll of Escape (seen by a live player, or a barren hunt): since when, from where
+        long escapeAt;
+        Pos escapeFrom;
+        boolean huntReported;
         long warnedAt;
         long separatedAt;
 
@@ -406,6 +411,9 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             return 500;
         }
         m.ctx.view = new MobiusWorldView(p, registry, viewRadius, events);
+        if (m.escapeAt > 0) {
+            return 1000; // reading the scroll: the brain must not cancel the cast
+        }
         final long wanted;
         try {
             wanted = brain.tick(m.ctx);
@@ -436,14 +444,43 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
         final org.l2start.bots.api.Activity a = brain.activity();
         m.activity = a;
+        if (m.escapeAt > 0) {
+            if (org.l2start.bots.runtime.IdleWatch.escaped(m.escapeFrom, at, m.escapeAt, now)) {
+                ctx.log().info("idle: " + m.r.name() + " escaped by scroll to " + at + ": logs out");
+                m.escapeAt = 0;
+                logout.accept(m.r);
+            }
+            return;
+        }
         separate(m, p, now);
+        if (!m.huntReported && brain.huntEmpty()) {
+            m.huntReported = true;
+            final org.l2start.bots.api.Assignment as = m.r.assignment();
+            final String place = as == null ? null : as.place();
+            barren.accept(place, now);
+            ctx.log().info("idle: " + m.r.name() + " found nothing to hunt at " + place + " for minutes: gives the place up");
+            if (seenByLive(p)) {
+                escape(m, p, now, "nothing to hunt, seen");
+            } else {
+                logout.accept(m.r);
+            }
+            return;
+        }
         if (m.teleportPending != null) {
-            final Boolean go = org.l2start.bots.runtime.IdleWatch.pendingTeleport(m.teleportPending, at, seenByLive(p));
+            final boolean seen = seenByLive(p);
+            final Boolean go = org.l2start.bots.runtime.IdleWatch.pendingTeleport(m.teleportPending, at, seen);
             if (go == null) {
                 m.teleportPending = null; // it ran off: no teleport needed
+                m.teleportPendingSince = 0;
             } else if (go) {
                 m.teleportPending = null;
+                m.teleportPendingSince = 0;
                 teleportToSpot(m, p, "idle again, now unseen");
+                return;
+            } else if (org.l2start.bots.runtime.IdleWatch.escapeDue(m.teleportPendingSince, now)) {
+                m.teleportPending = null;
+                m.teleportPendingSince = 0;
+                escape(m, p, now, "idle in sight of a live player");
                 return;
             }
         }
@@ -457,6 +494,9 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             case TELEPORT -> teleportToSpot(m, p, "idle again (" + m.idle.why() + ")");
             case RUN_TELEPORT_LATER -> {
                 ctx.log().info("idle: " + m.r.name() + " " + m.idle.why() + " again at " + at + ", seen by a live player: runs, the teleport waits");
+                if (m.teleportPending == null) {
+                    m.teleportPendingSince = now;
+                }
                 m.teleportPending = at;
                 post(m.r, new BotEvent.Idle(m.idle.why(), true));
             }
@@ -545,9 +585,35 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
     }
 
     /** A live player (or a director test anchor) within the demote radius sees the bot. */
+    /** Hook: a hunt found nothing at this place (the director stops sending hunters there for a while). */
+    private volatile java.util.function.BiConsumer<String, Long> barren = (place, now) -> {
+    };
+
+    public void onBarren(java.util.function.BiConsumer<String, Long> b) {
+        barren = b;
+    }
+
+    /** Leaves the way a player does: reads a Scroll of Escape (cast animation in plain sight), then logs out. */
+    private void escape(Mind m, Player p, long now, String why) {
+        if (p.getInventory().getInventoryItemCount(736, -1) <= 0) {
+            p.getInventory().addItem(org.l2jmobius.gameserver.entity.item.enums.ItemProcessType.REWARD, 736, 1, p, null);
+        }
+        p.abortAttack();
+        p.abortCast();
+        if (m.act.useItem(736) != org.l2start.bots.api.ActionResult.OK) {
+            ctx.log().info("idle: " + m.r.name() + " " + why + ": no scroll cast, logs out");
+            logout.accept(m.r);
+            return;
+        }
+        ctx.log().info("idle: " + m.r.name() + " " + why + " at " + new Pos(p.getX(), p.getY(), p.getZ()) + ": reads a Scroll of Escape");
+        m.escapeAt = now;
+        m.escapeFrom = new Pos(p.getX(), p.getY(), p.getZ());
+    }
+
     private boolean seenByLive(Player p) {
         for (Player o : World.getVisibleObjectsInRange(p, Player.class, demoteRadius)) {
-            if (!registry.isBot(o) && (o.isOnlineInt() != 0) && org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance().canSeeTarget(o, p)) {
+            if (!registry.isBot(o) && (o.isOnlineInt() != 0)
+                && org.l2start.bots.runtime.IdleWatch.seen(p.calculateDistance2D(o), org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance().canSeeTarget(o, p))) {
                 return true;
             }
         }
@@ -568,6 +634,12 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
             return;
         }
         final org.l2start.bots.director.Scatter.Result s = WorldScatter.pick(spot, p);
+        if (liveNear(s.pos(), org.l2start.bots.runtime.IdleWatch.SIGHT_ALWAYS)) {
+            // never appear out of thin air in front of a live player either: it takes up another activity instead
+            ctx.log().info("idle: " + m.r.name() + " " + why + ": no teleport, a live player is at the spot " + s.pos());
+            post(m.r, new BotEvent.Idle(why, true));
+            return;
+        }
         ctx.log().info("idle: " + m.r.name() + " " + why + " at " + at + ": teleported to " + s.pos() + (s.fallback() ? " (fallback)" : ""));
         if (p.isSitting()) {
             p.standUp();
@@ -576,6 +648,21 @@ public final class BrainHost implements BrainRegistry, TickHandler, MobiusActuat
         p.abortCast();
         p.getAI().setIntentionActive();
         p.teleToLocation(WorldScatter.loc(s.pos()), false);
+    }
+
+    /** A live player (or a director test player) within {@code radius} of {@code pos}. */
+    private boolean liveNear(Pos pos, double radius) {
+        for (Player o : World.getPlayers()) {
+            if (!registry.isBot(o) && (o.isOnlineInt() != 0) && (Math.hypot(o.getX() - pos.x(), o.getY() - pos.y()) <= radius)) {
+                return true;
+            }
+        }
+        for (Pos a : anchors.get()) {
+            if (Math.hypot(a.x() - pos.x(), a.y() - pos.y()) <= radius) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Pos fittingSpot(BotRecord r, Player p, Pos at) {

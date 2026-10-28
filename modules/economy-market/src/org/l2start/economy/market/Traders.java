@@ -61,6 +61,8 @@ final class Traders {
     static final int OPEN_PER_TICK = 4;
     static final int SERVICE_STOCK = 200_000;
     static final int SERVICE_EXTRA_SLOTS = 2;
+    static final long REPLACEMENT_COOLDOWN_MS = 5 * 60_000L; // at most one replacement per spot per 5 minutes
+    static final int MAX_FAILED_REPLACEMENTS = 3; // after this many failed replacements, close spot until budget resets
 
     /** One store place: its trader and store (memory; the database has the same after every change). */
     static final class Store {
@@ -78,6 +80,8 @@ final class Traders {
         boolean offlineLook;
         boolean geoLogged;
         final Map<Integer, Long> shown = new ConcurrentHashMap<>(); // pieces put in the stock list at the open
+        long lastReplacedAt; // rate-limit replacements: at most one per REPLACEMENT_COOLDOWN_MS
+        int replacementsSinceOpen; // track how many replacements happened without successful open
 
         Store(Spot spot, int[] serviceItems) {
             this.spot = spot;
@@ -207,12 +211,42 @@ final class Traders {
                     continue;
                 }
                 if (s.open && (s.soldOutAt > 0) && !s.service() && !s.craft()) {
+                    // Rate-limit: at most one replacement per REPLACEMENT_COOLDOWN_MS
+                    if ((now - s.lastReplacedAt) < REPLACEMENT_COOLDOWN_MS) {
+                        m.ctx().log().info("trader " + (p != null ? p.getName() : "?") + " at " + s.spot.id() + " sold out but recently replaced (cooldown " + ((REPLACEMENT_COOLDOWN_MS - (now - s.lastReplacedAt)) / 1000) + "s): will reopen later");
+                        close(s, "sold out, cooldown");
+                        s.reopenAt = s.lastReplacedAt + REPLACEMENT_COOLDOWN_MS;
+                        continue;
+                    }
+                    // Check if this is a BUY shop empty due to budget: don't replace if budget is still exhausted
+                    if (s.buy() && (budgetLeft < 10_000)) {
+                        m.ctx().log().info("trader " + (p != null ? p.getName() : "?") + " at " + s.spot.id() + " empty BUY (day budget exhausted): closing until budget resets");
+                        close(s, "day budget exhausted");
+                        s.soldOutAt = 0;
+                        s.reopenAt = now + (60 * 60_000L); // recheck in 1 hour
+                        continue;
+                    }
+                    // After MAX_FAILED_REPLACEMENTS failed attempts, stop trying
+                    if (s.replacementsSinceOpen >= MAX_FAILED_REPLACEMENTS) {
+                        m.ctx().log().warn("trader at " + s.spot.id() + " failed to open " + s.replacementsSinceOpen + " times: closing until next day");
+                        close(s, "too many failed replacements");
+                        s.soldOutAt = 0;
+                        s.reopenAt = now + (24 * 60 * 60_000L); // try again tomorrow
+                        s.replacementsSinceOpen = 0;
+                        continue;
+                    }
                     try {
                         replaceSoldOut(s, now, night, day, nightStay);
                     } catch (Exception e) {
                         warnOnce("replace " + s.spot.id(), "sold-out replace at " + s.spot.id() + ": " + e.getMessage());
                         s.forceRestock = true;
-                        refreshInPlace(s, p, now, "sold out fallback");
+                        // NPE fix: only refreshInPlace if s.row is not null
+                        if ((s.row != null) && (p != null)) {
+                            refreshInPlace(s, p, now, "sold out fallback");
+                        } else {
+                            close(s, "replacement failed, no row");
+                            s.reopenAt = now + (10 * 60_000L);
+                        }
                     }
                     continue;
                 }
@@ -629,6 +663,10 @@ final class Traders {
 
     /** Lines of a sell, package, buy or service store now: the paper life since the last look, refill when needed. */
     private void prepareLines(Store s, long now) throws Exception {
+        // NPE fix: check s.row is not null
+        if (s.row == null) {
+            throw new IllegalStateException("prepareLines called with null store row at " + s.spot.id());
+        }
         final int botId = s.row.botId();
         final MarketBook book = m.book();
         final int stage = m.stage();
@@ -698,6 +736,8 @@ final class Traders {
         s.soldOutAt = 0;
         s.forceRestock = true;
         s.reopenAt = 0;
+        s.lastReplacedAt = now; // rate-limit: track when replacement happened
+        s.replacementsSinceOpen++; // track consecutive failures
         open(s, now, night, day, nightStay);
         final int neu = (s.row == null) ? 0 : s.row.botId();
         m.ctx().log().info("trader replaced at " + s.spot.id() + ": " + oldName + " -> " + (neu > 0 ? pool.name(neu) : "?"));
@@ -812,12 +852,15 @@ final class Traders {
                     m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + " empty " + (buy ? "BUY" : "SELL") + ": will be replaced"
                         + ((buy && (budgetLeft != Long.MAX_VALUE)) ? " (day budget)" : ""));
                     s.soldOutAt = System.currentTimeMillis();
+                    s.replacementsSinceOpen++; // track that this open failed
                     return;
                 }
                 s.forceRestock = true;
                 m.ctx().log().warn("trader " + p.getName() + " at " + s.spot.id() + " has nothing to show (" + s.row.profile() + "): refilled on the restock timer");
                 return;
             }
+            // Successful open with lines: reset replacement counter
+            s.replacementsSinceOpen = 0;
             p.sitDown();
             if (s.craft()) {
                 p.setStoreName(s.row.title());
@@ -1134,6 +1177,36 @@ final class Traders {
         final int rows = repo.clearBotOfflineTrade(null);
         if ((bags + rows) > 0) {
             m.ctx().log().info("traders: " + bags + " bag items and " + rows + " offline-trade rows of bots left from the last run removed");
+        }
+        
+        // Clean up orphaned trader personas created by the replacement loop
+        int cleaned = 0;
+        for (StoreRow r : repo.allStores()) {
+            if (pool.known(r.botId())) {
+                final Store existing = stores.get(r.spot());
+                // Check for personas that were created but immediately failed (replacement loop victims)
+                // Criteria: touchedAt == openedAt (never restocked) AND linesStart == 0 (never had items)
+                final long age = r.touchedAt() - r.openedAt();
+                boolean isOrphaned = false;
+                
+                // Case 1: No Store object for this spot (persona from deleted spot)
+                if (existing == null) {
+                    isOrphaned = (age < 10_000 && r.linesStart() == 0);
+                }
+                // Case 2: Store exists but uses a different bot (persona was replaced)
+                else if (existing.row == null || existing.row.botId() != r.botId()) {
+                    isOrphaned = (age < 10_000 && r.linesStart() == 0);
+                }
+                
+                if (isOrphaned) {
+                    repo.dropStore(r.botId());
+                    m.ctx().log().info("cleanup: removed orphaned trader persona " + pool.name(r.botId()) + " (botId " + r.botId() + ", spot " + r.spot() + ", never held shop)");
+                    cleaned++;
+                }
+            }
+        }
+        if (cleaned > 0) {
+            m.ctx().log().info("cleanup: removed " + cleaned + " orphaned trader personas created by replacement loop");
         }
     }
 

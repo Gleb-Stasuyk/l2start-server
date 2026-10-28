@@ -120,6 +120,9 @@ final class MobiusActuators implements Actuators {
         if (world.requireGeodata() && !GeoEngine.getInstance().hasGeo(to.x(), to.y())) {
             return done("moveTo", to, ActionResult.NOT_REACHABLE);
         }
+        if (MobiusGeo.water(to.x(), to.y(), GeoEngine.getInstance().hasGeo(to.x(), to.y()) ? GeoEngine.getInstance().getHeight(to.x(), to.y(), to.z()) : to.z())) {
+            return done("moveTo", to, ActionResult.NOT_REACHABLE); // bots never walk into the water of their own will
+        }
         if ((GeoEngineConfig.PATHFINDING == 0) && !GeoEngine.getInstance().canMoveToTarget(p.getX(), p.getY(), p.getZ(), to.x(), to.y(), to.z(), p.getInstanceId())) {
             return done("moveTo", to, ActionResult.NOT_REACHABLE);
         }
@@ -675,6 +678,70 @@ final class MobiusActuators implements Actuators {
         return g.nearestGk(new Pos(p.getX(), p.getY(), p.getZ()));
     }
 
+    /** Party catch-up: no live player within this of the bot (now) or of where it lands. */
+    static final int HIDDEN = 2000;
+
+    @Override
+    public ActionResult teleportNear(Pos target) {
+        final Player p = alive();
+        if ((p == null) || (target == null)) {
+            return done("teleportNear", target, ActionResult.INVALID);
+        }
+        final Pos at = new Pos(p.getX(), p.getY(), p.getZ());
+        if (liveWithin(at, HIDDEN, p)) {
+            return done("teleportNear", "seen here", ActionResult.NOT_REACHABLE);
+        }
+        final Pos q = hiddenSpotNear(target, p);
+        if (q != null) {
+            if (p.isSitting()) {
+                p.standUp();
+            }
+            p.abortAttack();
+            p.abortCast();
+            p.getAI().setIntentionActive();
+            p.teleToLocation(new org.l2jmobius.gameserver.entity.Location(q.x(), q.y(), q.z()), false);
+            return done("teleportNear", q.x() + "," + q.y(), ActionResult.OK);
+        }
+        return done("teleportNear", "no hidden spot", ActionResult.NOT_REACHABLE);
+    }
+
+    /**
+     * A walkable point on the ground 2.1-2.5k from {@code target}, out of sight of every live player and reachable on
+     * foot from the target (null = none found). Party catch-up and RB party arrivals.
+     */
+    static Pos hiddenSpotNear(Pos target, Player self) {
+        final java.util.concurrent.ThreadLocalRandom rnd = java.util.concurrent.ThreadLocalRandom.current();
+        final org.l2jmobius.gameserver.geoengine.GeoEngine geo = org.l2jmobius.gameserver.geoengine.GeoEngine.getInstance();
+        for (int i = 0; i < 24; i++) {
+            final double ang = rnd.nextDouble() * Math.PI * 2;
+            final int r = 2100 + rnd.nextInt(400);
+            final int x = target.x() + (int) (Math.cos(ang) * r);
+            final int y = target.y() + (int) (Math.sin(ang) * r);
+            if (!geo.hasGeo(x, y)) {
+                continue;
+            }
+            final int z = geo.getHeight(x, y, target.z());
+            if (Math.abs(z - target.z()) > 400) {
+                continue;
+            }
+            final Pos q = new Pos(x, y, z);
+            if (liveWithin(q, HIDDEN, self) || !WorldScatter.GROUND.passable(x, y, z) || WorldScatter.GROUND.water(x, y, z) || !WorldScatter.GROUND.reachable(q, target)) {
+                continue;
+            }
+            return q;
+        }
+        return null;
+    }
+
+    private static boolean liveWithin(Pos at, int radius, Player self) {
+        for (Player o : World.getPlayers()) {
+            if ((o != self) && (o.isOnlineInt() == 1) && !org.l2start.platform.hooks.CoreHooks.isBot(o) && (Math.hypot(o.getX() - at.x(), o.getY() - at.y()) <= radius)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public ActionResult teleportViaGk(Pos dest) {
         final Player p = alive();
@@ -723,8 +790,25 @@ final class MobiusActuators implements Actuators {
         p.abortAttack();
         p.abortCast();
         p.getAI().setIntentionActive();
-        // stock GK destination (not the player's coordinates); fee skipped — bots have no client wallet for this path
+        // stock GK destination (not the player's coordinates); the stock fee is paid when the bot carries it (RB party:
+        // a party follows its leader through the gatekeeper like players do)
+        payFee(p, npc, loc);
         p.teleToLocation(loc, true);
         return done("teleportViaGk", loc.getX() + "," + loc.getY(), ActionResult.OK);
+    }
+
+    /** The stock fee of a gatekeeper destination, when the bot carries enough of it (an empty purse still travels). */
+    private static void payFee(Player p, Teleporter npc, TeleportLocation loc) {
+        final int fee = loc.getFeeCount();
+        if (fee <= 0) {
+            return;
+        }
+        if (loc.getFeeId() == 57) {
+            if (p.getAdena() >= fee) {
+                p.reduceAdena(org.l2jmobius.gameserver.entity.item.enums.ItemProcessType.FEE, fee, npc, false);
+            }
+        } else if (p.getInventory().getInventoryItemCount(loc.getFeeId(), -1, false) >= fee) {
+            p.destroyItemByItemId(org.l2jmobius.gameserver.entity.item.enums.ItemProcessType.FEE, loc.getFeeId(), fee, npc, false);
+        }
     }
 }

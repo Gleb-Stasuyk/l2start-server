@@ -1,0 +1,14 @@
+{
+  "id": "return-skill",
+  "name": "Return skill",
+  "description": "Every player knows 'Возвращение в город' (stock skill 2099 'Escape: 5 minutes', overridden): like a Scroll of Escape to the nearest town, but a 60 s cast, no scroll, 30 min reuse. Also: live players auto-learn their skills up to AutoLearnMaxLevel (19).",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.12",
+  "entrypoint": "org.l2start.modules.returnskill.ReturnSkillModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "data": { "skills": "data/skills" },
+  "config": {
+    "AutoLearnMaxLevel": { "type": "int", "default": 19, "min": 0, "max": 85, "reloadable": true, "description": "Live players (never bots) learn every skill of their class automatically up to this level (on login and level up); 0 = off." }
+  }
+}

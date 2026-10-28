@@ -37,6 +37,23 @@ public final class AcademyRewards {
         this.table = ctx.db().table("academy_reward");
     }
 
+    /** Pays the join reward through a trade window with the recruiter bot; false = cannot (adena go in directly). */
+    public interface JoinPayer {
+        boolean offer(Player p, int botClanId, long amount, Runnable onPaid);
+    }
+
+    private volatile JoinPayer joinPayer;
+    /** Pays the graduation reward through a trade at the leader's place; false = cannot (adena go in directly). */
+    private volatile JoinPayer graduatePayer;
+
+    public void setGraduatePayer(JoinPayer payer) {
+        graduatePayer = payer;
+    }
+
+    public void setJoinPayer(JoinPayer payer) {
+        joinPayer = payer;
+    }
+
     public void configure(long join, long graduate) {
         joinReward = Math.max(0, join);
         graduateReward = Math.max(0, graduate);
@@ -47,9 +64,14 @@ public final class AcademyRewards {
         return !hasClan && (level < 40) && (classLevel < 2);
     }
 
-    /** Pure: graduate payout when leaving academy. */
+    /** Pure: graduate payout when leaving academy (the join reward need not have been taken). */
     public static boolean graduateEligible(boolean joinPaid, boolean graduatePaid, int level) {
-        return joinPaid && !graduatePaid && (level >= 40);
+        return !graduatePaid && (level >= 40);
+    }
+
+    /** Pure: what a graduate gets: the graduation reward, plus the join reward he never took (50k + 150k = 200k). */
+    public static long graduateAmount(boolean joinPaid, long join, long graduate) {
+        return joinPaid ? graduate : (graduate + join);
     }
 
     public void onClanJoin(OnPlayerClanJoin e) {
@@ -107,6 +129,22 @@ public final class AcademyRewards {
         if (existing.isPresent() && existing.get().joinPaid()) {
             return;
         }
+        final JoinPayer payer = joinPayer;
+        final long amount = joinReward;
+        if ((payer != null) && payer.offer(p, botClanId, amount, () -> ledgerJoin(p, botClanId))) {
+            ctx.log().info("academy join reward " + amount + " adena offered by trade -> " + p.getName());
+            return;
+        }
+        if (ledgerJoin(p, botClanId)) {
+            p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, amount), null, true);
+            ctx.log().info("academy join reward " + amount + " adena -> " + p.getName());
+        }
+    }
+
+    /** Marks the join reward paid. @return false when the ledger could not be written (then nothing is paid) */
+    boolean ledgerJoin(Player p, int botClanId) {
+        final int charId = p.getObjectId();
+        final Optional<Row> existing = find(charId);
         final long now = System.currentTimeMillis();
         try {
             if (existing.isEmpty()) {
@@ -118,34 +156,50 @@ public final class AcademyRewards {
             }
         } catch (Exception ex) {
             ctx.log().warn("academy join ledger " + p.getName() + ": " + ex.getMessage());
-            return;
+            return false;
         }
-        p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, joinReward), null, true);
-        ctx.log().info("academy join reward " + joinReward + " adena -> " + p.getName());
+        return true;
     }
 
     void payGraduate(Player p, int botClanId) {
-        if (graduateReward <= 0) {
-            return;
-        }
         final int charId = p.getObjectId();
         final Optional<Row> existing = find(charId);
-        if (existing.isEmpty() || !graduateEligible(existing.get().joinPaid(), existing.get().graduatePaid(), p.getLevel())) {
+        final boolean joinPaid = existing.isPresent() && existing.get().joinPaid();
+        final boolean gradPaid = existing.isPresent() && existing.get().graduatePaid();
+        if (!graduateEligible(joinPaid, gradPaid, p.getLevel())) {
             return;
         }
+        final long amount = graduateAmount(joinPaid, joinReward, graduateReward);
+        if (amount <= 0) {
+            return;
+        }
+        final JoinPayer payer = graduatePayer;
+        if ((payer != null) && payer.offer(p, botClanId, amount, () -> ledgerGraduate(p, botClanId))) {
+            ctx.log().info("academy graduate reward " + amount + " adena offered at the leader's place -> " + p.getName());
+            return;
+        }
+        if (ledgerGraduate(p, botClanId)) {
+            p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, amount), null, true);
+            ctx.log().info("academy graduate reward " + amount + " adena -> " + p.getName());
+        }
+    }
+
+    /** Marks graduation (and the join reward, which it includes when it was not taken) paid. */
+    boolean ledgerGraduate(Player p, int botClanId) {
+        final int charId = p.getObjectId();
         final long now = System.currentTimeMillis();
         try {
-            final int updated = ctx.db().update("UPDATE " + table + " SET graduate_paid=1, graduated_at=?, bot_clan_id=? WHERE char_id=? AND graduate_paid=0",
-                now, botClanId, charId);
-            if (updated <= 0) {
-                return;
+            if (find(charId).isEmpty()) {
+                ctx.db().update("INSERT INTO " + table + " (char_id, bot_clan_id, join_paid, graduate_paid, joined_at, graduated_at) VALUES (?,?,1,1,0,?)",
+                    charId, botClanId, now);
+                return true;
             }
+            return ctx.db().update("UPDATE " + table + " SET join_paid=1, graduate_paid=1, graduated_at=?, bot_clan_id=? WHERE char_id=? AND graduate_paid=0",
+                now, botClanId, charId) > 0;
         } catch (Exception ex) {
             ctx.log().warn("academy graduate ledger " + p.getName() + ": " + ex.getMessage());
-            return;
+            return false;
         }
-        p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, graduateReward), null, true);
-        ctx.log().info("academy graduate reward " + graduateReward + " adena -> " + p.getName());
     }
 
     public Optional<Row> find(int charId) {

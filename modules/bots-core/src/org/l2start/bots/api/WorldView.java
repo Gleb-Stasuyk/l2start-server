@@ -37,4 +37,39 @@ public interface WorldView {
     default boolean partyLeader() {
         return true;
     }
+
+    /** Not a boss. */
+    int BOSS_NONE = 0;
+    /** An ordinary raid boss. */
+    int BOSS_RAID = 1;
+    /** A grand (epic) boss: RB parties of bots never go there. */
+    int BOSS_EPIC = 2;
+    /** A minion of a raid boss. */
+    int BOSS_MINION = 3;
+
+    /** RB party (iteration 1): what kind of boss this NPC is ({@link #BOSS_NONE} when unknown or gone). */
+    default int bossKind(int objectId) {
+        return BOSS_NONE;
+    }
+
+    /** A summon (servitor or pet) of a party member or of the bot itself. */
+    record PartyPet(int objectId, int ownerId, String name, Pos pos, double distance, boolean dead) {
+    }
+
+    /** RB party (iteration 2): the summons of its party, its own included; empty when unknown. */
+    default List<PartyPet> partyPets() {
+        return List.of();
+    }
+
+    /** {@link #buffState}: the game cannot tell. */
+    int BUFF_UNKNOWN = -1;
+    /** {@link #buffState}: not on it. */
+    int BUFF_OFF = 0;
+    /** {@link #buffState}: on it (this skill, or an effect of the same kind). */
+    int BUFF_ON = 1;
+
+    /** RB party (iteration 2): whether the effect of this buff is on a creature (the bot itself, a member, a summon). */
+    default int buffState(int objectId, int skillId) {
+        return BUFF_UNKNOWN;
+    }
 }

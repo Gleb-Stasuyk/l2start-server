@@ -54,7 +54,11 @@ class BotsCoreManifestTest {
             if (line.toUpperCase().contains("CREATE TABLE")) {
                 assertTrue(line.contains("mod_bots_core_"), line);
             }
-            assertTrue(!line.trim().toUpperCase().matches("(ALTER|DROP|UPDATE|DELETE|INSERT|REPLACE|TRUNCATE|RENAME)\\b.*"), "migration must not touch stock tables: " + line);
+            assertTrue(!line.trim().toUpperCase().matches("(ALTER|UPDATE|DELETE|INSERT|REPLACE|TRUNCATE|RENAME)\\b.*"), "migration must not touch stock tables: " + line);
+            // Allow DROP TABLE for module tables only
+            if (line.trim().toUpperCase().matches("DROP\\s+TABLE\\b.*")) {
+                assertTrue(line.contains("mod_bots_core_"), "migration may only DROP module tables: " + line);
+            }
         }
     }
 

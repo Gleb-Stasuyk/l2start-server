@@ -23,19 +23,6 @@ public final class BotRepository {
         this.persona = db.table("persona");
         this.state = db.table("state");
         this.progress = db.table("progress");
-        this.newbie = db.table("newbie");
-    }
-
-    private final String newbie;
-
-    /** A live player created this character (S6: it may get newbie companions once). */
-    public void newbieCreated(int charId, long now) throws SQLException {
-        db.update("INSERT IGNORE INTO " + newbie + " (char_id, created_at) VALUES (?, ?)", charId, now);
-    }
-
-    /** True once per character created here: its newbie companions come now (marked at once). */
-    public boolean newbieTake(int charId, long now) throws SQLException {
-        return db.update("UPDATE " + newbie + " SET companions_at = ? WHERE char_id = ? AND companions_at = 0", now, charId) == 1;
     }
 
     /** Every bot with its persona and state (a broken persona row is logged by the caller and regenerated). */

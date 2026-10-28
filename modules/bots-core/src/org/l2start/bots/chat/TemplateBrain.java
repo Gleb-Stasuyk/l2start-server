@@ -52,6 +52,9 @@ public final class TemplateBrain implements ChatBrain {
         final int start = rnd.nextInt(lines.size());
         for (int i = 0; i < lines.size(); i++) {
             final String l = lines.get((start + i) % lines.size());
+            if (!Phrases.usable(l, r.vars())) {
+                continue; // "ищу пати на {spot}" without a place: another variant
+            }
             final String key = r.botId() + "|" + l;
             final Long t = used.get(key);
             if ((t == null) || ((now - t) >= REPEAT_MS)) {

@@ -2,6 +2,7 @@ package org.l2start.bots.director;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
@@ -24,14 +25,58 @@ import org.l2start.bots.api.Pos;
  */
 public final class Director {
     /** A live (human) player. */
-    public record Live(int id, Pos pos) {
+    /** @param level the live player's level (0 = unknown: test players of the director) */
+    public record Live(int id, Pos pos, int level) {
+        public Live(int id, Pos pos) {
+            this(id, pos, 0);
+        }
+    }
+
+    /**
+     * Pure: the level of an ad-hoc hunting ground (no catalogue ground there) from the player's level and the levels of
+     * the catalogue grounds around (their mobs). Live test 2026-10-22: a lv 11 bot was sent next to a lv 45 player in a
+     * 40+ area because every ad-hoc ground was "1-10".
+     * @param mobLevels max levels of the grounds near the player (may be empty)
+     */
+    static int adHocLevel(int playerLevel, List<Integer> mobLevels) {
+        int mobs = 0;
+        if (!mobLevels.isEmpty()) {
+            long sum = 0;
+            for (int l : mobLevels) {
+                sum += l;
+            }
+            mobs = (int) Math.round(sum / (double) mobLevels.size());
+        }
+        if ((playerLevel > 0) && (mobs > 0)) {
+            // around the player, pulled toward the mobs, never far from him
+            return Math.max(1, Math.min(PaperLevel.MAX, Math.max(playerLevel - 5, Math.min(playerLevel + 3, (playerLevel + mobs) / 2))));
+        }
+        if (playerLevel > 0) {
+            return Math.min(PaperLevel.MAX, playerLevel);
+        }
+        return mobs > 0 ? mobs : 10;
+    }
+
+    /** Presence summary for per-minute INFO logging. */
+    public record PresenceSummary(int players, int fieldVisible, int fieldTarget, int townVisible, int townTarget, int pending, long topups,
+        long noPersona, int inCombatNearPlayers) {
+        /** The per-minute INFO line. */
+        public String line() {
+            return "presence: players=" + players + " field=" + fieldVisible + "/" + fieldTarget + " town=" + townVisible + "/" + townTarget
+                + " pending=" + pending + " topups=" + topups + " noPersona=" + noPersona + " inCombatNearPlayers=" + inCombatNearPlayers;
+        }
     }
 
     /** A bot in the world right now. */
     /** @param group the pair/trio it came in with (phase 4g), 0 = alone */
-    public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group) {
+    /** @param inCombat in a fight right now (stock combat stance: hit or hitting) */
+    public record BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group, boolean inCombat) {
+        public BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed, int group) {
+            this(botId, pos, assignment, dead, seed, group, false);
+        }
+
         public BotNow(int botId, Pos pos, Assignment assignment, boolean dead, long seed) {
-            this(botId, pos, assignment, dead, seed, 0);
+            this(botId, pos, assignment, dead, seed, 0, false);
         }
     }
 
@@ -40,9 +85,14 @@ public final class Director {
     /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
     /** @param clanId phase 7d bot clan (0 = none; provisional or stock) */
     /** @param clanStockPending phase 7e: provisional clan leader — prefer spawn so stock Clan+crest appear */
-    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending) {
+    /** @param pk a PK persona: only hunting grounds, never a town (no PK in towns) */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending, boolean pk) {
+        public Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending) {
+            this(botId, level, lastLogout, race, activity, clanId, clanStockPending, false);
+        }
+
         public Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId) {
-            this(botId, level, lastLogout, race, activity, clanId, false);
+            this(botId, level, lastLogout, race, activity, clanId, false, false);
         }
 
         public Candidate(int botId, int level, long lastLogout, int race, double activity) {
@@ -83,6 +133,79 @@ public final class Director {
         default boolean canSee(Pos from, Pos to) {
             return true;
         }
+
+        /** The live monsters (alive, ordinary: no raid boss, no minion) within {@code radius} of {@code at}; empty = unknown. */
+        default List<MobSpot> monstersNear(Pos at, int radius) {
+            return List.of();
+        }
+    }
+
+    /** A live monster: where it is, its level. */
+    public record MobSpot(Pos pos, int level) {
+    }
+
+    /** Monsters this close to the player are his: a bot sent to hunt near him does not count on them. */
+    public static final int PLAYER_MOBS = 800;
+    /** A place where a hunt found nothing is not hunted again for this long. */
+    public static final long BARREN_MS = 10 * 60_000L;
+    private final Map<String, Long> barren = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile long barrenSkips;
+
+    /** A bot hunted here and found nothing (bots-core idle watch): no hunting bots are sent here for {@link #BARREN_MS}. */
+    public void markBarren(String place, long now) {
+        if (place != null) {
+            barren.put(place, now + BARREN_MS);
+        }
+    }
+
+    public boolean isBarren(String place, long now) {
+        final Long until = place == null ? null : barren.get(place);
+        if ((until != null) && (until <= now)) {
+            barren.remove(place);
+            return false;
+        }
+        return until != null;
+    }
+
+    /**
+     * An ad-hoc hunting ground around a player who stands where the catalogue has none: built from the real monsters
+     * around him (their levels, where they are), the ones right by him left to him. Null = nothing a bot could hunt
+     * there: no hunting bot is sent then.
+     * @param nearbyGrounds catalogue grounds within reach (their spots and levels count too)
+     */
+    static WorldCatalog.Ground adHocGround(String id, String town, Pos player, int radius, List<MobSpot> mobs, List<WorldCatalog.Ground> nearbyGrounds) {
+        final List<Integer> levels = new ArrayList<>();
+        final List<Pos> spots = new ArrayList<>();
+        for (MobSpot m : mobs) {
+            if ((m.pos().distance2d(player) <= PLAYER_MOBS) || (m.pos().distance2d(player) > radius)) {
+                continue;
+            }
+            levels.add(m.level());
+            if ((spots.size() < 5) && spots.stream().noneMatch(x -> x.distance2d(m.pos()) < 400)) {
+                spots.add(m.pos());
+            }
+        }
+        if (levels.isEmpty()) {
+            for (WorldCatalog.Ground g : nearbyGrounds) {
+                if (g.center().distance2d(player) > (g.radius() + radius)) {
+                    continue;
+                }
+                for (Pos sp : g.spots()) {
+                    if ((sp.distance2d(player) <= radius) && (sp.distance2d(player) > PLAYER_MOBS) && (spots.size() < 5)) {
+                        spots.add(sp);
+                        levels.add(g.minLevel());
+                        levels.add(g.maxLevel());
+                    }
+                }
+            }
+        }
+        if (levels.isEmpty() || spots.isEmpty()) {
+            return null;
+        }
+        java.util.Collections.sort(levels);
+        final int lo = levels.get((int) Math.floor((levels.size() - 1) * 0.1));
+        final int hi = levels.get((int) Math.ceil((levels.size() - 1) * 0.9));
+        return new WorldCatalog.Ground(id, town, player, radius, lo, hi, levels.size(), 0.0, false, spots);
     }
 
     public sealed interface Command {
@@ -246,6 +369,36 @@ public final class Director {
     public void setStarterTownMax(int max) {
         starterTownMax = Math.max(0, max);
     }
+    
+    /** Visible presence guarantee: field min-max (1-3 bots actively farming near hunting players). */
+    private volatile int presenceFieldMin = 0;
+    private volatile int presenceFieldMax = 0;
+    
+    /** Visible presence guarantee: town ranges by category (traders excluded). */
+    private volatile int presenceTownStarterMin = 0;
+    private volatile int presenceTownStarterMax = 0;
+    private volatile int presenceTownSmallMin = 0;
+    private volatile int presenceTownSmallMax = 0;
+    private volatile int presenceTownMediumMin = 0;
+    private volatile int presenceTownMediumMax = 0;
+    private volatile int presenceTownLargeMin = 0;
+    private volatile int presenceTownLargeMax = 0;
+    
+    public void setPresenceField(int min, int max) {
+        presenceFieldMin = Math.max(0, min);
+        presenceFieldMax = Math.max(presenceFieldMin, max);
+    }
+    
+    public void setPresenceTown(String category, int min, int max) {
+        final int minClamped = Math.max(0, min);
+        final int maxClamped = Math.max(minClamped, max);
+        switch (category.toLowerCase()) {
+            case "starter" -> { presenceTownStarterMin = minClamped; presenceTownStarterMax = maxClamped; }
+            case "small" -> { presenceTownSmallMin = minClamped; presenceTownSmallMax = maxClamped; }
+            case "medium" -> { presenceTownMediumMin = minClamped; presenceTownMediumMax = maxClamped; }
+            case "large" -> { presenceTownLargeMin = minClamped; presenceTownLargeMax = maxClamped; }
+        }
+    }
 
     public double clanMixedPartyChance() {
         return clanMixedPartyChance;
@@ -291,6 +444,14 @@ public final class Director {
         }
         pending.entrySet().removeIf(e -> inWorld.contains(e.getKey()) || arrived.contains(e.getValue().seq()) || ((now - e.getValue().since()) > c.pendingTimeoutMs()));
         tracks.keySet().retainAll(inWorld);
+        if (!presenceSeqs.isEmpty()) {
+            final Set<Long> alive = new HashSet<>(arrived);
+            for (Pending p : pending.values()) {
+                alive.add(p.seq());
+            }
+            presenceSeqs.retainAll(alive);
+        }
+        inCombatNearPlayers = countInCombatNear(bots, live, c.unseenRadius());
 
         // 2. who sees whom: unseen bots leave, leaving bots vanish once unseen, lingering bots get a leave order
         final Map<String, List<BotNow>> byPlace = new HashMap<>();
@@ -343,7 +504,8 @@ public final class Director {
             }
             final Assignment a = b.assignment();
             final boolean leaving = (a != null) && a.passing();
-            if ((t.unseenSince != 0) && ((leaving && ((now - t.unseenSince) >= 3000)) || ((now - t.unseenSince) >= c.unseenLogoutMs()))) {
+            final boolean walkingIn = !leaving && isPresenceBot(b) && ((now - t.since) < PRESENCE_WALK_IN_MS) && (d <= (c.hiddenMax() + 2500));
+            if (!walkingIn && (t.unseenSince != 0) && ((leaving && ((now - t.unseenSince) >= 3000)) || ((now - t.unseenSince) >= c.unseenLogoutMs()))) {
                 out.add(new Command.Logout(b.botId(), leaving ? "left unseen" : "nobody around"));
                 unseenLogouts++;
                 tracks.remove(b.botId());
@@ -368,16 +530,6 @@ public final class Director {
                 }
                 continue;
             }
-            if ((a != null) && (a.kind() == Assignment.Kind.NEWBIE)) {
-                // S6: a newbie companion back in its village after its gremlins: town life there, or it vanishes unseen
-                if ((a.exit() != null) && !b.dead() && (b.pos().distance2d(a.exit()) < NEWBIE_HOME) && ((now - t.since) > 60_000)) {
-                    final Command home = newbieHome(c, now, b, live, terrain);
-                    if (home != null) {
-                        out.add(home);
-                    }
-                }
-                continue; // not one of any place's bots: no "away" or linger rules
-            }
             if ((a == null) || leaving || b.dead()) {
                 continue;
             }
@@ -393,7 +545,7 @@ public final class Director {
                 continue;
             }
             byPlace.computeIfAbsent(a.place(), k -> new ArrayList<>()).add(b);
-            if (!t.lingered && (t.seenSince != 0) && ((now - t.seenSince) > linger(c, b.seed()))) {
+            if (!t.lingered && !isPresenceBot(b) && !isCrowd(a) && (t.seenSince != 0) && ((now - t.seenSince) > linger(c, b.seed()))) {
                 lingering.add(b);
             }
         }
@@ -428,12 +580,18 @@ public final class Director {
             // targets (TownWanderersMultiplier scales TOWN + hunt + PASS frequency)
             final double wander = c.wanderMult();
             final Map<String, Integer> target = new LinkedHashMap<>();
+            final Map<String, Integer> crowdWant = new LinkedHashMap<>();
             int townSum = 0;
             for (Demand d : demand.values()) {
                 if (d.town()) {
                     int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density * wander);
                     if (raceOf(d.id()) >= 0) {
                         t = Math.min(t, starterTownMax);
+                    }
+                    final int crowd = (int) Math.round(gkCrowd(d.id(), hour) * density);
+                    if (crowd > 0) {
+                        crowdWant.put(d.id(), crowd);
+                        t = Math.max(t, crowd + 2); // the crowd counts as town presence, a few walk about besides
                     }
                     target.put(d.id(), t);
                     townSum += t;
@@ -469,7 +627,21 @@ public final class Director {
                 if ((have < want) && (now >= nextSpawn.getOrDefault(d.id(), 0L)) && (total < c.maxInWorld())) {
                     spawnRoom = Math.min(want - have, c.maxInWorld() - total);
                     partners.clear();
+                    crowdAt = null;
+                    if (d.town() && (crowdWant.getOrDefault(d.id(), 0) > 0)) {
+                        int crowdHave = 0;
+                        for (BotNow b : here) {
+                            if (isCrowd(b.assignment())) {
+                                crowdHave++;
+                            }
+                        }
+                        final List<Pos> gks = d.townRef().anchors("gk");
+                        if ((crowdHave < crowdWant.get(d.id())) && !gks.isEmpty()) {
+                            crowdAt = gks.get(0);
+                        }
+                    }
                     final Command m = spawn(c, now, d, cluster, live, bots, pool, terrain, createdThisTick);
+                    crowdAt = null;
                     if (m != null) {
                         out.add(m);
                         total++;
@@ -539,124 +711,258 @@ public final class Director {
                 nextLeave.put(place, now + c.leaveIntervalMs());
             }
         }
-        // 5. newbie companions (S6): beginners of a new live character's race come out of sight and run to its gremlins
-        for (java.util.Iterator<Newbie> it = newbies.iterator(); it.hasNext();) {
-            final Newbie n = it.next();
-            if (now < n.due) {
-                continue;
-            }
-            if ((n.left <= 0) || (++n.tries > 30)) {
-                it.remove();
-                continue;
-            }
-            if (total >= c.maxInWorld()) {
-                break;
-            }
-            final Command.Materialize m = newbie(c, now, n, live, pool, terrain, createdThisTick);
-            if (m != null) {
-                out.add(m);
-                total++;
-                createdThisTick |= m.botId() == 0;
-                if (--n.left <= 0) {
-                    it.remove();
-                }
-            }
-        }
+        
+        // 5. Visible presence guarantee: ensure N non-trader bots are in sight of every player
+        // Field (hunting zones): 1-3 bots actively farming within visibility
+        // Towns: per-town ranges, traders excluded
+        final int presenceTopups = ensurePresence(c, now, hour, live, bots, pool, terrain, out, total, createdThisTick);
+        total += presenceTopups;
+        
         together(out, bots, live);
         places = List.copyOf(states);
         return out;
     }
 
-    // ------------------------------------------------------------------ newbie companions (docs/STARTER_ZONES_PLAN.md S6)
-
-    /** A companion this close to its village point is back home. */
-    static final int NEWBIE_HOME = 400;
-
-    private static final class Newbie {
-        final int charId;
-        final int race;
-        final Pos gremlins;
-        final String townId;
-        final Pos exit;
-        final long due;
-        int left;
-        int tries;
-
-        Newbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
-            this.charId = charId;
-            this.race = race;
-            this.left = count;
-            this.gremlins = gremlins;
-            this.townId = townId;
-            this.exit = exit;
-            this.due = due;
+    
+    /** Count bots in combat (fightId != 0) within visibility of any live player. */
+    private static int countBotsInCombatNearPlayers(Collection<BotNow> bots, List<Live> live, DirectorConfig c) {
+        int count = 0;
+        for (BotNow b : bots) {
+            final Assignment a = b.assignment();
+            if ((a == null) || (a.kind() != Assignment.Kind.HUNT)) {
+                continue;
+            }
+            // Check if bot is near any live player (within visibility)
+            for (Live p : live) {
+                if (p.pos().distance2d(b.pos()) <= c.unseenRadius()) {
+                    count++;
+                    break;
+                }
+            }
         }
+        return count;
     }
 
-    private final List<Newbie> newbies = new ArrayList<>();
-    private final Set<Integer> newbieServed = new HashSet<>();
-    private long newbieCompanions;
-    private long newbieHomes;
+    // ------------------------------------------------------------------ visible presence guarantee
+    
+    private volatile boolean canCreate = true;
 
-    /**
-     * A new live character entered a starting zone: {@code count} beginners (level 1-3) of {@code race} come at
-     * {@code due} out of its sight and hunt the gremlins at {@code gremlins}, then go to {@code exit} in {@code townId}.
-     * Once per character.
-     * @return false when this character had its companions already
+    /** False when the persona cap (MaxBots) is reached: a create would fail silently, so none is ordered. */
+    public void setCanCreate(boolean v) {
+        canCreate = v;
+    }
+
+    private long presenceFieldTopups;
+    /** A presence field bot walks in from out of sight: it is not "unseen" during this time. */
+    static final long PRESENCE_WALK_IN_MS = 180_000;
+    /** Assignment seqs of presence field top-ups: they stay while their player is there (no linger leave). */
+    private final Set<Long> presenceSeqs = new HashSet<>();
+
+    private boolean isPresenceBot(BotNow b) {
+        return (b.assignment() != null) && presenceSeqs.contains(b.assignment().seq());
+    }
+    private volatile int inCombatNearPlayers;
+    private volatile int[] presenceCounts = new int[5]; // fieldVisible, fieldTarget, townVisible, townTarget, pending
+
+    /** Living non-trader bots in a fight within sight of any live player (each bot once). */
+    static int countInCombatNear(Collection<BotNow> bots, List<Live> live, int radius) {
+        int n = 0;
+        for (BotNow b : bots) {
+            if (!b.inCombat() || b.dead()) {
+                continue;
+            }
+            final Assignment a = b.assignment();
+            if ((a != null) && (a.place() != null) && a.place().startsWith("trader:")) {
+                continue;
+            }
+            for (Live p : live) {
+                if (p.pos().distance2d(b.pos()) <= radius) {
+                    n++;
+                    break;
+                }
+            }
+        }
+        return n;
+    }
+
+    /** The ground a presence field top-up for this player goes to: the predefined ground around it, else its ad-hoc one. */
+    private String fieldPlaceId(Live player) {
+        for (WorldCatalog.Ground g : catalog.groundsNear(player.pos(), 0)) {
+            if (player.pos().distance2d(g.center()) <= g.radius()) {
+                return g.id();
+            }
+        }
+        return "adhoc_" + player.id();
+    }
+    private long presenceTownTopups;
+    private long presenceNoMobs;
+    private long presenceLeaves;
+    
+    /** Ensure visible presence: field (1-3 bots farming nearby) and town (per-town ranges, traders excluded). 
+     * Field bots: spawn() creates Assignment.Kind.HUNT with ground spots → BasicBrain.hunt() farms mobs near player.
+     * HUNT assignment targets the ground where the player is, with spots within that ground's radius.
+     * Brain walks to spots and fights mobs there - mobs spawn at spots, so bot is within player's visibility.
+     * Town bots: spawn() creates Assignment.Kind.TOWN with anchors → BasicBrain.town() walks/sits/visits NPCs.
+     * Both spawn outside visibility (hiddenPoint/townPoint) and enter naturally.
      */
-    public synchronized boolean requestNewbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
-        if ((count <= 0) || (gremlins == null) || !newbieServed.add(charId)) {
-            return false;
+    private int ensurePresence(DirectorConfig c, long now, int hour, List<Live> live, Collection<BotNow> bots, Pool pool, Terrain terrain,
+        List<Command> out, int currentTotal, boolean createdThisTick) {
+        if ((presenceFieldMax <= 0) && (presenceTownStarterMax <= 0) && (presenceTownSmallMax <= 0) && (presenceTownMediumMax <= 0) && (presenceTownLargeMax <= 0)) {
+            return 0; // disabled
         }
-        newbies.add(new Newbie(charId, race, count, gremlins, townId, exit, due));
-        note(due, "newbie companions for character " + charId + ": " + count + " of race " + race + " to the gremlins at " + gremlins);
-        return true;
+        
+        final List<BotNow> botsList = new ArrayList<>(bots);
+        
+        // Build town ranges map
+        final Map<String, int[]> townRanges = new HashMap<>();
+        for (WorldCatalog.Town t : catalog.towns()) {
+            final String category = PresencePlan.classifyTown(t.id());
+            final int[] range = switch (category) {
+                case "starter" -> new int[] {presenceTownStarterMin, presenceTownStarterMax};
+                case "small" -> new int[] {presenceTownSmallMin, presenceTownSmallMax};
+                case "medium" -> new int[] {presenceTownMediumMin, presenceTownMediumMax};
+                case "large" -> new int[] {presenceTownLargeMin, presenceTownLargeMax};
+                default -> new int[] {0, 0};
+            };
+            townRanges.put(t.id(), range);
+        }
+        
+        // Build bot summaries
+        final List<PresencePlan.BotSummary> botSummaries = new ArrayList<>();
+        for (BotNow b : botsList) {
+            final Assignment a = b.assignment();
+            if (a != null) {
+                botSummaries.add(new PresencePlan.BotSummary(b.botId(), b.pos(), a.kind(), a.place()));
+            }
+        }
+        
+        // Build player positions
+        final List<Pos> playerPositions = new ArrayList<>();
+        final List<Integer> playerIds = new ArrayList<>();
+        final Map<Pos, String> fieldPlace = new HashMap<>();
+        for (Live p : live) {
+            playerPositions.add(p.pos());
+            playerIds.add(p.id());
+            fieldPlace.putIfAbsent(p.pos(), fieldPlaceId(p));
+        }
+        // bots on their way (not in the world yet) count for the place they were sent to
+        final Map<String, Integer> pendingByPlace = new HashMap<>();
+        for (Pending p : pending.values()) {
+            pendingByPlace.merge(p.place(), 1, Integer::sum);
+        }
+        
+        // Calculate deficits using pure functions
+        final PresencePlan.Plan plan = PresencePlan.calculateDeficits(
+            playerPositions, playerIds, botSummaries, c.unseenRadius(),
+            p -> {
+                final WorldCatalog.Town t = catalog.townAt(p, c.townMargin());
+                return t == null ? null : t.id();
+            },
+            fieldPlace::get, pendingByPlace,
+            presenceFieldMin, presenceFieldMax, townRanges
+        );
+        final int[] pc = new int[5];
+        for (PresencePlan.PlayerCount k : plan.counts()) {
+            if (k.inTown()) {
+                pc[2] += k.visible();
+                pc[3] += k.target();
+            } else {
+                pc[0] += k.visible();
+                pc[1] += k.target();
+            }
+            pc[4] += k.pending();
+        }
+        presenceCounts = pc;
+        
+        int topups = 0;
+        boolean presenceCreated = false; // presence may create one persona per tick of its own (pool lacks a match)
+        final Set<String> servedPlaces = new HashSet<>(); // one top-up per place per tick (players at one place share it)
+        for (PresencePlan.Deficit deficit : plan.deficits()) {
+            try {
+                if (currentTotal + topups >= c.maxInWorld()) {
+                    break;
+                }
+                
+                final Live player = live.get(deficit.playerId());
+                if (deficit.inTown()) {
+                    // Town top-up
+                    final WorldCatalog.Town town = catalog.town(deficit.townId());
+                    if (town == null) continue;
+                    
+                    if (!servedPlaces.add(town.id())) continue;
+                    final Demand d = new Demand(town.id(), true, town, null, 1, 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, presenceCreated);
+                    if (m != null) {
+                        out.add(m);
+                        topups++;
+                        presenceTownTopups++;
+                        presenceCreated |= isNewPersona(m);
+                    }
+                } else {
+                    // Field top-up - spawn on the ground where player is (mobs are at spots within ground's radius)
+                    final List<WorldCatalog.Ground> playerGrounds = catalog.groundsNear(player.pos(), 0);
+                    WorldCatalog.Ground spot = null;
+                    for (WorldCatalog.Ground g : playerGrounds) {
+                        if (player.pos().distance2d(g.center()) <= g.radius()) {
+                            spot = g;
+                            break;
+                        }
+                    }
+                    
+                    // Fallback: if not in a predefined ground, create ad-hoc ground from player position
+                    // (handles character creation points and other areas without explicit ground definitions)
+                    if (spot == null) {
+                        // Derive town from starting zones (for race filtering)
+                        final StarterZones zones = starterZones;
+                        String adHocTown = null;
+                        if (zones != null) {
+                            final int race = zones.raceAt(player.pos());
+                            if (race >= 0) {
+                                adHocTown = StarterZones.VILLAGES.get(race);
+                            }
+                        }
+                        
+                        // the real monsters around him (their levels, where they are), else the catalogue's spots near him;
+                        // nothing a bot could hunt there: no hunting bot at all (it would only run about)
+                        spot = adHocGround("adhoc_" + player.id(), adHocTown, player.pos(), c.unseenRadius(), terrain.monstersNear(player.pos(), c.unseenRadius()),
+                            catalog.groundsNear(player.pos(), c.unseenRadius()));
+                        if (spot == null) {
+                            presenceNoMobs++;
+                            continue;
+                        }
+                    }
+                    if (isBarren(spot.id(), now)) {
+                        barrenSkips++;
+                        continue;
+                    }
+                    
+                    // HUNT assignment with spot's center/radius/spots ensures bot farms mobs at those spots,
+                    // which are within the ground's radius from center, hence within player's visibility
+                    if (!servedPlaces.add(spot.id())) continue;
+                    final Demand d = new Demand(spot.id(), false, null, spot, 1, 0);
+                    final Command m = spawn(c, now, d, List.of(player), live, botsList, pool, terrain, presenceCreated);
+                    if (m != null) {
+                        out.add(m);
+                        topups++;
+                        presenceFieldTopups++;
+                        presenceCreated |= isNewPersona(m);
+                        if (m instanceof Command.Materialize mm) {
+                            presenceSeqs.add(mm.assignment().seq());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // Per-player exception safety: one bad player can't trip circuit breaker
+                // Log and continue with next player
+                System.err.println("ensurePresence player " + deficit.playerId() + ": " + e.getMessage());
+            }
+        }
+        
+        return topups;
     }
 
-    public synchronized long newbieCompanions() {
-        return newbieCompanions;
-    }
-
-    private Command.Materialize newbie(DirectorConfig c, long now, Newbie n, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
-        final WorldCatalog.Town t = catalog.town(n.townId);
-        if (t == null) {
-            n.left = 0;
-            return null;
-        }
-        final WorldCatalog.Ground g = new WorldCatalog.Ground("newbie:" + n.charId, t.id(), n.gremlins, 600, 1, 3, 10, 0, false, List.of(n.gremlins));
-        final Pos at = hiddenPoint(c, g, live, terrain);
-        if (at == null) {
-            noSpot++;
-            return null;
-        }
-        final int[] who = persona(c, now, pool, 1, 3, n.race, createdThisTick);
-        if (who == null) {
-            return null;
-        }
-        final Pos exit = n.exit != null ? n.exit : t.center();
-        final int radius = (int) Math.max(600, n.gremlins.distance2d(exit) + 600);
-        final Assignment a = new Assignment(++seq, Assignment.Kind.NEWBIE, "newbie:" + t.id() + ":" + n.charId, n.gremlins, radius, 1, 3, List.of(n.gremlins), t.anchors(), exit);
-        pending.put(who[0] == 0 ? --newKey : who[0], new Pending(a.place(), a.seq(), now));
-        newbieCompanions++;
-        materialized++;
-        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> NEWBIE companion of character " + n.charId + " at " + at + ", gremlins " + n.gremlins);
-        return new Command.Materialize(who[0], Math.max(1, Math.min(3, who[1])), at, a, n.race);
-    }
-
-    /** Back in its village: town life there (counted in the town from now on) or it runs off out of sight. */
-    private Command newbieHome(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain) {
-        final WorldCatalog.Town t = catalog.townAt(b.pos(), c.townMargin());
-        final Pos away = ((t == null) || rnd.nextBoolean()) ? runOutPoint(c, b.pos(), live, terrain) : null;
-        newbieHomes++;
-        if (away != null) {
-            note(now, "newbie companion " + b.botId() + " back in its village: runs off out of sight");
-            return new Command.Assign(b.botId(), b.assignment().leave(++seq, Assignment.Kind.LEAVE_RUN, away));
-        }
-        if (t == null) {
-            return null;
-        }
-        note(now, "newbie companion " + b.botId() + " back in " + t.id() + ": town life");
-        return new Command.Assign(b.botId(), new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), t.anchors(), null));
+    private static boolean isNewPersona(Command m) {
+        return (m instanceof Command.Materialize mm) && (mm.botId() == 0);
     }
 
     /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
@@ -700,6 +1006,34 @@ public final class Director {
     }
 
     // ------------------------------------------------------------------ density
+
+    /** Towns with a crowd of AFK-but-in-game bots at the gatekeeper. */
+    static final Set<String> GK_CROWD_TOWNS = Set.of("dion_castle_town", "giran_castle_town", "town_of_aden", "town_of_goddard");
+    /** Anchor kind of a crowd member's assignment: where it stands AFK (near the gatekeeper). */
+    public static final String GK_AFK = "gk_afk";
+
+    /** Pure: how many stand AFK at the gatekeeper of {@code place} this hour (5..15, stable for the hour; 0 elsewhere). */
+    static int gkCrowd(String place, int hour) {
+        if (!GK_CROWD_TOWNS.contains(place)) {
+            return 0;
+        }
+        return 5 + Math.floorMod((place.hashCode() * 17) + (hour * 7), 11);
+    }
+
+    /** A crowd member (stands AFK at the gatekeeper, its own maximum: no linger leave). */
+    static boolean isCrowd(Assignment a) {
+        if (a == null) {
+            return false;
+        }
+        for (Assignment.Anchor x : a.anchors()) {
+            if (GK_AFK.equals(x.kind())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Pos crowdAt;
 
     static int townTarget(DirectorConfig c, String place, int hour, double curve) {
         final double lo;
@@ -752,6 +1086,10 @@ public final class Director {
     }
 
     private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, List<BotNow> bots, Pool pool, Terrain terrain, boolean createdThisTick) {
+        if (!d.town() && isBarren(d.id(), now)) {
+            barrenSkips++;
+            return null; // a hunt there just found nothing
+        }
         final int lo;
         final int hi;
         if (d.town()) {
@@ -768,6 +1106,9 @@ public final class Director {
             return null;
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
+        if (d.town()) {
+            cands.removeIf(Candidate::pk); // no PK in towns: PK personas only on hunting grounds
+        }
         // starting village or one of its grounds up to level 20: only its race (S5); elsewhere any
         final int race = d.town() ? raceOf(d.townRef().id()) : StarterZones.raceOfGround(d.groundRef());
         Candidate back = null;
@@ -782,9 +1123,15 @@ public final class Director {
                 }
             }
         }
+        final List<Candidate> all = new ArrayList<>(cands);
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
+        if (cands.isEmpty() && (back == null) && !d.town()) {
+            // live test 2026-10-21: the pool was full (MaxBots) and every field top-up asked for a new persona that never
+            // came. An existing persona of a near level (any race outside the starting zones) beats a create that fails.
+            cands.addAll(relaxed(c, now, pool, all, lo, hi, race));
+        }
         int botId = 0;
-        int level;
+        int level = lo; // default, will be set below
         Candidate chosen = back;
         if (back != null) {
             comebacks.remove(back.botId());
@@ -797,16 +1144,24 @@ public final class Director {
             botId = pick.botId();
             level = pick.level();
         } else {
-            if (createdThisTick) {
+            // Pool empty: create new persona (one per tick limit; never when the persona cap is reached)
+            if (createdThisTick || !canCreate) {
                 noPersona++;
                 return null; // one new persona per tick (it is a database insert)
             }
             level = lo + rnd.nextInt((hi - lo) + 1);
+            // botId stays 0 = create new with race parameter
         }
         final Assignment a;
         if (d.town()) {
             final WorldCatalog.Town t = d.townRef();
-            a = new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), t.anchors(), null);
+            List<Assignment.Anchor> anchors = t.anchors();
+            if (crowdAt != null) {
+                // one of the crowd at the gatekeeper: stands AFK there (the brain picks its own spot, >= 50 from others)
+                anchors = new ArrayList<>(anchors);
+                anchors.add(new Assignment.Anchor(GK_AFK, crowdAt));
+            }
+            a = new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), anchors, null);
         } else {
             final WorldCatalog.Ground g = d.groundRef();
             a = new Assignment(++seq, Assignment.Kind.HUNT, g.id(), g.center(), g.radius(), g.minLevel(), g.maxLevel(), g.spots(), List.of(), null);
@@ -857,6 +1212,23 @@ public final class Director {
         return new Command.Materialize(botId, level, at, a, race);
     }
 
+    /** Personas for a field top-up when none fit exactly: same band ignoring cooldown race-wise, then +-5 levels. */
+    private List<Candidate> relaxed(DirectorConfig c, long now, Pool pool, List<Candidate> band, int lo, int hi, int race) {
+        final List<Candidate> out = new ArrayList<>();
+        final List<Candidate> wide = new ArrayList<>(band);
+        wide.addAll(pool.available(Math.max(1, lo - 5), Math.min(PaperLevel.MAX, hi + 1), now)); // never far above the ground
+        for (Candidate x : wide) {
+            if (pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || out.contains(x)) {
+                continue;
+            }
+            if ((race >= 0) && (x.race() != race)) {
+                continue; // starting zones stay one race
+            }
+            out.add(x);
+        }
+        return out;
+    }
+
     /** Next transit at this town: evening peak min..max, rarer by the online curve, much rarer in the starting villages. */
     static long transitInterval(DirectorConfig c, String townId, double curve, Random rnd) {
         final long base = c.transitMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.transitMaxMs() - c.transitMinMs()));
@@ -876,12 +1248,12 @@ public final class Director {
     /** A persona for a short appearance (transit, passer-by): one of the pool, else a new one (at most one per tick). */
     private int[] persona(DirectorConfig c, long now, Pool pool, int lo, int hi, int race, boolean createdThisTick) {
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
-        cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
+        cands.removeIf(x -> x.pk() || pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         if (!cands.isEmpty()) {
             final Candidate pick = weighted(cands, now);
             return new int[] { pick.botId(), pick.level() };
         }
-        if (createdThisTick) {
+        if (createdThisTick || !canCreate) {
             noPersona++;
             return null;
         }
@@ -1032,7 +1404,7 @@ public final class Director {
     /**
      * Near the gatekeeper / shops / trainers (or restart in big towns), not under a player's nose or on another bot.
      * Starting villages never use {@code restart} anchors: those often are the stock create/SOE node piles
-     * (Einhovant four points, Cedric, etc.).
+     * (Einhovant four points, Cedric, etc.). For towns, checks that the point is inside the town polygon.
      */
     Pos townPoint(WorldCatalog.Town t, List<Live> live, List<Pos> bots, Terrain terrain) {
         final boolean starter = raceOf(t.id()) >= 0;
@@ -1059,7 +1431,8 @@ public final class Director {
                 continue;
             }
             final Pos p = terrain.ground(approx);
-            if (p != null) {
+            // Check that town points are inside the town polygon
+            if (p != null && t.contains(p.x(), p.y())) {
                 return p;
             }
         }
@@ -1276,6 +1649,15 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " newbies=" + newbieCompanions + "/" + newbieHomes + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " presence=" + presenceFieldTopups + "/" + presenceTownTopups + " leaves=" + presenceLeaves + " noMobs=" + presenceNoMobs + " barren=" + barrenSkips + (density < 1 ? " density=" + density : "");
+    }
+
+    /** Per-minute presence summary for INFO logging (separate line from DIRECTOR status). */
+    public synchronized PresenceSummary presenceSummary() {
+        if (livePlayers == 0) {
+            return null;
+        }
+        final int[] k = presenceCounts;
+        return new PresenceSummary(livePlayers, k[0], k[1], k[2], k[3], k[4], presenceFieldTopups + presenceTownTopups, noPersona, inCombatNearPlayers);
     }
 }

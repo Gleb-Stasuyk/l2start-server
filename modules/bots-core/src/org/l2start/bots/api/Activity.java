@@ -14,6 +14,8 @@ public record Activity(Kind kind, boolean wantsToMove, long since) {
         FIGHT,
         REST,
         AFK,
+        /** One of the crowd at a big town's gatekeeper: AFK but in the game (standing or sitting), up to 2 hours. */
+        AFK_TOWN,
         /** Appeared at a gatekeeper "after a teleport", teleports on in a few seconds. */
         TRANSIT,
         /** Standing with others in a town. */

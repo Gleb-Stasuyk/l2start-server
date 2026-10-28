@@ -5,6 +5,7 @@
 		Fighter: Long Sword + Bronze set + Leather Helmet + Bracer + Boots + Blue Diamond jewelry + Soulshots.
 		Mage: Mage Staff + Magic tunic set + same accessories + Blessed Spiritshots.
 		Dwarf: Ubiquitous Axe instead of Long Sword.
+		Orc (fighter and mystic): Cestus (fists) instead of Long Sword / Mage Staff.
 	-->
 	<!-- Human Fighter -->
 	<equipment classId="0">
@@ -104,7 +105,7 @@
 	</equipment>
 	<!-- Orc Fighter -->
 	<equipment classId="44">
-		<item id="2" count="1" equipped="true" /> <!-- Long Sword -->
+		<item id="256" count="1" equipped="true" /> <!-- Cestus (orcs fight with fists) -->
 		<item id="26" count="1" equipped="true" /> <!-- Bronze Breastplate -->
 		<item id="34" count="1" equipped="true" /> <!-- Bronze Gaiters -->
 		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->
@@ -120,7 +121,7 @@
 	</equipment>
 	<!-- Orc Mystic -->
 	<equipment classId="49">
-		<item id="177" count="1" equipped="true" /> <!-- Mage Staff -->
+		<item id="256" count="1" equipped="true" /> <!-- Cestus (orcs fight with fists) -->
 		<item id="1102" count="1" equipped="true" /> <!-- Tunic of Magic -->
 		<item id="1105" count="1" equipped="true" /> <!-- Stockings of Magic -->
 		<item id="44" count="1" equipped="true" /> <!-- Leather Helmet -->

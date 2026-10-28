@@ -168,4 +168,18 @@ class PvpBrainTest {
         assertFalse(h.act().calls().stream().anyMatch(c -> c.action().equals("attack") && c.arg().equals("806")),
             "revenge after timeout: " + h.notes());
     }
+
+    @Test
+    void neverOpensAFightWithAPeacefulBot() {
+        // live test 2026-10-21: lv 26-27 hunters on one ground "fought" each other and stood still instead of farming
+        final FakeWorld w = BasicBrainTest.world(79, false);
+        final BrainHarness h = onSpot(w, 79);
+        BasicBrain.pvpMode = PvpDecision.Mode.HIGH;
+        BasicBrain.pvpPlayerCooldownMs = 0;
+        w.addPlayer(new PlayerView(801, "Grimarrow", 27, 0, new Pos(w.pos().x() + 200, w.pos().y(), 0), 200, 0, false, false, 0, true, false, false, true));
+        h.run(30_000);
+        assertFalse(h.act().calls().stream().anyMatch(c -> c.action().equals("attack") && c.arg().equals("801")),
+            "attacked a peaceful bot: " + h.notes());
+        assertFalse(h.notes().stream().anyMatch(n -> n.contains("Grimarrow") && n.contains("PvP")), h.notes().toString());
+    }
 }

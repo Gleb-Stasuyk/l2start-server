@@ -16,6 +16,8 @@ public final class IdleWatch {
     static final long AGAIN_MS = 3 * 60_000L;
     /** ACTIVE bot this long without moving: a WARN in the log (diagnostics). */
     public static final long WARN_STILL_MS = 60_000;
+    /** S3: the maximum of the "AFK at the gatekeeper" state (2 h plus a little slack for the logout). */
+    public static final long AFK_TOWN_MAX_MS = 125 * 60_000L;
 
     public enum Verdict {
         OK, IDLE, IDLE_AGAIN
@@ -25,6 +27,7 @@ public final class IdleWatch {
     static long limit(Activity.Kind k) {
         return switch (k) {
             case AFK -> 10 * 60_000L;
+            case AFK_TOWN -> AFK_TOWN_MAX_MS;
             case REST -> 3 * 60_000L;
             case FIGHT -> 2 * 60_000L;
             case TRANSIT -> 15_000L;
@@ -81,6 +84,17 @@ public final class IdleWatch {
         return v;
     }
 
+    /**
+     * The client draws every character it knows, walls or not: this close a live player sees the bot even without a line
+     * of sight (caves, floors). Farther out (up to the host's radius) only with a line of sight.
+     */
+    public static final double SIGHT_ALWAYS = 2000;
+
+    /** Pure: does a live player at {@code distance} see the bot. */
+    public static boolean seen(double distance, boolean lineOfSight) {
+        return (distance <= SIGHT_ALWAYS) || lineOfSight;
+    }
+
     /** What the host does about a verdict. */
     public enum Reaction {
         NONE,
@@ -106,6 +120,21 @@ public final class IdleWatch {
             return null;
         }
         return !seenByLive;
+    }
+
+    /** A bot idle again in sight of a live player waits this long for him to look away, then reads a Scroll of Escape. */
+    public static final long SEEN_WAIT_MS = 30_000L;
+    /** The scroll's cast (stock SoE: 20 s) plus slack; past it the escape counts as done anyway. */
+    public static final long ESCAPE_MS = 40_000L;
+
+    /** The wait in sight of a live player is over: it escapes by scroll (visible, not a sudden vanish). */
+    public static boolean escapeDue(long waitingSince, long now) {
+        return (waitingSince > 0) && ((now - waitingSince) >= SEEN_WAIT_MS);
+    }
+
+    /** The scroll did its work (it is far from where it read it) or its time is up: the bot logs out. */
+    public static boolean escaped(Pos from, Pos now, long startedAt, long at) {
+        return (from.distance2d(now) > 3000) || ((at - startedAt) >= ESCAPE_MS);
     }
 
     /** Why the last idle verdict. */
