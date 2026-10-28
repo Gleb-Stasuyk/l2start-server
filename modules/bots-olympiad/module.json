@@ -1,8 +1,8 @@
 {
   "id": "bots-olympiad",
   "name": "Bots: olympiad",
-  "description": "Phase 9 MVP A-C: Grand Olympiad nobles (roster 40, combat 3rd professions), gather at NPC 31688, fill live player queues and run bot vs bot in the background. Depends on bots-core (OlympiadPool). Stock olympiad is unchanged when Enabled=false or bots-core is off.",
-  "version": "0.1.0",
+  "description": "Phase 9 MVP A-D: Grand Olympiad nobles (roster 40, combat 3rd professions), gather at NPC 31688, fill live player queues, run bot vs bot, and fight in the stadium with class playstyles. Depends on bots-core (OlympiadPool) and bots-brain-basic for combat. Stock olympiad is unchanged when Enabled=false or bots-core is off.",
+  "version": "0.2.0",
   "kind": "jar",
   "platform": "^1.11",
   "entrypoint": "org.l2start.olympiad.BotsOlympiadModule",

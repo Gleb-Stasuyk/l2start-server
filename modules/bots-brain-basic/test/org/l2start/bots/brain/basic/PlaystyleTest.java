@@ -176,4 +176,21 @@ class PlaystyleTest {
         assertEquals(0, r.w().strikes);
         assertEquals(0, r.b().playstyleCasts());
     }
+
+    @Test
+    void pvpLineFiresOnlyInPvpPickAndSpoilDoesNot() {
+        final FakeWorld w = new FakeWorld(1, BasicBrainTest.TOWN, false);
+        w.teleport(new Pos(0, 4000, 0));
+        w.setLevel(40);
+        final FakeWorld.Mob m = w.addMob(2, 40, new Pos(30, 4000, 0));
+        final NpcView mob = w.view().npc(m.objectId);
+        final List<SkillView> skills = List.of(new SkillView(111, 1, SkillView.Kind.OTHER, 1, 0, true), new SkillView(3, 1, SkillView.Kind.STRIKE, 1, 40, true),
+            new SkillView(254, 1, SkillView.Kind.OTHER, 1, 40, true));
+        final Playstyles.Playstyle ps = new Playstyles.Playstyle("t", Set.of(0), null,
+            List.of(line(111, Use.OPENER, EnumSet.of(Cond.PVP), 0, 0), line(254, Use.DEBUFF, EnumSet.of(Cond.NOT_SPOILED), 0, 1), line(3, Use.ROTATION, EnumSet.of(Cond.ALWAYS), 0, 2)));
+        final PlaystyleEngine e = new PlaystyleEngine();
+        final long now = 1000;
+        assertEquals(254, e.pick(ps, self(w, 90, skills), mob, w.view(), Map.of(), now, false).skill().id(), "hunt: spoil before rotation");
+        assertEquals(111, e.pick(ps, self(w, 90, skills), mob, w.view(), Map.of(), now, true).skill().id(), "olympiad: PVP opener, no spoil");
+    }
 }

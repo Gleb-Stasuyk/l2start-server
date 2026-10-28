@@ -7,9 +7,20 @@ package org.l2start.bots.api;
  * @param withNpc talking to an NPC (dialog open)
  * @param inPvpZone not in peace/town (phase 7a; siege ignored until phase 8)
  * @param clanId phase 7d clan id (0 = none)
+ * @param hpPct current HP percent (phase 9 D: olympiad playstyle TARGET_HP_*)
+ * @param heading where they look, client units (phase 9 D: dagger rear)
+ * @param olympiadMode stock {@code isInOlympiadMode} (contestant, not an observer)
+ * @param olympiadGameId stock game id ({@code -1} = none)
  */
 public record PlayerView(int objectId, String name, int level, int classId, Pos pos, double distance, int karma, boolean pvpFlag,
-    boolean inCombat, int targetId, boolean bot, boolean inStore, boolean withNpc, boolean inPvpZone, int clanId) {
+    boolean inCombat, int targetId, boolean bot, boolean inStore, boolean withNpc, boolean inPvpZone, int clanId,
+    double hpPct, int heading, boolean olympiadMode, int olympiadGameId) {
+
+    /** Before phase 9 D (no olympiad / HP / heading). */
+    public PlayerView(int objectId, String name, int level, int classId, Pos pos, double distance, int karma, boolean pvpFlag,
+        boolean inCombat, int targetId, boolean bot, boolean inStore, boolean withNpc, boolean inPvpZone, int clanId) {
+        this(objectId, name, level, classId, pos, distance, karma, pvpFlag, inCombat, targetId, bot, inStore, withNpc, inPvpZone, clanId, 100, 0, false, -1);
+    }
 
     /** Before phase 7d (no clan). */
     public PlayerView(int objectId, String name, int level, int classId, Pos pos, double distance, int karma, boolean pvpFlag,

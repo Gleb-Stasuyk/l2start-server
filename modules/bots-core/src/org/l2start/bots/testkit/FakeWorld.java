@@ -314,6 +314,20 @@ public final class FakeWorld {
         selfClanLeader = leader;
     }
 
+    /** Phase 9 D: olympiad stadium (not peace; stock item skills are blocked). */
+    public boolean olympiadMode;
+    public int olympiadGameId = -1;
+    public boolean olympiadStart;
+
+    public void setOlympiad(int gameId, boolean started) {
+        olympiadGameId = gameId;
+        olympiadMode = gameId >= 0;
+        olympiadStart = started;
+        if (olympiadMode) {
+            peaceZone = false;
+        }
+    }
+
     /** Phase 6g tests: replace visible players (e.g. mark one as in combat / store). */
     public void clearPlayers() {
         players.clear();
@@ -796,7 +810,7 @@ public final class FakeWorld {
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
             "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
-            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId, selfClanLeader);
+            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId, selfClanLeader, olympiadMode, olympiadGameId, olympiadStart);
     }
 
     /** The view of the next tick: events since the previous view are handed over (and cleared). */
@@ -923,11 +937,15 @@ public final class FakeWorld {
             return ActionResult.OK;
         }
 
+        private boolean isVisiblePlayer(int objectId) {
+            return players.stream().anyMatch(x -> x.objectId() == objectId);
+        }
+
         @Override
         public ActionResult attack(int objectId) {
             final Mob m = mobs.get(objectId);
-            if ((m == null) && !dead && !sitting && !peaceZone && players.stream().anyMatch(x -> x.objectId() == objectId)) {
-                targetId = objectId; // a player (PvP): the hit itself is not simulated
+            if ((m == null) && !dead && !sitting && !peaceZone && isVisiblePlayer(objectId)) {
+                targetId = objectId; // a player (PvP / olympiad): the hit itself is not simulated
                 intention = "ATTACK";
                 return ActionResult.OK;
             }
@@ -966,7 +984,7 @@ public final class FakeWorld {
             }
             final Mob m = mobs.get(objectId);
             if (strikeSkill && !mage && (skillId == STRIKE_ID)) {
-                if (dead || sitting || (m == null) || m.dead() || peaceZone) {
+                if (dead || sitting || peaceZone || ((m == null || m.dead()) && !isVisiblePlayer(objectId))) {
                     return ActionResult.INVALID;
                 }
                 if ((now < skillReadyAt.getOrDefault(STRIKE_ID, 0L)) || (mp < STRIKE_MP)) {
@@ -974,6 +992,15 @@ public final class FakeWorld {
                 }
                 targetId = objectId;
                 castSkill = STRIKE_ID;
+                intention = "CAST";
+                return ActionResult.OK;
+            }
+            if ((m == null) && mage && (skillId == NUKE_ID) && !dead && !sitting && !peaceZone && isVisiblePlayer(objectId)) {
+                if ((now < skillReadyAt.getOrDefault(skillId, 0L)) || (mp < NUKE_MP)) {
+                    return ActionResult.COOLDOWN;
+                }
+                targetId = objectId;
+                castSkill = skillId;
                 intention = "CAST";
                 return ActionResult.OK;
             }
@@ -991,6 +1018,9 @@ public final class FakeWorld {
 
         @Override
         public ActionResult useItem(int itemId) {
+            if (olympiadMode) {
+                return ActionResult.INVALID; // stock ItemSkills: no potions / SoE in a Grand Olympiad match
+            }
             if ((itemId == SOE) && !dead && !sitting && (itemCount(SOE) > 0) && (escapeAt == 0)) {
                 items.merge(SOE, -1L, Long::sum);
                 escapeAt = now + 20_000; // the stock cast of a scroll of escape
@@ -1446,6 +1476,12 @@ public final class FakeWorld {
                     partyCasts.add(e.id() + ">" + objectId);
                     friendBuff(e.id(), objectId);
                     spend(e, objectId);
+                    return ActionResult.OK;
+                }
+                if ((m == null) && players.stream().anyMatch(x -> x.objectId() == objectId) && !peaceZone) {
+                    spend(e, objectId);
+                    targetId = objectId;
+                    intention = "ATTACK";
                     return ActionResult.OK;
                 }
                 if ((m == null) || m.dead() || peaceZone) {

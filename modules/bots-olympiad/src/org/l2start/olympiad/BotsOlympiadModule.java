@@ -11,8 +11,9 @@ import org.l2start.platform.api.GameModule;
 import org.l2start.platform.api.ModuleContext;
 
 /**
- * Phase 9 MVP A–C: olympiad nobles via bots-core {@link OlympiadPool}, gather at NPC 31688, fill live queues and
- * run bot vs bot in the background. Stock olympiad is unchanged when Enabled=false or bots-core is off.
+ * Phase 9 MVP A–D: olympiad nobles via bots-core {@link OlympiadPool}, gather at NPC 31688, fill live queues,
+ * run bot vs bot, and fight in the stadium (brain olympiad stance). Stock olympiad is unchanged when Enabled=false
+ * or bots-core is off.
  */
 public final class BotsOlympiadModule implements GameModule {
     private ModuleContext ctx;

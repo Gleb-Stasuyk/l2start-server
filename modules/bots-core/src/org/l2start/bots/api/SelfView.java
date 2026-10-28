@@ -16,12 +16,26 @@ import java.util.List;
  * @param petTargetId object id of what that summon is fighting or going to (0 = nothing)
  * @param clanId phase 7d stock / bot clan id (0 = none)
  * @param clanLeader phase 7e: stock clan leader (can invite live players)
+ * @param olympiadMode stock {@code isInOlympiadMode} (contestant in a stadium)
+ * @param olympiadGameId stock game id ({@code -1} = none; set before teleport to the stadium)
+ * @param olympiadStart stock {@code isOlympiadStart}: the match has begun, fighting is allowed
  */
 public record SelfView(int objectId, String name, int classId, boolean mage, int level, double expPercent, long sp,
     double hp, int maxHp, double mp, int maxMp, Pos pos, boolean dead, boolean sitting, boolean moving, boolean inCombat,
     boolean attacking, boolean casting, int targetId, boolean inPeaceZone, boolean teleporting, String intention, boolean hasWeapon,
     List<SkillView> skills, double cp, int maxCp, int attackRange, boolean bow, int charges, int petId, double petHpPct, int petTargetId,
-    int clanId, boolean clanLeader) {
+    int clanId, boolean clanLeader, boolean olympiadMode, int olympiadGameId, boolean olympiadStart) {
+    /** Before phase 9 D (no olympiad). */
+    public SelfView(int objectId, String name, int classId, boolean mage, int level, double expPercent, long sp,
+        double hp, int maxHp, double mp, int maxMp, Pos pos, boolean dead, boolean sitting, boolean moving, boolean inCombat,
+        boolean attacking, boolean casting, int targetId, boolean inPeaceZone, boolean teleporting, String intention, boolean hasWeapon,
+        List<SkillView> skills, double cp, int maxCp, int attackRange, boolean bow, int charges, int petId, double petHpPct, int petTargetId,
+        int clanId, boolean clanLeader) {
+        this(objectId, name, classId, mage, level, expPercent, sp, hp, maxHp, mp, maxMp, pos, dead, sitting, moving, inCombat, attacking, casting,
+            targetId, inPeaceZone, teleporting, intention, hasWeapon, skills, cp, maxCp, attackRange, bow, charges, petId, petHpPct, petTargetId, clanId,
+            clanLeader, false, -1, false);
+    }
+
     /** Before phase 7e (clan id, not leader). */
     public SelfView(int objectId, String name, int classId, boolean mage, int level, double expPercent, long sp,
         double hp, int maxHp, double mp, int maxMp, Pos pos, boolean dead, boolean sitting, boolean moving, boolean inCombat,
@@ -79,5 +93,13 @@ public record SelfView(int objectId, String name, int classId, boolean mage, int
      */
     public boolean inPvpZone() {
         return !inPeaceZone;
+    }
+
+    /**
+     * Phase 9 D: in an olympiad match (waiting in the stadium or fighting). Stock sets the game id before teleport;
+     * {@code olympiadMode} is the contestant flag.
+     */
+    public boolean inOlympiadMatch() {
+        return olympiadMode || (olympiadGameId >= 0);
     }
 }

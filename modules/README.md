@@ -11,7 +11,7 @@
 | `rates-floating` | рейты x10: плавающий дроп и спойл (шанс 3×F доп. стоковыми роллами, адена ровно x5, стакающиеся x1..x3, «ровно 1» для экипировки и т. п.), ценные квестовые награды x1 (`docs/RATES_PLAN.md`); дроп чемпионов и shift+клик дроп/спойл с нашими шансами (`docs/EXTRAS_PLAN.md`) | `P7-DROP-FLOAT`, `P7-QUEST-REWARD` |
 | `world-info` | уровни монстров в списках телепортов («Cruma Tower (40-47)») | `P8-TELEPORT-NAME` |
 | `town-buffer` | платные бафферы-БОТЫ (пророки bots-core) у ГК Глудио/Диона/Гирана/Адена/Годдарда: трейд адены 20k…200k → полный баф мага/воина, как на x100; работает там, где есть bots-core (solo) | `P6-BOT-TRADE` |
-| `bots-olympiad` | олимпиада ботов, фаза 9 MVP A–C: ростер 40 дворян у NPC 31688, запись к живому и bot↔bot | `P9-OLY-WAIT` |
+| `bots-olympiad` | олимпиада ботов, фаза 9 MVP A–D: ростер 40 дворян у NPC 31688, запись к живому и bot↔bot, бой на стадионе | `P9-OLY-WAIT` |
 
 `starter-kit`, `lw-fixes`, `rates-floating`, `world-info` и `town-buffer` включены в `solo` и `online`, `bots-core` — только в `solo`.
 `bots-olympiad` включён в `solo` и `online`; без bots-core (online) он грузится и ничего не делает.
