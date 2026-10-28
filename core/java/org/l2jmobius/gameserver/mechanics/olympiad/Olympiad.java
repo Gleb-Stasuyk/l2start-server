@@ -1626,6 +1626,44 @@ public class Olympiad extends ListenersContainer
 		return noble.getInt(POINTS);
 	}
 	
+	// >>> [HOOK:P9-OLY-WAIT]
+	/**
+	 * Snapshot of the non-classed waiting list for modules. Taken under the OlympiadManager monitor
+	 * (the same lock the stock matcher uses). Package-private lists stay package-private.
+	 */
+	public java.util.List<org.l2jmobius.gameserver.entity.actor.Player> hookNonClassedWaiting()
+	{
+		synchronized (OlympiadManager.getInstance())
+		{
+			if (_nonClassBasedRegisters == null)
+			{
+				return java.util.List.of();
+			}
+			return new ArrayList<>(_nonClassBasedRegisters);
+		}
+	}
+	
+	/**
+	 * Snapshot of the classed waiting lists (classId → players) for modules. Taken under the OlympiadManager monitor.
+	 */
+	public java.util.Map<Integer, java.util.List<org.l2jmobius.gameserver.entity.actor.Player>> hookClassedWaiting()
+	{
+		synchronized (OlympiadManager.getInstance())
+		{
+			if (_classBasedRegisters == null)
+			{
+				return java.util.Map.of();
+			}
+			final Map<Integer, List<Player>> copy = new HashMap<>();
+			for (Entry<Integer, List<Player>> e : _classBasedRegisters.entrySet())
+			{
+				copy.put(e.getKey(), e.getValue() == null ? List.of() : new ArrayList<>(e.getValue()));
+			}
+			return copy;
+		}
+	}
+	
+	// <<< [HOOK:P9-OLY-WAIT]
 	public int getLastNobleOlympiadPoints(int objId)
 	{
 		int result = 0;

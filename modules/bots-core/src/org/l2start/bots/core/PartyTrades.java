@@ -61,8 +61,8 @@ final class PartyTrades {
      */
     boolean onTradeRequest(Player requester, Player bot) {
         final BotRecord r = registry.byCharId(bot.getObjectId());
-        if ((r == null) || !r.inWorld() || (r.status() == BotRecord.Status.TRADER)) {
-            return false; // not ours, or a store trader (economy-market / town-buffer)
+        if ((r == null) || !r.inWorld() || r.pooled()) {
+            return false; // not ours, or a store trader / olympiad noble
         }
         if (!sameParty(requester, bot)) {
             deny(requester, bot);

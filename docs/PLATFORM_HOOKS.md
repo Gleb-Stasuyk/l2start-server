@@ -1,7 +1,7 @@
 # Platform hooks in core/
 
 `core/` is stock L2J Mobius CT_0 (see `UPSTREAM.md`). The only allowed changes are **platform hooks**:
-a few ADDED lines that call `org.l2start.platform.hooks.CoreHooks` and are marked with `[HOOK:<id>]`.
+a few ADDED lines that call `org.l2start.platform.hooks.CoreHooks` (or, when package-private stock state must be read, a tiny public bridge in that same core file) and are marked with `[HOOK:<id>]`.
 With no modules (or `DisableAll = true` in `platform.ini`) every hook is a no-op and the server behaves
 exactly like stock Mobius.
 
@@ -48,6 +48,7 @@ After an upstream update (`tools/import-upstream.ps1`) re-apply the hooks by the
 | `P7-DROP-FLOAT` | `gameserver/entity/actor/templates/NpcTemplate.java` | first thing in `calculateDrops(DropType, Creature, Creature)` | block `// >>> [HOOK:P7-DROP-FLOAT]`: `CoreHooks.drops(spoil, victim, killer, stockRoll)`; a module (rates-floating) builds the drop/spoil out of stock rolls (`stockRoll` re-enters the stock method, which then skips the hook); null = stock. Inert without listeners |
 | `P7-QUEST-REWARD` | `gameserver/mechanics/script/Quest.java` | in `rewardItems` directly before `final Item itemInstance = player.getInventory().addItem(ItemProcessType.QUEST, itemId, count, ...)` | `count = CoreHooks.questReward(player, itemId, countValue, count)`: a module may change the count after the stock rates (rates-floating: valuable rewards x1). Without listeners the stock count |
 | `P8-TELEPORT-NAME` | `gameserver/entity/teleporter/TeleportHolder.java` | in `showTeleportList` directly after `String finalName = loc.getName();` | `finalName = CoreHooks.teleportName(player, loc, finalName)`: a module may change the shown name (world-info: monster levels near the destination). Without listeners the stock name |
+| `P9-OLY-WAIT` | `gameserver/mechanics/olympiad/Olympiad.java` | after `getNoblePoints` | public snapshot of the package-private waiting lists (`hookNonClassedWaiting`, `hookClassedWaiting`) taken under the `OlympiadManager` monitor, so `bots-olympiad` can see live vs bot queues without duplicating stock checks. Inert: only reads | phase 9 |
 
 Paths are relative to `core/java/org/l2jmobius/`.
 Later hooks (combat, chat, items, AI, …) are added together with the modules that need them (phases 2–3).

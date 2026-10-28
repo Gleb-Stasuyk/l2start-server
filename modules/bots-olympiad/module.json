@@ -1,0 +1,24 @@
+{
+  "id": "bots-olympiad",
+  "name": "Bots: olympiad",
+  "description": "Phase 9 MVP A-C: Grand Olympiad nobles (roster 40, combat 3rd professions), gather at NPC 31688, fill live player queues and run bot vs bot in the background. Depends on bots-core (OlympiadPool). Stock olympiad is unchanged when Enabled=false or bots-core is off.",
+  "version": "0.1.0",
+  "kind": "jar",
+  "platform": "^1.11",
+  "entrypoint": "org.l2start.olympiad.BotsOlympiadModule",
+  "dependencies": [
+    { "id": "bots-core", "version": "^0.7.0", "optional": true }
+  ],
+  "defaultEnabled": { "solo": true, "online": true },
+  "config": {
+    "Enabled": { "type": "bool", "default": true, "reloadable": true, "description": "Olympiad bot roster and signup. Off = stock olympiad only (nobles already in the world idle-logout, in-progress matches are not aborted)." },
+    "RosterSize": { "type": "int", "default": 40, "min": 0, "max": 200, "reloadable": true, "description": "Target number of olympiad nobles (separate pool from hunter/trader bots). Extra rivals of a live player's class may go a little above this." },
+    "MinLevel": { "type": "int", "default": 76, "min": 76, "max": 80, "reloadable": true, "description": "Lowest level of an olympiad noble." },
+    "MaxLevel": { "type": "int", "default": 80, "min": 76, "max": 80, "reloadable": true, "description": "Highest level of an olympiad noble." },
+    "RivalsPerClass": { "type": "int", "default": 6, "min": 0, "max": 40, "reloadable": true, "description": "When a live player waits in a classed queue, keep this many extra nobles of that class beyond the base quota." },
+    "SignUpChancePercent": { "type": "int", "default": 10, "min": 0, "max": 100, "reloadable": true, "description": "When no live player is waiting: chance a free noble signs up to non-classed (bot vs bot) each signup pass." },
+    "RestSeconds": { "type": "int", "default": 180, "min": 0, "max": 3600, "reloadable": true, "description": "Seconds a noble waits after a match before it may sign up again." },
+    "RejoinParty": { "type": "bool", "default": true, "reloadable": true, "description": "Reserved for MVP E (party hold). Unused in A-C." },
+    "GatherNpcId": { "type": "int", "default": 31688, "min": 1, "reloadable": true, "description": "Grand Olympiad Manager NPC the roster gathers around (stock 31688)." }
+  }
+}
