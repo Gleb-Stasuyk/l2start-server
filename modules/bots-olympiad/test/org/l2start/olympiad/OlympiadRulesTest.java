@@ -72,6 +72,38 @@ class OlympiadRulesTest {
     }
 
     @Test
+    void rareClassedGetsAtLeastBotsNeededEvenIfBaseQuotaIsOne() {
+        // Storm Screamer 110 has base 2; botsNeeded(1,5)=5. rivals 6 → 8, still enough.
+        assertEquals(5, OlympiadRules.botsNeeded(1, 5));
+        assertEquals(9, OlympiadRules.botsNeeded(1, 9));
+        assertEquals(0, OlympiadRules.botsNeeded(0, 5));
+        final Map<Integer, Integer> live = OlympiadRules.rosterTargets(40, 0, Set.of(110), Map.of(110, 1), 5);
+        assertEquals(5, live.get(110).intValue(), "rivals 0: still enough bots to hit classed cap 6");
+        final Map<Integer, Integer> withRivals = OlympiadRules.rosterTargets(40, 6, Set.of(110), Map.of(110, 1), 5);
+        assertEquals(8, withRivals.get(110).intValue()); // max(2+6, 5)
+    }
+
+    @Test
+    void classDeficitWinsOverGlobalRosterCap() {
+        // leftover extras of class 90 keep total at 46; class 110 still has only 2 of 8 needed
+        final Map<Integer, Integer> target = OlympiadRules.rosterTargets(40, 6, Set.of(110), Map.of(110, 1), 5);
+        final Map<Integer, Integer> have = new java.util.HashMap<>(OlympiadRules.baseQuotas(40));
+        have.put(90, 8); // leftover rivals from a previous live classed
+        have.put(110, 2);
+        int total = 0;
+        for (int n : have.values()) {
+            total += n;
+        }
+        int want = 0;
+        for (int n : target.values()) {
+            want += n;
+        }
+        assertTrue(total >= 40);
+        assertEquals(110, OlympiadRules.pickCreateClass(target, have), "must create SS even if total >= want (" + total + "/" + want + ")");
+        assertEquals(0, OlympiadRules.pickCreateClass(target, target));
+    }
+
+    @Test
     void poolCapEvenAndAtLeastMin() {
         assertEquals(0, OlympiadRules.poolCap(0, 5));
         assertEquals(6, OlympiadRules.poolCap(1, 5)); // max(5,2)=5 odd → 6
@@ -169,5 +201,25 @@ class OlympiadRulesTest {
             OlympiadRules.shouldSignUp(new OlympiadRules.SignUpInput(true, false, true, false, false, 18, 1, 0, true, 0, 3, 5, 9, 10, 0)));
         assertEquals(OlympiadRules.Action.NONE,
             OlympiadRules.shouldSignUp(new OlympiadRules.SignUpInput(true, false, true, true, false, 18, 0, 2, true, 3, 0, 5, 9, 10, 0)));
+    }
+
+    @Test
+    void hopsFromNonClassedToClassedWhenLivePlayerOfThisClassWaits() {
+        // registered non-classed, live classed this, classed pool still short of cap 6
+        assertEquals(OlympiadRules.Action.SWITCH_TO_CLASSED,
+            OlympiadRules.shouldSignUp(new OlympiadRules.SignUpInput(true, false, true, false, false, 18, 0, 1, true, 2, 4, 5, 9, 10, 0)));
+        // classed already at cap: stay in non-classed
+        assertEquals(OlympiadRules.Action.NONE,
+            OlympiadRules.shouldSignUp(new OlympiadRules.SignUpInput(true, false, true, false, false, 18, 0, 1, true, 6, 4, 5, 9, 10, 0)));
+    }
+
+    @Test
+    void signUpChanceOnlyForBackground() {
+        // live waiting (anyLive): chance 100 and roll 0 still does not background-signup this other class
+        assertEquals(OlympiadRules.Action.NONE,
+            OlympiadRules.shouldSignUp(new OlympiadRules.SignUpInput(true, false, false, false, false, 18, 0, 0, true, 0, 0, 5, 9, 100, 0)));
+        // no live: chance applies
+        assertEquals(OlympiadRules.Action.REGISTER_NON_CLASSED,
+            OlympiadRules.shouldSignUp(new OlympiadRules.SignUpInput(true, false, false, false, false, 18, 0, 0, false, 0, 0, 5, 9, 100, 0)));
     }
 }

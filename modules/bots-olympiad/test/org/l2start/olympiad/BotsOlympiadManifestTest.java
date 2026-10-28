@@ -17,7 +17,7 @@ class BotsOlympiadManifestTest {
         final Path dir = Path.of("modules/bots-olympiad");
         final ModuleManifest m = ManifestReader.read(dir);
         assertEquals("bots-olympiad", m.id());
-        assertEquals("0.2.0", m.version().toString());
+        assertEquals("0.3.0", m.version().toString());
         final String json = Files.readString(dir.resolve("module.json"));
         assertTrue(json.contains("\"entrypoint\": \"org.l2start.olympiad.BotsOlympiadModule\""));
         assertTrue(json.contains("\"id\": \"bots-core\""));
@@ -29,5 +29,9 @@ class BotsOlympiadManifestTest {
         final String entry = Files.readString(dir.resolve("src/org/l2start/olympiad/BotsOlympiadModule.java"));
         assertTrue(entry.contains("NoClassDefFoundError"), "online without bots-core must idle, not fail enable");
         assertFalse(entry.contains("import org.l2start.bots.olympiad."), "entrypoint must not classload bots-core types");
+        final String roster = Files.readString(dir.resolve("src/org/l2start/olympiad/OlympiadBots.java"));
+        assertFalse(roster.contains("total < want"), "class deficit must not be gated on the global roster cap");
+        assertTrue(roster.contains("pickCreateClass"));
+        assertTrue(roster.contains("SWITCH_TO_CLASSED"));
     }
 }

@@ -112,7 +112,8 @@ final class OlympiadBots {
             return;
         }
         final Waiting w = waiting();
-        final Map<Integer, Integer> target = OlympiadRules.rosterTargets(c.rosterSize, c.rivalsPerClass, w.liveClassed);
+        final int classedMin = OlympiadConfig.OLYMPIAD_CLASSED;
+        final Map<Integer, Integer> target = OlympiadRules.rosterTargets(c.rosterSize, c.rivalsPerClass, w.liveClassed, w.liveByClass, classedMin);
         final Map<Integer, Integer> have = new HashMap<>();
         final Map<Integer, Integer> inWorld = new HashMap<>();
         final List<Integer> offline = new ArrayList<>();
@@ -125,23 +126,14 @@ final class OlympiadBots {
                 offline.add(id);
             }
         }
-        int total = 0;
-        for (int n : have.values()) {
-            total += n;
-        }
-        int want = 0;
-        for (int n : target.values()) {
-            want += n;
-        }
-        if (total < want) {
-            final int needClass = pickDeficit(target, have);
-            if (needClass > 0) {
-                try {
-                    pool.create(new OlympiadPool.Look(needClass));
-                    ctx.metrics().counter("created").inc();
-                } catch (Exception e) {
-                    ctx.log().warn("cannot create olympiad noble of class " + needClass, e);
-                }
+        // Class deficit beats the global RosterSize cap: create even when total >= rosterSize.
+        final int needClass = OlympiadRules.pickCreateClass(target, have);
+        if (needClass > 0) {
+            try {
+                pool.create(new OlympiadPool.Look(needClass));
+                ctx.metrics().counter("created").inc();
+            } catch (Exception e) {
+                ctx.log().warn("cannot create olympiad noble of class " + needClass, e);
             }
         }
         final Location npc = gather(c.gatherNpcId);
@@ -167,6 +159,9 @@ final class OlympiadBots {
             }
         }
         shrink(target);
+        if (w.anyLive) {
+            tickSignup(); // fill live queues now; do not wait for the 30 s background pass
+        }
     }
 
     void tickSignup() {
@@ -212,6 +207,17 @@ final class OlympiadBots {
                     if (oly.registerNoble(p, false)) {
                         nonNow++;
                         ctx.metrics().counter("signup non-classed").inc();
+                    }
+                }
+                case SWITCH_TO_CLASSED -> {
+                    if (oly.unRegisterNoble(p)) {
+                        nonNow = Math.max(0, nonNow - 1);
+                        if (oly.registerNoble(p, true)) {
+                            classedNow.merge(cls, 1, Integer::sum);
+                            ctx.metrics().counter("signup classed").inc();
+                        } else {
+                            ctx.metrics().counter("unregister").inc();
+                        }
                     }
                 }
                 case UNREGISTER -> {
@@ -268,16 +274,7 @@ final class OlympiadBots {
     }
 
     private static int pickDeficit(Map<Integer, Integer> target, Map<Integer, Integer> have) {
-        int best = 0;
-        int bestNeed = 0;
-        for (int cls : OlympiadRules.COMBAT_THIRD) {
-            final int need = target.getOrDefault(cls, 0) - have.getOrDefault(cls, 0);
-            if (need > bestNeed) {
-                bestNeed = need;
-                best = cls;
-            }
-        }
-        return best;
+        return OlympiadRules.pickCreateClass(target, have);
     }
 
     static boolean inMatch(Player p) {

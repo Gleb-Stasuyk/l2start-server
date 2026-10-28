@@ -63,21 +63,58 @@ public final class OlympiadRules {
 
     /**
      * How many nobles of each class the roster should hold. Idle size is {@code rosterSize}; when a live
-     * player waits in a classed queue of class C, that class gets {@code rivalsPerClass} extra beyond its
-     * base quota (the total may exceed {@code rosterSize}).
+     * player waits in a classed queue of class C, that class is raised to at least
+     * {@code max(base + rivalsPerClass, botsNeeded(live, classedMin))} so a rare class (2 Storm Screamers)
+     * can still fill {@code OlympiadClassedParticipants}. The total may exceed {@code rosterSize}: a class
+     * deficit beats the global cap.
      */
     public static Map<Integer, Integer> rosterTargets(int rosterSize, int rivalsPerClass, Set<Integer> liveClassedClasses) {
+        return rosterTargets(rosterSize, rivalsPerClass, liveClassedClasses, Map.of(), DEFAULT_CLASSED_MIN);
+    }
+
+    public static Map<Integer, Integer> rosterTargets(int rosterSize, int rivalsPerClass, Set<Integer> liveClassedClasses,
+        Map<Integer, Integer> liveByClass, int classedMin) {
         final Map<Integer, Integer> out = new LinkedHashMap<>(baseQuotas(rosterSize));
-        if ((liveClassedClasses == null) || liveClassedClasses.isEmpty() || (rivalsPerClass <= 0)) {
+        if ((liveClassedClasses == null) || liveClassedClasses.isEmpty()) {
             return out;
         }
         for (int c : liveClassedClasses) {
             if (!allowedClass(c)) {
                 continue;
             }
-            out.put(c, out.getOrDefault(c, 0) + rivalsPerClass);
+            final int live = liveByClass == null ? 1 : Math.max(1, liveByClass.getOrDefault(c, 1));
+            final int withRivals = out.getOrDefault(c, 0) + Math.max(0, rivalsPerClass);
+            out.put(c, Math.max(withRivals, botsNeeded(live, classedMin)));
         }
         return out;
+    }
+
+    /**
+     * How many bots of the live player's class must be in the classed pool (not counting the live player)
+     * to reach the even {@link #poolCap}. 1 live and min 5 → 5 bots (cap 6).
+     */
+    public static int botsNeeded(int liveCount, int minParticipants) {
+        if (liveCount <= 0) {
+            return 0;
+        }
+        return Math.max(0, poolCap(liveCount, minParticipants) - liveCount);
+    }
+
+    /**
+     * Class with the largest shortfall vs {@code target}, even when the total roster is already at or above
+     * {@code rosterSize}. 0 = every class is at target.
+     */
+    public static int pickCreateClass(Map<Integer, Integer> target, Map<Integer, Integer> have) {
+        int best = 0;
+        int bestNeed = 0;
+        for (int cls : COMBAT_THIRD) {
+            final int need = target.getOrDefault(cls, 0) - (have == null ? 0 : have.getOrDefault(cls, 0));
+            if (need > bestNeed) {
+                bestNeed = need;
+                best = cls;
+            }
+        }
+        return best;
     }
 
     /**
@@ -105,7 +142,9 @@ public final class OlympiadRules {
         NONE,
         REGISTER_CLASSED,
         REGISTER_NON_CLASSED,
-        UNREGISTER
+        UNREGISTER,
+        /** Registered non-classed, but a live player of this class waits in classed: hop queues. */
+        SWITCH_TO_CLASSED
     }
 
     /**
@@ -129,6 +168,12 @@ public final class OlympiadRules {
         }
         if (in.registeredClassed() && (in.liveClassedThis() <= 0)) {
             return Action.UNREGISTER;
+        }
+        if (in.registered() && !in.registeredClassed() && (in.liveClassedThis() > 0)) {
+            final int cap = poolCap(in.liveClassedThis(), in.classedMin());
+            if ((in.classedPoolSize() < cap) && pointsOk(in.points(), CLASSED_MIN_POINTS)) {
+                return Action.SWITCH_TO_CLASSED;
+            }
         }
         if (in.registered()) {
             return Action.NONE;
