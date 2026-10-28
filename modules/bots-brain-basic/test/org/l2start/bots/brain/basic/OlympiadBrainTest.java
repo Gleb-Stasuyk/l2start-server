@@ -152,6 +152,45 @@ class OlympiadBrainTest {
     }
 
     @Test
+    void archerRunsFromSpawnIntoBowRange() {
+        final FakeWorld w = stadium(209, false);
+        w.setArcher(true);
+        w.classId = 92;
+        w.clearPlayers();
+        final Pos from = w.pos();
+        w.addPlayer(new PlayerView(800, "Rival", 78, 92, new Pos(from.x() + 700, from.y(), from.z()), 700, 0, false, true, 0, false, false, false, true, 0, 100, 0, true, 1));
+        final BrainHarness h = harness(w, false, 209);
+        h.run(2000);
+        assertTrue(h.act().count("moveTo") >= 1, "archer stayed at spawn: " + h.notes() + " " + h.act().calls());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("olympiad close")), h.notes().toString());
+    }
+
+    @Test
+    void hellKnightSummonsDarkPantherBeforeTheMatch() {
+        final FakeWorld w = stadium(210, false);
+        w.classId = 91;
+        w.setOlympiad(1, false);
+        w.addSkill(new FakeWorld.Extra(BasicBrain.DARK_PANTHER, SkillView.Kind.SUMMON, 20, 0, 1459, 2, 0));
+        w.giveItem(1459, 40);
+        final BrainHarness h = harness(w, false, 210);
+        h.run(4000);
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("summons")), h.notes().toString());
+        assertEquals(0, h.act().count("attack"), "attacked during wait: " + h.notes());
+    }
+
+    @Test
+    void selfBuffsDuringTheWait() {
+        final FakeWorld w = stadium(211, false);
+        w.selfBuffs = true;
+        w.setOlympiad(1, false);
+        final BrainHarness h = harness(w, false, 211);
+        h.run(3000);
+        assertTrue(w.buffCasts >= 1 || h.act().calls().stream().anyMatch(c -> c.action().equals("cast") && c.arg().startsWith(FakeWorld.BUFF_ID + "->")),
+            "no pre-fight buff: " + h.notes() + " " + h.act().calls());
+        assertEquals(0, h.act().count("attack"));
+    }
+
+    @Test
     void observerIsNotFought() {
         final FakeWorld w = stadium(208, false);
         w.clearPlayers();

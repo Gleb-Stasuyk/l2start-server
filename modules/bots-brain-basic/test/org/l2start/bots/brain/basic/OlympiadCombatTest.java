@@ -68,4 +68,34 @@ class OlympiadCombatTest {
     static PlayerView contestant(int id, String name, Pos at, double dist, int gameId) {
         return new PlayerView(id, name, 78, 88, at, dist, 0, false, true, 0, false, false, false, true, 0, 100, 0, true, gameId);
     }
+
+    @Test
+    void roleByClass() {
+        assertEquals(OlympiadCombat.Role.TANK, OlympiadCombat.role(90, false, false));
+        assertEquals(OlympiadCombat.Role.TANK, OlympiadCombat.role(91, false, false));
+        assertEquals(OlympiadCombat.Role.ARCHER, OlympiadCombat.role(92, true, false));
+        assertEquals(OlympiadCombat.Role.ARCHER, OlympiadCombat.role(7, true, false));
+        assertEquals(OlympiadCombat.Role.MAGE, OlympiadCombat.role(94, false, true));
+        assertEquals(OlympiadCombat.Role.SUMMONER, OlympiadCombat.role(95, false, true));
+        assertEquals(OlympiadCombat.Role.MELEE, OlympiadCombat.role(88, false, false));
+    }
+
+    @Test
+    void archerClosesFromSpawnNotFromInsideFightRange() {
+        final int fight = OlympiadCombat.fightRange(OlympiadCombat.Role.ARCHER, 500, 0);
+        assertEquals(400, fight);
+        assertTrue(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.ARCHER, 700, fight));
+        assertTrue(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.ARCHER, 500, fight)); // spawn inside max bow, still too far
+        assertFalse(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.ARCHER, 250, fight));
+        assertFalse(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.MELEE, 700, 80), "melee walks in via attack()");
+        assertFalse(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.TANK, 700, 80));
+        final int mageFight = OlympiadCombat.fightRange(OlympiadCombat.Role.MAGE, 40, 600);
+        assertEquals(520, mageFight);
+        assertTrue(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.MAGE, 700, mageFight));
+        assertTrue(OlympiadCombat.shouldCloseIn(OlympiadCombat.Role.SUMMONER, 700, mageFight));
+        final Pos me = new Pos(0, 0, 0);
+        final Pos foe = new Pos(800, 0, 0);
+        final Pos to = OlympiadCombat.closeInPoint(me, foe, 400);
+        assertEquals(400, (int) Math.round(to.distance2d(foe)));
+    }
 }
