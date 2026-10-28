@@ -39,7 +39,8 @@ COPY --from=build /src/build/dist/libs/LoginServer.jar /src/build/dist/libs/Game
 COPY --from=build /src/build/dist/game/modules /opt/l2/game/modules
 COPY --from=build /src/build/dist/game/config /opt/l2/game/config
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN sed -i 's/\r$//' /entrypoint.sh && chmod 0755 /entrypoint.sh \
+COPY docker/local-features.sh /local-features.sh
+RUN sed -i 's/\r$//' /entrypoint.sh /local-features.sh && chmod 0755 /entrypoint.sh /local-features.sh \
  && rm -f /opt/l2/libs/*-sources.jar \
  && mkdir -p /opt/l2/login/log /opt/l2/game/log /opt/l2/overrides /opt/l2/game/config/modules \
  && chown -R l2:l2 /opt/l2
