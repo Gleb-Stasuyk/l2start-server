@@ -1,18 +1,33 @@
 # Smoke test overlay (used by tools/smoke.sh only):
-#   docker compose --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml ...
-# The game runs the "smoke" image (runtime + test modules from platform/test/fixtures) on its OWN database
-# volume, so the normal l2s-db-data (accounts, characters) is never touched. Same container names and ports
-# as the normal stack: the smoke run replaces the running l2s-* containers.
+#   docker compose -p l2s-smoke --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml ...
+# A separate compose project with its own containers (l2s-smoke-*), network, volumes and image tags, no host ports:
+# the smoke run never touches the solo/online stack (l2s-* containers, l2s-db-data) and can run next to it.
 services:
   db:
+    container_name: l2s-smoke-db
     volumes:
       - l2s-smoke-db-data:/var/lib/mysql
+    networks: !override [l2s-smoke-net]
+  db-init:
+    image: l2start-server:smoke-runtime
+    container_name: l2s-smoke-db-init
+    networks: !override [l2s-smoke-net]
+  login:
+    image: l2start-server:smoke-runtime
+    container_name: l2s-smoke-login
+    ports: !reset []
+    volumes:
+      - l2s-smoke-login-logs:/opt/l2/login/log
+    networks: !override [l2s-smoke-net]
   game:
     image: l2start-server:smoke
+    container_name: l2s-smoke-game
     build:
       context: ..
       dockerfile: docker/Dockerfile
       target: smoke
+    ports: !reset []
+    networks: !override [l2s-smoke-net]
     environment:
       L2_PROFILE: "${SMOKE_PROFILE:-solo}"
       L2_PLATFORM__DISABLEALL: "${SMOKE_DISABLE_ALL:-false}"
@@ -32,6 +47,8 @@ services:
       L2_MOD_BOTS_CORE__DIRECTORPOOLWARMUP: "${SMOKE_BOTS_WARMUP:-0}"
       # economy-market (scenario 8): one sale to and one from bot stores through the stock store code
       L2_MOD_ECONOMY_MARKET__SELFTEST: "${SMOKE_MARKET_SELFTEST:-false}"
+      # rates-floating: 3000 simulated kills at level 20/40/60, stock against floating averages (every scenario, cheap)
+      L2_MOD_RATES_FLOATING__SELFTEST: "${SMOKE_RATES_SELFTEST:-true}"
       # static bot traders only in scenario 8 (60 of them would change the bot counts of scenarios 6-7)
       L2_MOD_ECONOMY_MARKET__STORESPERTOWN: "${SMOKE_MARKET_STORES:-Giran:0}"
       L2_MODULE_FX_CORE: "${SMOKE_FIXTURES:-on}"
@@ -49,5 +66,11 @@ services:
 volumes:
   l2s-smoke-db-data:
     name: l2s-smoke-db-data
+  l2s-smoke-login-logs:
+    name: l2s-smoke-login-logs
   l2s-smoke-game-logs:
     name: l2s-smoke-game-logs
+
+networks:
+  l2s-smoke-net:
+    name: l2s-smoke-net

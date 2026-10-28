@@ -7,6 +7,7 @@
 /docker/.env
 /docker/modules.env
 /docker/data/
+/backups/
 *.log
 core/dist/game/log/
 core/dist/login/log/
@@ -23,3 +24,5 @@ docker/geodata.empty/*
 .idea/
 *.iml
 .vscode/
+
+.tools/

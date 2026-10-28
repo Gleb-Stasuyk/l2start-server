@@ -36,4 +36,23 @@ class BrainConfigTest {
         assertEquals(0, BasicBrain.kiteClose);
         assertTrue(BotsBrainBasicModule.describe().contains("kiting off"));
     }
+
+    @Test
+    void socialNoiseQuietNormalLively() {
+        assertEquals(0.5, BotsBrainBasicModule.socialNoiseOf("quiet"), 1e-9);
+        assertEquals(1.0, BotsBrainBasicModule.socialNoiseOf("normal"), 1e-9);
+        assertEquals(2.0, BotsBrainBasicModule.socialNoiseOf("lively"), 1e-9);
+        assertEquals(1.0, BotsBrainBasicModule.socialNoiseOf("weird"), 1e-9);
+        assertEquals(2.0, BotsBrainBasicModule.socialNoiseOf("LIVELY"), 1e-9);
+    }
+
+    @Test
+    void pvpAggressionModes() {
+        assertEquals(PvpDecision.Mode.OFF, PvpDecision.Mode.of("off"));
+        assertEquals(PvpDecision.Mode.LOW, PvpDecision.Mode.of("low"));
+        assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of("normal"));
+        assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of("on"));
+        assertEquals(PvpDecision.Mode.HIGH, PvpDecision.Mode.of("HIGH"));
+        assertEquals(PvpDecision.Mode.NORMAL, PvpDecision.Mode.of(""));
+    }
 }

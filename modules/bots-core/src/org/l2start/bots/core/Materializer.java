@@ -26,8 +26,23 @@ final class Materializer {
     private static final int[] ARROWS = { 17, 1341, 1342, 1343, 1344, 1345 };
 
     /** Soulshots and blessed spiritshots by grade (NONE, D, C, B, A, S). */
-    private static final int[] SOULSHOTS = { 1835, 1463, 1464, 1465, 1466, 1467 };
-    private static final int[] SPIRITSHOTS = { 3947, 3948, 3949, 3950, 3951, 3952 };
+    static final int[] SOULSHOTS = { 1835, 1463, 1464, 1465, 1466, 1467 };
+    static final int[] SPIRITSHOTS = { 3947, 3948, 3949, 3950, 3951, 3952 };
+
+    /** Phase 6f: item ids a party mate may gift through the trade window (any shot grade + HP potions). */
+    static java.util.Set<Integer> partyGiftIds() {
+        final java.util.HashSet<Integer> s = new java.util.HashSet<>();
+        for (int id : SOULSHOTS) {
+            s.add(id);
+        }
+        for (int id : SPIRITSHOTS) {
+            s.add(id);
+        }
+        s.add(1060);
+        s.add(1061);
+        s.add(1539);
+        return java.util.Set.copyOf(s);
+    }
 
     private final GearTable gear;
 
@@ -37,6 +52,10 @@ final class Materializer {
 
     /** Phase 5d: the market's wallets pay for shots and potions (null = given, like phase 4; traders never buy). */
     private volatile java.util.function.Supplier<org.l2start.bots.trade.Supplies> supplies;
+    /** Phase 7c: PK gear ledger (null = no tracking; equip still works). */
+    private volatile PkLedger pkLedger;
+    /** Phase 7c: starting karma for a PK persona that entered washed (stock chaotic look). */
+    static final int PK_ENTRY_KARMA = 12_000;
 
     Materializer(GearTable gear) {
         this.gear = gear;
@@ -44,6 +63,10 @@ final class Materializer {
 
     void setSupplies(java.util.function.Supplier<org.l2start.bots.trade.Supplies> supplies) {
         this.supplies = supplies;
+    }
+
+    void setPkLedger(PkLedger ledger) {
+        pkLedger = ledger;
     }
 
     /** How many of {@code want} the bot gets: what its wallet pays for, or all without a market. */
@@ -92,16 +115,31 @@ final class Materializer {
             sb.append(", ").append(skills).append(" skills");
         }
         // equipment
+        final boolean pk = (persona != null) && persona.pk();
+        final PkLedger led = pk ? pkLedger : null;
+        // before equip: empty ledger = first PK materialize (entry karma); washed PK keeps ledger rows → no cheat re-red
+        final boolean firstPkGear = pk && ((led == null) || led.load(r.botId()).isEmpty());
         final int lag = GearTable.lag(persona == null ? 0.5 : persona.traits().greed(), lagMin, lagMax);
         final GearTable.Plan plan = gear.plan(future, target, seed, lag);
         if (!plan.items().isEmpty()) {
-            final int n = equip(p, plan);
+            final int n = equip(p, plan, pk ? r.botId() : 0);
             sb.append(", ").append(plan.grade()).append(" gear ").append(n).append(" new");
             if (plan.weaponEnchant() > 0) {
                 sb.append(", weapon +").append(plan.weaponEnchant());
             }
         }
-        cleanup(p);
+        if (pk) {
+            if (led != null) {
+                led.sync(r.botId(), p); // drop forgotten object ids; register gear still in bag
+            }
+            if (firstPkGear && (p.getKarma() <= 0)) {
+                p.setKarma(PK_ENTRY_KARMA); // first chaotic look only; wash is stock (mob kills), re-red by attacks
+                sb.append(", karma ").append(PK_ENTRY_KARMA);
+            } else {
+                sb.append(", karma ").append(p.getKarma());
+            }
+        }
+        cleanup(p, pk);
         sb.append(", ").append(potions(p, r, target)); // a thin wallet pays the potions first (to live), then shots
         sb.append(", ").append(shots(p, r, target, plan.items().isEmpty() ? 0 : plan.grade().ordinal()));
         p.getInventory().addItem(ItemProcessType.REWARD, SOE, 2, p, null); // like everybody: to end the hunt (phase 4d)
@@ -121,13 +159,20 @@ final class Materializer {
         return sb.toString();
     }
 
-    private int equip(Player p, GearTable.Plan plan) {
+    /**
+     * @param pkBotId &gt; 0 = PK persona: newly added gear is recorded in the ledger (real drop on death)
+     */
+    private int equip(Player p, GearTable.Plan plan, int pkBotId) {
         final Set<Integer> want = new HashSet<>(plan.items());
-        // old weapons and armour that are not in the plan go away (jewels stay)
+        final PkLedger led = (pkBotId > 0) ? pkLedger : null;
+        // old weapons and armour that are not in the plan go away (jewels stay); PK: forget ledger rows
         for (Item it : new ArrayList<>(p.getInventory().getItems())) {
             if ((it.isWeapon() || it.isArmor()) && !want.contains(it.getId()) && !jewel(it)) {
                 if (it.isEquipped()) {
                     p.getInventory().unEquipItemInSlot(it.getLocationSlot());
+                }
+                if (led != null) {
+                    led.forget(pkBotId, it.getObjectId());
                 }
                 p.getInventory().destroyItem(ItemProcessType.DESTROY, it, p, null);
             }
@@ -138,6 +183,9 @@ final class Materializer {
             if (it == null) {
                 it = p.getInventory().addItem(ItemProcessType.REWARD, id, 1, p, null);
                 added++;
+                if ((led != null) && (it != null)) {
+                    led.issued(pkBotId, it.getObjectId(), id);
+                }
             }
             if (it != null) {
                 // visible enchant of the persona in this grade (stable: the same bot tomorrow shows the same +N)
@@ -232,10 +280,20 @@ final class Materializer {
 
     /** Everything that is not worn (and not arrows) vanishes: loot and adena never reach the economy. */
     int cleanup(Player p) {
+        return cleanup(p, false);
+    }
+
+    /**
+     * @param pk true = keep unequipped weapons/armour (ledger gear may sit in the bag until stock death drop)
+     */
+    int cleanup(Player p, boolean pk) {
         final List<Item> junk = new ArrayList<>();
         for (Item it : p.getInventory().getItems()) {
             if (it.isEquipped() || (it.isEtcItem() && (it.getItemType() == EtcItemType.ARROW))) {
                 continue;
+            }
+            if (pk && (it.isWeapon() || it.isArmor())) {
+                continue; // phase 7c: real PK gear stays until stock karma drop
             }
             junk.add(it);
         }

@@ -3,7 +3,9 @@ package org.l2start.bots.core;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,6 +14,7 @@ import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
+import org.l2start.bots.api.Assignment;
 import org.l2start.bots.api.Pos;
 import org.l2start.bots.director.Director;
 import org.l2start.bots.director.DirectorConfig;
@@ -36,6 +39,11 @@ public final class DirectorRunner {
     private final java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
     private volatile List<Pos> anchors = List.of();
     private volatile long tickNanos;
+    /** Phase 7e: provisional clan leaders to pull in so stock Clan+crest appear. */
+    private final Map<Integer, ForceEnter> forceEnter = new ConcurrentHashMap<>();
+
+    private record ForceEnter(int x, int y, int z, int level, long untilMs) {
+    }
 
     DirectorRunner(BotsCoreModule module, WorldCatalog catalog, GearTable gear, DirectorConfig cfg) {
         this.module = module;
@@ -44,6 +52,11 @@ public final class DirectorRunner {
         this.materializer = new Materializer(gear);
         // phase 5d: a market module (economy-market) lets hunters pay for shots and potions; looked up at every arrival
         this.materializer.setSupplies(() -> module.ctx().services().find(org.l2start.bots.trade.Supplies.class).orElse(null));
+        this.materializer.setPkLedger(module.pkLedger());
+    }
+
+    Materializer materializer() {
+        return materializer;
     }
 
     public Director director() {
@@ -98,21 +111,37 @@ public final class DirectorRunner {
         return l;
     }
 
+    /** Phase 7e: clan member already visible — bring the paper leader nearby to create the stock clan. */
+    void requestClanLeaderEnter(int leaderBotId, int nearX, int nearY, int nearZ, int preferLevel) {
+        if ((leaderBotId <= 0) || stopping) {
+            return;
+        }
+        final BotRecord r = byId(leaderBotId);
+        if ((r == null) || r.inWorld() || (r.status() != BotRecord.Status.ACTIVE)) {
+            return;
+        }
+        final int lvl = Math.max(10, Math.max(preferLevel, r.paperLevel(System.currentTimeMillis())));
+        forceEnter.put(leaderBotId, new ForceEnter(nearX + 80, nearY + 60, nearZ, lvl, System.currentTimeMillis() + 180_000L));
+    }
+
     private void tick() {
         if (paused) {
             return;
         }
         final long start = System.nanoTime();
         final long now = System.currentTimeMillis();
+        flushForceEnter(now);
         final List<Director.Live> live = live();
         final List<Director.BotNow> bots = new ArrayList<>();
         for (BotRecord r : module.registry().all()) {
             final Player p = r.player();
-            if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER)) { // store traders belong to economy-market
+            if ((p != null) && !busy.contains(r.botId()) && (r.status() != BotRecord.Status.TRADER) // store traders belong to economy-market
+                && !withPlayer(p) // phase 6b: in a real player's party it is his companion, the director leaves it be
+                && !module.isAcademyRecruiter(r.botId())) { // phase 7f: recruiters stay at GK
                 bots.add(new Director.BotNow(r.botId(), new Pos(p.getX(), p.getY(), p.getZ()), r.assignment(), p.isDead(), r.persona() == null ? r.charId() : r.persona().seed(), r.group()));
             }
         }
-        if (live.isEmpty() && bots.isEmpty()) {
+        if (live.isEmpty() && bots.isEmpty() && forceEnter.isEmpty()) {
             tickNanos = System.nanoTime() - start;
             return; // nobody to show anything to: zero cost
         }
@@ -146,6 +175,36 @@ public final class DirectorRunner {
         tickNanos = System.nanoTime() - start;
     }
 
+    /**
+     * Phase 6b/7e: pinned companion — in a party with a live player, or in a clan that has a live online member
+     * (never sent away or logged out by the director).
+     */
+    boolean withPlayer(Player p) {
+        final org.l2jmobius.gameserver.entity.groups.Party pt = p.getParty();
+        if (pt != null) {
+            for (Player m : pt.getMembers()) {
+                if ((m != null) && (m != p) && !module.registry().isBot(m) && m.isOnline()) {
+                    return true;
+                }
+            }
+        }
+        final org.l2jmobius.gameserver.entity.clan.Clan clan = p.getClan();
+        if (clan != null) {
+            for (org.l2jmobius.gameserver.entity.clan.ClanMember m : clan.getMembers()) {
+                final Player o = m == null ? null : m.getPlayer();
+                if ((o != null) && (o != p) && !module.registry().isBot(o) && o.isOnline()) {
+                    return true;
+                }
+            }
+            // also pin when marked in module player-clan table (offline live leader)
+            final BotRecord br = module.registry().byCharId(p.getObjectId());
+            if ((br != null) && (module.clans() != null) && module.clans().inPlayerClan(br.botId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private BotRecord byId(int botId) {
         for (BotRecord r : module.registry().all()) {
             if (r.botId() == botId) {
@@ -157,27 +216,53 @@ public final class DirectorRunner {
 
     /** Race of a starting class (0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf), -1 = not a starting class. */
     static int race(int startClass) {
-        return switch (startClass) {
-            case 0, 10 -> 0;
-            case 18, 25 -> 1;
-            case 31, 38 -> 2;
-            case 44, 49 -> 3;
-            case 53 -> 4;
+        return org.l2start.bots.director.StarterZones.raceOfStartClass(startClass);
+    }
+
+    /**
+     * A starting class of that race (fighter or mystic), -1 = any. KT12 F2: about 40% of the time pick the
+     * fighter/mystic line that can become BD/SWS/PP/SE/BP so support bots show up around the player.
+     */
+    static int startClass(int race) {
+        final java.util.concurrent.ThreadLocalRandom rnd = java.util.concurrent.ThreadLocalRandom.current();
+        final boolean preferBuffer = rnd.nextDouble() < org.l2start.bots.persona.SupportRoles.FUTURE_BIAS;
+        return switch (race) {
+            case 0 -> preferBuffer || rnd.nextBoolean() ? 10 : 0; // Human Mystic → Bishop/Prophet
+            case 1 -> preferBuffer ? (rnd.nextBoolean() ? 18 : 25) : (rnd.nextBoolean() ? 25 : 18); // SWS / Elder
+            case 2 -> preferBuffer ? (rnd.nextBoolean() ? 31 : 38) : (rnd.nextBoolean() ? 38 : 31); // BD / SE
+            case 3 -> rnd.nextBoolean() ? 49 : 44;
+            case 4 -> 53;
             default -> -1;
         };
     }
 
-    /** A starting class of that race (fighter or mystic), -1 = any. */
-    static int startClass(int race) {
-        final boolean mystic = java.util.concurrent.ThreadLocalRandom.current().nextBoolean();
-        return switch (race) {
-            case 0 -> mystic ? 10 : 0;
-            case 1 -> mystic ? 25 : 18;
-            case 2 -> mystic ? 38 : 31;
-            case 3 -> mystic ? 49 : 44;
-            case 4 -> 53;
-            default -> -1;
-        };
+    private void flushForceEnter(long now) {
+        if (forceEnter.isEmpty()) {
+            return;
+        }
+        final Iterator<Map.Entry<Integer, ForceEnter>> it = forceEnter.entrySet().iterator();
+        while (it.hasNext()) {
+            final Map.Entry<Integer, ForceEnter> e = it.next();
+            if (now > e.getValue().untilMs()) {
+                it.remove();
+                continue;
+            }
+            final BotRecord r = byId(e.getKey());
+            if ((r == null) || (r.status() != BotRecord.Status.ACTIVE)) {
+                it.remove();
+                continue;
+            }
+            if (r.inWorld() || busy.contains(r.botId())) {
+                it.remove();
+                continue;
+            }
+            final ForceEnter f = e.getValue();
+            it.remove();
+            final Pos at = new Pos(f.x(), f.y(), f.z());
+            final Assignment a = new Assignment(0, Assignment.Kind.HUNT, "clan-leader", at, 800, f.level(), f.level(), List.of(at), List.of(), null);
+            ctx.log().info("bot clans: pulling leader " + r.name() + " lv " + f.level() + " to create stock clan");
+            materialize(new Director.Command.Materialize(r.botId(), f.level(), at, a, -1));
+        }
     }
 
     private List<Director.Candidate> available(int minLevel, int maxLevel, long now) {
@@ -188,7 +273,10 @@ public final class DirectorRunner {
             }
             final int lvl = r.paperLevel(now);
             if ((lvl >= minLevel) && (lvl <= maxLevel)) {
-                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()), activity(r.persona(), now)));
+                final int clanId = module.clans() == null ? 0 : module.clans().clanIdOf(r.botId());
+                final boolean stockPending = (module.clans() != null) && module.clans().needsStockPromotion(r.botId());
+                l.add(new Director.Candidate(r.botId(), lvl, r.lastLogout(), race(r.persona() == null ? r.classId() : r.persona().classId()),
+                    activity(r.persona(), now), clanId, stockPending));
             }
         }
         return l;
@@ -353,7 +441,7 @@ public final class DirectorRunner {
             final Player p = r.player();
             if (p != null) {
                 try {
-                    materializer.cleanup(p);
+                    materializer.cleanup(p, (r.persona() != null) && r.persona().pk());
                 } catch (Exception e) {
                     ctx.log().warn("director: cleanup of " + r.name() + " failed", e);
                 }
@@ -380,7 +468,7 @@ public final class DirectorRunner {
                 continue;
             }
             try {
-                materializer.cleanup(p);
+                materializer.cleanup(p, (r.persona() != null) && r.persona().pk());
                 final long now = System.currentTimeMillis();
                 r.setProgress(p.getLevel(), now, p.getLevel());
                 module.repo().saveProgress(r.botId(), p.getLevel(), now);

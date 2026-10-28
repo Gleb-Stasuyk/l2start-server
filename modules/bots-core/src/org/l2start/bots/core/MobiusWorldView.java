@@ -106,7 +106,8 @@ final class MobiusWorldView implements WorldView {
             p.getCurrentMp(), p.getMaxMp(), pos(p), p.isDead(), p.isSitting(), p.isMoving(), p.isInCombat(), p.isAttackingNow(), p.isCastingNow(), t == null ? 0 : t.getObjectId(),
             p.isInsideZone(ZoneId.PEACE) || p.isInsideZone(ZoneId.TOWN), p.isTeleporting(), String.valueOf(p.getAI().getIntention()), p.getActiveWeaponInstance() != null, List.copyOf(skills),
             p.getCurrentCp(), p.getMaxCp(), p.getPhysicalAttackRange(), (p.getActiveWeaponItem() != null) && (p.getActiveWeaponItem().getItemType() == WeaponType.BOW),
-            p.getCharges(), petUp ? pet.getObjectId() : 0, petUp && (pet.getMaxHp() > 0) ? (pet.getCurrentHp() * 100) / pet.getMaxHp() : 0, petTarget == null ? 0 : petTarget.getObjectId());
+            p.getCharges(), petUp ? pet.getObjectId() : 0, petUp && (pet.getMaxHp() > 0) ? (pet.getCurrentHp() * 100) / pet.getMaxHp() : 0, petTarget == null ? 0 : petTarget.getObjectId(),
+            p.getClanId(), p.isClanLeader());
     }
 
     @Override
@@ -134,7 +135,7 @@ final class MobiusWorldView implements WorldView {
         final Pos at = pos(n);
         return new NpcView(n.getObjectId(), n.getId(), n.getName(), n.getLevel(), at, at.distance(self.pos()), n.getMaxHp() <= 0 ? 0 : (n.getCurrentHp() * 100) / n.getMaxHp(), n.isDead(),
             n.isMonster(), n.isAggressive(), n.isAutoAttackable(p), targetId, engaged, n.getPhysicalAttackRange(), n.isAttackingNow(), aggroRange(n),
-            n.getHeading(), n.isUndead(), (n instanceof Attackable a) && a.isSpoiled());
+            n.getHeading(), n.isUndead(), (n instanceof Attackable a) && a.isSpoiled(), n.isChampion());
     }
 
     @Override
@@ -157,8 +158,9 @@ final class MobiusWorldView implements WorldView {
             for (Player o : World.getVisibleObjectsInRange(p, Player.class, radius)) {
                 final Pos at = pos(o);
                 final WorldObject t = o.getTarget();
+                final boolean theirPeace = o.isInsideZone(ZoneId.PEACE) || o.isInsideZone(ZoneId.TOWN);
                 l.add(new PlayerView(o.getObjectId(), o.getName(), o.getLevel(), o.getPlayerClass().getId(), at, at.distance(self.pos()), o.getKarma(), o.getPvpFlag() != 0, o.isInCombat(),
-                    t == null ? 0 : t.getObjectId(), registry.isBot(o)));
+                    t == null ? 0 : t.getObjectId(), registry.isBot(o), o.isInStoreMode(), o.getLastFolkNPC() != null, !theirPeace, o.getClanId()));
             }
             l.sort(Comparator.comparingDouble(PlayerView::distance));
             players = l.size() > MAX_OBJECTS ? List.copyOf(l.subList(0, MAX_OBJECTS)) : l;
@@ -182,7 +184,7 @@ final class MobiusWorldView implements WorldView {
                     final WorldObject t = o.getTarget();
                     l.add(new org.l2start.bots.api.PartyMember(o.getObjectId(), o.getName(), o.getPlayerClass().getId(), o.getLevel(), at, at.distance(self.pos()),
                         o.getMaxHp() <= 0 ? 0 : (o.getCurrentHp() * 100) / o.getMaxHp(), o.getMaxMp() <= 0 ? 0 : (o.getCurrentMp() * 100) / o.getMaxMp(), o.isDead(),
-                        t == null ? 0 : t.getObjectId(), pt.isLeader(o)));
+                        t == null ? 0 : t.getObjectId(), pt.isLeader(o), registry.isBot(o), o.isSitting()));
                 }
             }
             party = l;

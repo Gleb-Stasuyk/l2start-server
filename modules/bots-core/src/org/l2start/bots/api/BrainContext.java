@@ -30,4 +30,47 @@ public interface BrainContext {
     default Assignment assignment() {
         return null;
     }
+
+    /** Phase 6a: phrases of this bot (persona language and style); {@link Chat#SILENT} without phrase banks. */
+    default Chat chat() {
+        return Chat.SILENT;
+    }
+
+    /** Phase 6a: what this bot remembers of real players (bots-core keeps it in the database). */
+    default Memory memory() {
+        return NO_MEMORY;
+    }
+
+    /**
+     * Phase 6d: world-wide LFP shout/reply limits and the "we agreed to party" window. Shared by every bot;
+     * {@link org.l2start.bots.chat.SocialBoard#NONE} when the host has no board (tests without one).
+     */
+    default org.l2start.bots.chat.SocialBoard social() {
+        return org.l2start.bots.chat.SocialBoard.NONE;
+    }
+
+    /** Phase 7b: hourly PvP counters for {@code //bots pvp}. */
+    default org.l2start.bots.chat.PvpBoard pvp() {
+        return org.l2start.bots.chat.PvpBoard.NONE;
+    }
+
+    /** Forgets everything right away (no memory at all). */
+    Memory NO_MEMORY = new Memory() {
+        @Override
+        public Of of(int charId) {
+            return Of.none(charId);
+        }
+
+        @Override
+        public void note(int charId, int affinityDelta, Tag tag, boolean met) {
+        }
+
+        @Override
+        public void partyMinutes(int charId, int minutes) {
+        }
+
+        @Override
+        public void forget(int charId, Tag tag) {
+        }
+    };
 }

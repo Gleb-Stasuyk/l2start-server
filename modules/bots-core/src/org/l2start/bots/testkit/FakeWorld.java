@@ -54,6 +54,11 @@ public final class FakeWorld {
     public int soeUsed;
     public int logouts;
     private long escapeAt;
+    /** KT12 F1: gatekeeper anchors and hop landings for catch-up tests. */
+    public final List<Pos> gkAnchors = new ArrayList<>();
+    /** From a GK position → list of stock-like landing positions (other towns). */
+    public final Map<Pos, List<Pos>> gkHops = new HashMap<>();
+    public int gkTeleports;
     /** Phase 4c: heals that put 30 % HP back on whoever they are cast on (the bot or its summon). */
     public static final java.util.Set<Integer> HEALS = java.util.Set.of(1011, 1015, 1217, 1218, 1401, 1127);
     public static final int SPOIL_ID = 254;
@@ -65,8 +70,14 @@ public final class FakeWorld {
     public static final java.util.Set<Integer> CHARGE_GAIN = java.util.Set.of(8, 50);
     public static final int MAX_CHARGES = 7;
 
-    /** A skill added by a test: {@link #addSkill}. */
-    public record Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed) {
+    /**
+     * A skill added by a test: {@link #addSkill}.
+     * @param buffLeft BUFF: seconds left on the bot (phase 6e THANKS_BUFF tests); 0 = none
+     */
+    public record Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed, int buffLeft) {
+        public Extra(int id, SkillView.Kind kind, int mp, long reuseMs, int itemId, int itemCount, int chargesUsed) {
+            this(id, kind, mp, reuseMs, itemId, itemCount, chargesUsed, 0);
+        }
     }
 
     public static final class Mob {
@@ -165,6 +176,8 @@ public final class FakeWorld {
     public int petId;
     public double petHp;
     public int petTargetId;
+    /** Phase 7d: clan id of the bot under test (0 = none). */
+    public int selfClanId;
     private long petNextHitAt;
     public int unsummons;
     public int sweeps;
@@ -208,6 +221,50 @@ public final class FakeWorld {
     public static final int AGGRESSION = 28;
     public int taunts;
 
+    /** Phase 6: what the bot said, whispered, answered (say:, party:, whisper:to:, social:, answerParty:, leaveParty, giveLeader:). */
+    public final List<String> chat = new ArrayList<>();
+    /** Phase 6: the pending party invitation (the inviter joins {@link #party} on yes). */
+    public PartyMember invite;
+    /** Phase 7b: pending duel ask from a live player. */
+    public boolean duelPending;
+    public boolean pledgePending;
+
+    /** Phase 6: a real player invites the bot; the event arrives on the next tick. */
+    public void invite(PartyMember from, int partyMembers) {
+        invite(from, partyMembers, false);
+    }
+
+    public void invite(PartyMember from, int partyMembers, boolean botLimit) {
+        invite = from;
+        event(new BotEvent.PartyInvite(from.objectId(), from.name(), from.level(), from.classId(), partyMembers, botLimit));
+    }
+
+    /** Phase 7b: a real player challenges this bot to a duel. */
+    public void duelInvite(int fromId, String from, int fromLevel, boolean partyDuel) {
+        duelPending = true;
+        event(new BotEvent.DuelInvite(fromId, from, fromLevel, partyDuel));
+    }
+
+    /** Phase 7e: a real player invites this bot into a clan / academy. */
+    public void pledgeInvite(int fromId, String from, int fromLevel, int pledgeType) {
+        pledgeInvite(fromId, from, fromLevel, pledgeType, true, true);
+    }
+
+    public void pledgeInvite(int fromId, String from, int fromLevel, int pledgeType, boolean canLeave, boolean joinEnabled) {
+        pledgePending = true;
+        event(new BotEvent.PledgeInvite(fromId, from, fromLevel, pledgeType, canLeave, joinEnabled));
+    }
+
+    /** Phase 6d: a player whispered to the bot (name only; resolve id via {@link #players}). */
+    public void whisperFrom(String name, String text) {
+        event(new BotEvent.Whisper(name, text));
+    }
+
+    /** Phase 6d: a player wrote in shout (or pass channel ALL/TRADE). */
+    public void chatFrom(String channel, int id, String name, String text) {
+        event(new BotEvent.Chat(channel, id, name, text));
+    }
+
     public void setParty(PartyMember... members) {
         party.clear();
         party.addAll(List.of(members));
@@ -222,8 +279,28 @@ public final class FakeWorld {
         return -1;
     }
 
+    /** Phase 6g: player names who have this bot on their BlockList (or /blockall). */
+    public final java.util.Set<String> blockedBy = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     public void addPlayer(PlayerView p) {
         players.add(p);
+    }
+
+    /** Phase 7d tests: set the bot's clan id for SelfView. */
+    public void setClanId(int clanId) {
+        selfClanId = clanId;
+    }
+
+    /** Phase 7e tests: mark SelfView as clan leader. */
+    public boolean selfClanLeader;
+
+    public void setClanLeader(boolean leader) {
+        selfClanLeader = leader;
+    }
+
+    /** Phase 6g tests: replace visible players (e.g. mark one as in combat / store). */
+    public void clearPlayers() {
+        players.clear();
     }
 
     /** A bow in the hands: shoots from {@link #BOW_RANGE}. */
@@ -254,6 +331,11 @@ public final class FakeWorld {
 
     public void setTownRadius(int r) {
         townRadius = r;
+    }
+
+    /** Force peace / hunt for KT12 F4 buff tests (otherwise derived from distance to town). */
+    public void setPeace(boolean peace) {
+        peaceZone = peace;
     }
 
     public void teleport(Pos p) {
@@ -658,13 +740,13 @@ public final class FakeWorld {
             }
         }
         for (Extra e : extras.values()) {
-            skills.add(new SkillView(e.id(), 1, e.kind(), e.mp(), e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : 40, now >= skillReadyAt.getOrDefault(e.id(), 0L), 0, e.itemId(),
-                e.itemCount()));
+            skills.add(new SkillView(e.id(), 1, e.kind(), e.mp(), e.kind() == SkillView.Kind.NUKE ? NUKE_RANGE : 40, now >= skillReadyAt.getOrDefault(e.id(), 0L), e.buffLeft(),
+                e.itemId(), e.itemCount()));
         }
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
         return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
             "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
-            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId);
+            0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId, selfClanLeader);
     }
 
     /** The view of the next tick: events since the previous view are handed over (and cleared). */
@@ -691,7 +773,7 @@ public final class FakeWorld {
             @Override
             public List<PartyMember> party() {
                 return party.stream().map(m -> new PartyMember(m.objectId(), m.name(), m.classId(), m.level(), m.pos(), m.pos().distance(self.pos()), m.hpPct(), m.mpPct(), m.dead(),
-                    m.targetId(), m.leader())).toList();
+                    m.targetId(), m.leader(), m.bot(), m.sitting())).toList();
             }
 
             @Override
@@ -889,6 +971,145 @@ public final class FakeWorld {
 
         @Override
         public ActionResult say(String text) {
+            if (!dead) {
+                chat.add("say:" + text);
+            }
+            return dead ? ActionResult.INVALID : ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult answerParty(boolean accept) {
+            if (invite == null) {
+                return ActionResult.INVALID;
+            }
+            final PartyMember from = invite;
+            invite = null;
+            chat.add("answerParty:" + accept);
+            if (accept) {
+                party.add(from);
+                partyLeader = false;
+            }
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult answerDuel(boolean accept) {
+            if (!duelPending) {
+                return ActionResult.INVALID;
+            }
+            duelPending = false;
+            chat.add("answerDuel:" + accept);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult answerPledge(boolean accept) {
+            if (!pledgePending) {
+                return ActionResult.INVALID;
+            }
+            pledgePending = false;
+            chat.add("answerPledge:" + accept);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult inviteClan(String playerName, int pledgeType) {
+            if (dead || (playerName == null) || playerName.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("inviteClan:" + playerName + ":" + pledgeType);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayClan(String text) {
+            if (dead || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("clan:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult leaveParty() {
+            if (party.isEmpty()) {
+                return ActionResult.INVALID;
+            }
+            party.clear();
+            partyLeader = true;
+            chat.add("leaveParty");
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult giveLeader(int objectId) {
+            final int i = partyIndex(objectId);
+            if (!partyLeader || (i < 0)) {
+                return ActionResult.INVALID;
+            }
+            partyLeader = false;
+            final PartyMember m = party.get(i);
+            party.set(i, new PartyMember(m.objectId(), m.name(), m.classId(), m.level(), m.pos(), m.distance(), m.hpPct(), m.mpPct(), m.dead(), m.targetId(), true, m.bot(), m.sitting()));
+            chat.add("giveLeader:" + objectId);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayParty(String text) {
+            if (party.isEmpty() || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("party:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public boolean playerBlocksUs(String playerName) {
+            return playerName != null && blockedBy.contains(playerName.toLowerCase(java.util.Locale.ROOT));
+        }
+
+        @Override
+        public ActionResult whisper(String to, String text) {
+            if (playerBlocksUs(to)) {
+                return ActionResult.INVALID;
+            }
+            chat.add("whisper:" + to + ":" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayShout(String text) {
+            if (dead || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("shout:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult sayTrade(String text) {
+            if (dead || (text == null) || text.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            chat.add("trade:" + text);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult inviteParty(String playerName) {
+            if (dead || (playerName == null) || playerName.isBlank()) {
+                return ActionResult.INVALID;
+            }
+            if (!party.isEmpty() && !partyLeader) {
+                return ActionResult.INVALID;
+            }
+            chat.add("inviteParty:" + playerName);
+            return ActionResult.OK;
+        }
+
+        @Override
+        public ActionResult social(int id) {
+            chat.add("social:" + id);
             return dead ? ActionResult.INVALID : ActionResult.OK;
         }
 
@@ -966,7 +1187,81 @@ public final class FakeWorld {
             logouts++;
             return ActionResult.OK;
         }
+
+        @Override
+        public Pos nearestGk() {
+            Pos best = null;
+            double bestD = Double.POSITIVE_INFINITY;
+            for (Pos g : gkAnchors) {
+                final double d = pos.distance2d(g);
+                if (d < bestD) {
+                    bestD = d;
+                    best = g;
+                }
+            }
+            return best;
+        }
+
+        @Override
+        public ActionResult teleportViaGk(Pos dest) {
+            if (dead || sitting || (dest == null)) {
+                return ActionResult.INVALID;
+            }
+            Pos at = null;
+            for (Pos g : gkAnchors) {
+                if (pos.distance2d(g) <= 200) {
+                    at = g;
+                    break;
+                }
+            }
+            if (at == null) {
+                return ActionResult.NOT_REACHABLE;
+            }
+            final List<Pos> hops = gkHops.getOrDefault(at, List.of());
+            Pos land = null;
+            double bestD = Double.POSITIVE_INFINITY;
+            for (Pos h : hops) {
+                final double d = h.distance2d(dest);
+                if (d < bestD) {
+                    bestD = d;
+                    land = h;
+                }
+            }
+            if (land == null) {
+                // no hop table: land at the nearest other GK to dest (still not the player's exact spot)
+                for (Pos g : gkAnchors) {
+                    if (g.equals(at)) {
+                        continue;
+                    }
+                    final double d = g.distance2d(dest);
+                    if (d < bestD) {
+                        bestD = d;
+                        land = g;
+                    }
+                }
+            }
+            if (land == null) {
+                return ActionResult.INVALID;
+            }
+            if (land.distance2d(dest) >= pos.distance2d(dest)) {
+                return ActionResult.OK; // already as close as this GK allows
+            }
+            gkTeleports++;
+            teleport(land);
+            pending.add(new BotEvent.Teleported(land));
+            return ActionResult.OK;
+        }
     };
+
+    /** Register a gatekeeper anchor for catch-up tests. */
+    public void addGk(Pos gk) {
+        gkAnchors.add(gk);
+    }
+
+    /** From this GK the bot may teleport to these landings (stock-like hops). */
+    public void addGkHop(Pos fromGk, Pos landing) {
+        gkHops.computeIfAbsent(fromGk, k -> new ArrayList<>()).add(landing);
+    }
 
     /** Casts of added skills that failed when they went off (Backstab from the front, a skill without its charges). */
     public int extraFailures;

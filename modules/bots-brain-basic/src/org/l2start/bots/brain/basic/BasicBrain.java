@@ -20,6 +20,10 @@ import org.l2start.bots.api.Pos;
 import org.l2start.bots.api.SelfView;
 import org.l2start.bots.api.SkillView;
 import org.l2start.bots.api.WorldView;
+import org.l2start.bots.chat.ClassLabels;
+import org.l2start.bots.chat.LfpParse;
+import org.l2start.bots.chat.SocialBoard;
+import org.l2start.bots.chat.WhisperParse;
 
 /**
  * The minimal brain of phase 3 (plan section 10): TOWN_IDLE / LEVEL / REST / DEAD. Proves the loop "stroll in town ->
@@ -124,7 +128,25 @@ public final class BasicBrain implements Brain {
         final WorldView w = ctx.world();
         final SelfView me = w.self();
         final long now = ctx.now();
+        ctxNow = now;
+        socialEvents(ctx, w, me, now);
+        flushPendingWhisper(ctx, w, me, now);
+        answerInvite(ctx, me, now);
+        flushSpeech(ctx, now);
+        flushInvite(ctx, now);
+        maybeShoutLfp(ctx, w, me, now);
+        evaluatePvp(ctx, w, me, now); // phase 7b: decide and enact (fight / flee / call-help)
+        answerDuel(ctx, me, now);
+        answerPledge(ctx, me, now);
+        maybeClanRally(ctx, w, me, now);
+        final long d = tickMain(ctx, w, me, now);
+        final long due = socialDue();
+        return due > 0 ? Math.max(100, Math.min(d, due - now)) : d;
+    }
+
+    private long tickMain(BrainContext ctx, WorldView w, SelfView me, long now) {
         final Assignment order = ctx.assignment();
+        currentOrder = order;
         if (!started && (order == null)) {
             start(ctx, me, now);
         }
@@ -137,11 +159,19 @@ public final class BasicBrain implements Brain {
                     if (me.hasPet()) {
                         ctx.act().unsummon(); // nobody to command it: it never stays behind alone
                     }
+                    notePvpKiller(ctx, w, d.killerId()); // phase 7a grudge
                 }
                 case BotEvent.Teleported t -> revived = true;
+                case BotEvent.Idle i -> unstick(ctx, me, now, i);
+                case BotEvent.Killed k -> {
+                    if ((order != null) && (order.kind() == Assignment.Kind.NEWBIE)) {
+                        newbieKillCount++;
+                    }
+                }
                 case BotEvent.Attacked at -> {
                     if (at.byPlayer()) {
                         playerHits.put(at.attackerId(), now);
+                        notePvpAttacker(ctx, w, at.attackerId()); // phase 7a ATTACKED_ME
                     }
                 }
                 case BotEvent.LevelUp l -> {
@@ -170,12 +200,24 @@ public final class BasicBrain implements Brain {
                 return fl;
             }
         }
+        if (me.teleporting()) {
+            return 500;
+        }
+        // phase 7b: PvP before companion / director so protect of a live party mate still runs
+        final long pv = pvp(ctx, w, me, now);
+        if (pv > 0) {
+            return pv;
+        }
+        if ((ptMateId != 0) || (mate(w) != null)) {
+            // phase 6c: in a real player's party it plays with him (the director leaves it be meanwhile)
+            final long c = companion(ctx, w, me, now, attacker(w, me));
+            if (c > 0) {
+                return c;
+            }
+        }
         if (order != null) {
             if (phase == Phase.DEAD) {
                 enter(ctx, Phase.TOWN_IDLE, "revived"); // in town now: the director sends it away
-            }
-            if (me.teleporting()) {
-                return 500;
             }
             return presence(ctx, w, me, now, order, attacker(w, me));
         }
@@ -186,13 +228,6 @@ public final class BasicBrain implements Brain {
             nextIdleAction = now + ctx.reactionDelay();
             zone = null;
             enter(ctx, Phase.TOWN_IDLE, "revived");
-        }
-        if (me.teleporting()) {
-            return 500;
-        }
-        final long pv = pvp(ctx, w, me, now);
-        if (pv > 0) {
-            return pv;
         }
         final NpcView attacker = attacker(w, me);
         return switch (phase) {
@@ -233,15 +268,104 @@ public final class BasicBrain implements Brain {
     private void enter(BrainContext ctx, Phase p, String why) {
         if (phase != p) {
             ctx.note(p + (why.isEmpty() ? "" : " (" + why + ")"));
+            phaseSince = ctx.now();
         }
         phase = p;
         detail = why;
+    }
+
+    // ------------------------------------------------------------------ idle watch (docs/STARTER_ZONES_PLAN.md S3)
+
+    private long phaseSince;
+    private long afkSince;
+    private Assignment currentOrder;
+
+    @Override
+    public org.l2start.bots.api.Activity activity() {
+        final long now = ctxNow;
+        if (phase == Phase.DEAD) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.DEAD, false, phaseSince);
+        }
+        if (ptMateId != 0) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.PARTY, false, phaseSince);
+        }
+        final Assignment o = currentOrder;
+        if ((o != null) && (o.kind() == Assignment.Kind.TRANSIT)) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.TRANSIT, false, phaseSince);
+        }
+        if (afkUntil > now) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.AFK, false, afkSince);
+        }
+        if (phase == Phase.REST) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.REST, false, phaseSince);
+        }
+        if (fightId != 0) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.FIGHT, false, fightSince);
+        }
+        if ((errand != null) && "group".equals(errandWhat) && (arrivedAt > 0)) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.GROUP, false, arrivedAt);
+        }
+        if (phase == Phase.TOWN_IDLE) {
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.TOWN, false, phaseSince);
+        }
+        if (phase == Phase.LEVEL) {
+            final boolean looting = now < lootUntil;
+            return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.MOVE, !looting, phaseSince);
+        }
+        return new org.l2start.bots.api.Activity(org.l2start.bots.api.Activity.Kind.NONE, false, phaseSince);
+    }
+
+    /** The idle watch says it stands about: drop what it does and take up something else. */
+    private void unstick(BrainContext ctx, SelfView me, long now, BotEvent.Idle i) {
+        ctx.note("idle (" + i.why() + (i.again() ? ", again" : "") + "): another activity");
+        if (fightId != 0) {
+            blacklist.put(fightId, now + BLACKLIST_MS);
+            endFight();
+        }
+        afkUntil = 0;
+        afkAt = 0;
+        errand = null;
+        arrivedAt = 0;
+        stuck = 0;
+        detourSide = 0;
+        lastPos = null;
+        lootUntil = 0;
+        if (transitUntil > now) {
+            transitUntil = now; // its few seconds at the gatekeeper are over: teleports on
+        }
+        standIfSitting(ctx, me);
+        if (currentOrder == null) {
+            zone = null; // another hunting ground (or another stroll)
+            idleUntil = now;
+            enter(ctx, Phase.LEVEL, "idle: " + i.why());
+        } else if (phase == Phase.REST) {
+            enter(ctx, Phase.LEVEL, "idle: " + i.why());
+        }
+        phaseSince = now;
     }
 
     // ------------------------------------------------------------------ a real player attacks
 
     /** Base chance to fight back a real player who attacks (config PvpFightBack of bots-brain-basic); else it flees. */
     static volatile double fightBackBase = 0.5;
+    /** Phase 7a: initiative aggressiveness toward live players. */
+    static volatile PvpDecision.Mode pvpMode = PvpDecision.Mode.NORMAL;
+    static volatile long pvpPlayerCooldownMs = 12 * 60_000L;
+    static volatile boolean pvpProtectParty = true;
+    static volatile boolean pvpProtectClan = true;
+    static volatile boolean pvpRevenge = true;
+    static volatile long pvpRevengeTimeoutMs = 30 * 60_000L;
+    /** Last phase-7 PvP verdict (shown in //bots info; 7b enacts it). */
+    private PvpDecision.Verdict lastPvpVerdict;
+    private String lastPvpTarget = "";
+    private String lastPvpWhy = "";
+    /** Live player id → last time we decided FIGHT as initiative (cooldown). */
+    private final Map<Integer, Long> pvpInitiativeAt = new HashMap<>();
+    /** Live player id → last time we counted a cooldown/zone block for //bots pvp. */
+    private final Map<Integer, Long> pvpBlockNoted = new HashMap<>();
+    /** Phase 7b: wait this long after the offence before revenge (not instant). */
+    static volatile long pvpRevengeDelayMs = 2 * 60_000L;
+    private long pvpHelpAt;
     /** How far a bot follows its attacker: no chasing across the map. */
     static final int PVP_LEASH = 900;
     private int pvpId;
@@ -263,6 +387,290 @@ public final class BasicBrain implements Brain {
     static final long PVP_IGNORE_MS = 60_000;
     /** Below this HP a fight with a player turns into running away (and a scroll of escape). */
     static final double PVP_FLEE_HP = 25;
+
+    /** Phase 7a: record who hit us (stock {@code byPlayer} = live player). */
+    private void notePvpAttacker(BrainContext ctx, WorldView w, int attackerId) {
+        final PlayerView p = playerById(w, attackerId);
+        if ((p != null) && p.bot()) {
+            return;
+        }
+        ctx.memory().note(attackerId, -8, org.l2start.bots.api.Memory.Tag.ATTACKED_ME, true);
+    }
+
+    /** Phase 7a: record who killed us (skip bot killers). */
+    private void notePvpKiller(BrainContext ctx, WorldView w, int killerId) {
+        if (killerId == 0) {
+            return;
+        }
+        final PlayerView p = playerById(w, killerId);
+        if ((p != null) && p.bot()) {
+            return;
+        }
+        ctx.memory().note(killerId, -25, org.l2start.bots.api.Memory.Tag.KILLED_ME, true);
+    }
+
+    private static PlayerView playerById(WorldView w, int id) {
+        for (PlayerView p : w.players()) {
+            if (p.objectId() == id) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Phase 7b: pick a nearby candidate, decide fight/flee/help/none, show in details, and start the action. Expires
+     * old grudges. Records initiative cooldown when the first FIGHT on a live player is taken.
+     */
+    private void evaluatePvp(BrainContext ctx, WorldView w, SelfView me, long now) {
+        expireGrudges(ctx, now);
+        if (me.dead() || me.teleporting()) {
+            return;
+        }
+        PlayerView best = null;
+        PvpDecision.Verdict bestV = null;
+        boolean bestInit = false;
+        for (PlayerView p : w.players()) {
+            if (p.objectId() == me.objectId() || p.distance() > 1200) {
+                continue;
+            }
+            final boolean hit = hitByRecently(p.objectId(), now, PVP_HIT_MEMORY);
+            final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(p.objectId());
+            final boolean revenge = PvpDecision.revengeReady(mem, now, pvpRevengeDelayMs, pvpRevengeTimeoutMs);
+            final boolean allyHit = allyUnderAttackBy(w, me, p);
+            final boolean initiative = !hit && !revenge && !allyHit;
+            final boolean cd = !p.bot() && ((now - pvpInitiativeAt.getOrDefault(p.objectId(), 0L)) < pvpPlayerCooldownMs);
+            final int enemies = countHostilesNear(w, me, p, 700);
+            final int allies = countAlliesNear(w, me, 700);
+            final PvpDecision.Situation sit = new PvpDecision.Situation(me.inPvpZone(), p.inPvpZone(), initiative, hit, revenge, allyHit, !p.bot(),
+                pvpProtectParty, pvpProtectClan, pvpRevenge, pvpMode, me.level(), p.level(), me.mage(), isMageClass(p.classId()), enemies, allies,
+                me.hpPct(), me.mpPct(), ctx.info().aggression(), cd, p.level() < PvpDecision.MIN_TARGET_LEVEL);
+            PvpDecision.Verdict v = PvpDecision.decide(sit);
+            // phase 7c: PK persona opens chaotic fights (peace / <20 / off / cooldown already in decide)
+            if ((v.intent() == PvpDecision.Intent.NONE) && initiative && ctx.info().pk() && me.inPvpZone() && p.inPvpZone()
+                && (me.hpPct() >= 40) && !(p.level() < PvpDecision.MIN_TARGET_LEVEL)
+                && !( !p.bot() && (pvpMode == PvpDecision.Mode.OFF) )
+                && !( !p.bot() && cd )) {
+                v = new PvpDecision.Verdict(PvpDecision.Intent.FIGHT, "pk");
+            }
+            // phase 7c: high-aggression bots hunt reds (players or bots)
+            if ((v.intent() == PvpDecision.Intent.NONE) && !ctx.info().pk() && p.pvpMarked() && (ctx.info().aggression() >= 0.65)
+                && me.inPvpZone() && p.inPvpZone() && (me.hpPct() >= 40)) {
+                v = new PvpDecision.Verdict(PvpDecision.Intent.FIGHT, "pk-hunt");
+            }
+            if (v.intent() == PvpDecision.Intent.NONE) {
+                notePvpBlock(ctx, p, initiative, v.why(), now);
+                continue;
+            }
+            if ((bestV == null) || rank(v.intent()) > rank(bestV.intent())) {
+                best = p;
+                bestV = v;
+                bestInit = initiative && (v.intent() == PvpDecision.Intent.FIGHT) && !p.bot()
+                    && !"pk-hunt".equals(v.why()); // hunter CD separate? reuse initiative CD for live reds
+            }
+        }
+        if (bestV != null) {
+            lastPvpVerdict = bestV;
+            lastPvpTarget = best.name();
+            lastPvpWhy = bestV.why();
+            if (bestInit) {
+                pvpInitiativeAt.put(best.objectId(), now);
+            }
+            enactPvp(ctx, w, me, best, bestV, now);
+        } else if ((lastPvpVerdict != null) && (lastPvpVerdict.intent() != PvpDecision.Intent.NONE)) {
+            lastPvpVerdict = PvpDecision.Verdict.none("idle");
+            lastPvpTarget = "";
+            lastPvpWhy = "";
+        }
+    }
+
+    /** Count cooldown / peace-zone initiative blocks once per player per cooldown window. */
+    private void notePvpBlock(BrainContext ctx, PlayerView p, boolean initiative, String why, long now) {
+        if (!initiative || p.bot()) {
+            return;
+        }
+        final org.l2start.bots.chat.PvpBoard.Stat s = switch (why) {
+            case "cooldown" -> org.l2start.bots.chat.PvpBoard.Stat.LIMIT;
+            case "peace" -> org.l2start.bots.chat.PvpBoard.Stat.ZONE;
+            default -> null;
+        };
+        if (s == null) {
+            return;
+        }
+        final long gap = Math.max(60_000L, pvpPlayerCooldownMs);
+        if ((now - pvpBlockNoted.getOrDefault(p.objectId(), 0L)) < gap) {
+            return;
+        }
+        pvpBlockNoted.put(p.objectId(), now);
+        ctx.pvp().note(s, now);
+    }
+
+    /** Phase 7b: turn a verdict into attack / flee / party call (uses the existing PvP FSM). */
+    private void enactPvp(BrainContext ctx, WorldView w, SelfView me, PlayerView p, PvpDecision.Verdict v, long now) {
+        switch (v.intent()) {
+            case FIGHT -> beginPvpEngage(ctx, me, p, now, true, v.why());
+            case FLEE -> beginPvpEngage(ctx, me, p, now, false, v.why());
+            case CALL_HELP -> {
+                if ((now - pvpHelpAt) > 15_000L) {
+                    pvpHelpAt = now;
+                    final String lang = ctx.info().lang();
+                    final boolean ru = (lang != null) && lang.toUpperCase(java.util.Locale.ROOT).startsWith("RU");
+                    ctx.act().sayParty(ru ? ("На помощь! " + p.name()) : ("Help! " + p.name()));
+                    ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, now);
+                    ctx.note("calls help vs " + p.name());
+                }
+                if (me.hpPct() >= fleeHp) {
+                    beginPvpEngage(ctx, me, p, now, true, v.why());
+                }
+            }
+            default -> {
+            }
+        }
+        // revenge sometimes with party: shout once when starting revenge
+        if ("revenge".equals(v.why()) && (v.intent() == PvpDecision.Intent.FIGHT) && !w.party().isEmpty()
+            && (ctx.rnd().nextDouble() < 0.35) && ((now - pvpHelpAt) > 15_000L)) {
+            pvpHelpAt = now;
+            ctx.act().sayParty(p.name());
+            ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, now);
+        }
+    }
+
+    private void beginPvpEngage(BrainContext ctx, SelfView me, PlayerView p, long now, boolean fight, String why) {
+        if ((pvpId == p.objectId()) && (pvpFight == fight)) {
+            return; // already in that mood toward them
+        }
+        if ((pvpId != 0) && (pvpId != p.objectId()) && pvpFight && !"protect".equals(why) && !"revenge".equals(why) && !"pk-hunt".equals(why)
+            && !"pk".equals(why)) {
+            return; // finish the current fight unless protect/revenge/pk overrides
+        }
+        final boolean fresh = pvpId != p.objectId();
+        pvpId = p.objectId();
+        pvpFight = fight;
+        pvpDecision.put(p.objectId(), fight);
+        pvpStart = me.pos();
+        pvpSince = now;
+        pvpRefused = 0;
+        endFight();
+        standIfSitting(ctx, me);
+        if (fresh) {
+            notePvpStat(ctx, why, fight, now);
+            ctx.note((fight ? "PvP " : "flees PvP ") + why + " → " + p.name() + " lv " + p.level());
+        }
+        if (!fight) {
+            startFlee(ctx, me, p, now);
+        }
+    }
+
+    private void notePvpStat(BrainContext ctx, String why, boolean fight, long now) {
+        if (!fight) {
+            ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.FLEE, now);
+            return;
+        }
+        final org.l2start.bots.chat.PvpBoard.Stat s = switch (why) {
+            case "protect", "attacked" -> org.l2start.bots.chat.PvpBoard.Stat.DEFEND;
+            case "revenge" -> org.l2start.bots.chat.PvpBoard.Stat.REVENGE;
+            case "pk-hunt" -> org.l2start.bots.chat.PvpBoard.Stat.PK_HUNT;
+            default -> org.l2start.bots.chat.PvpBoard.Stat.ATTACK;
+        };
+        ctx.pvp().note(s, now);
+    }
+
+    private void expireGrudges(BrainContext ctx, long now) {
+        if (pvpRevengeTimeoutMs <= 0) {
+            return;
+        }
+        // MapMemory exposes all() only on the concrete type; ask about known hitters
+        for (Integer id : new java.util.ArrayList<>(playerHits.keySet())) {
+            final org.l2start.bots.api.Memory.Of o = ctx.memory().of(id);
+            if ((o.has(org.l2start.bots.api.Memory.Tag.KILLED_ME) || o.has(org.l2start.bots.api.Memory.Tag.ATTACKED_ME))
+                && !PvpDecision.grudgeActive(o, now, pvpRevengeTimeoutMs)) {
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.KILLED_ME);
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.ATTACKED_ME);
+            }
+        }
+        for (Integer id : new java.util.ArrayList<>(pvpInitiativeAt.keySet())) {
+            final org.l2start.bots.api.Memory.Of o = ctx.memory().of(id);
+            if ((o.has(org.l2start.bots.api.Memory.Tag.KILLED_ME) || o.has(org.l2start.bots.api.Memory.Tag.ATTACKED_ME))
+                && !PvpDecision.grudgeActive(o, now, pvpRevengeTimeoutMs)) {
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.KILLED_ME);
+                ctx.memory().forget(id, org.l2start.bots.api.Memory.Tag.ATTACKED_ME);
+            }
+        }
+    }
+
+    private static int rank(PvpDecision.Intent i) {
+        return switch (i) {
+            case FLEE -> 3;
+            case CALL_HELP -> 2;
+            case FIGHT -> 1;
+            default -> 0;
+        };
+    }
+
+    private boolean allyUnderAttackBy(WorldView w, SelfView me, PlayerView foe) {
+        if (!pvpProtectParty && !pvpProtectClan) {
+            return false;
+        }
+        if (pvpProtectParty) {
+            for (org.l2start.bots.api.PartyMember m : w.party()) {
+                if (m.objectId() == me.objectId()) {
+                    continue;
+                }
+                if (foe.targetId() == m.objectId() && foe.inCombat()) {
+                    return true;
+                }
+            }
+        }
+        // phase 7d: defend clan mates under attack
+        if (pvpProtectClan && (me.clanId() != 0) && foe.inCombat()) {
+            for (PlayerView ally : w.players()) {
+                if ((ally.objectId() != me.objectId()) && (ally.clanId() == me.clanId()) && (foe.targetId() == ally.objectId())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static int countHostilesNear(WorldView w, SelfView me, PlayerView focus, int radius) {
+        int n = 0;
+        for (PlayerView p : w.players()) {
+            if (p.objectId() == me.objectId()) {
+                continue;
+            }
+            if (p.pos().distance2d(me.pos()) > radius) {
+                continue;
+            }
+            if (p.objectId() == focus.objectId() || (p.inCombat() && (p.targetId() == me.objectId() || p.pvpMarked()))) {
+                n++;
+            }
+        }
+        return Math.max(1, n);
+    }
+
+    private static int countAlliesNear(WorldView w, SelfView me, int radius) {
+        int n = 1; // self counts: 1v1 is even numbers, not "outnumbered by the target"
+        for (org.l2start.bots.api.PartyMember m : w.party()) {
+            if (m.objectId() != me.objectId() && m.pos().distance2d(me.pos()) <= radius && !m.dead()) {
+                n++;
+            }
+        }
+        if (me.clanId() != 0) {
+            for (PlayerView p : w.players()) {
+                if ((p.objectId() != me.objectId()) && (p.clanId() == me.clanId()) && (p.pos().distance2d(me.pos()) <= radius)) {
+                    n++;
+                }
+            }
+        }
+        return n;
+    }
+
+    private static boolean isMageClass(int classId) {
+        // Interlude magic lines (human/elf/de mystic starts and evolved): rough for 7a weights
+        return classId == 10 || classId == 11 || classId == 12 || classId == 13 || classId == 14 || classId == 15 || classId == 16 || classId == 17
+            || classId == 25 || classId == 26 || classId == 27 || classId == 28 || classId == 29 || classId == 30
+            || classId == 38 || classId == 39 || classId == 40 || classId == 41 || classId == 42 || classId == 43;
+    }
 
     /** A real player (not a bot) who attacks this bot: hit it lately, or has it targeted in a fight while flagged or with karma. */
     PlayerView playerAttacker(WorldView w, SelfView me, long now) {
@@ -341,13 +749,13 @@ public final class BasicBrain implements Brain {
         if (!pvpFight) {
             // a few seconds of running, then a scroll of escape (logs out later in town, the director sends it away)
             detail = "runs from a player";
-            if (((now - pvpSince) > pvpFleeMs) || (p == null) || (pvpFlee.distance2d(me.pos()) < 150)) {
+            if (((now - pvpSince) > pvpFleeMs) || (p == null) || (pvpFlee != null && pvpFlee.distance2d(me.pos()) < 150)) {
                 ctx.note("scroll of escape");
                 ctx.act().returnToTown();
-                pvpOver(now);
+                pvpOver(ctx, now);
                 return 3000;
             }
-            if (!me.moving()) {
+            if (!me.moving() && (pvpFlee != null)) {
                 ctx.act().moveTo(pvpFlee);
             }
             return 600;
@@ -356,9 +764,15 @@ public final class BasicBrain implements Brain {
             ctx.note("hurt badly in the fight with " + p.name() + ": runs");
             pvpFight = false;
             pvpDecision.put(p.objectId(), false);
+            ctx.pvp().note(org.l2start.bots.chat.PvpBoard.Stat.FLEE, now);
             return startFlee(ctx, me, p, now);
         }
-        final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY) || ((p.targetId() == me.objectId()) && p.inCombat()));
+        // initiative / revenge / protect: stay engaged while the foe is near (not only when they hit us)
+        final boolean planned = "initiative".equals(lastPvpWhy) || "revenge".equals(lastPvpWhy) || "protect".equals(lastPvpWhy)
+            || "need help".equals(lastPvpWhy) || "outnumbered".equals(lastPvpWhy) || "pk".equals(lastPvpWhy) || "pk-hunt".equals(lastPvpWhy);
+        final boolean engaged = (p != null) && (hitByRecently(p.objectId(), now, PVP_HIT_MEMORY)
+            || ((p.targetId() == me.objectId()) && p.inCombat())
+            || (planned && (p.pos().distance2d(me.pos()) < 1200)));
         final String over;
         if (p == null) {
             over = "the player is gone";
@@ -368,7 +782,7 @@ public final class BasicBrain implements Brain {
             over = "the player ran away";
         } else if (!engaged) {
             over = "the player left it alone";
-        } else if ((me.pos().distance2d(pvpStart) > PVP_LEASH) && !hitByRecently(p.objectId(), now, 4000)) {
+        } else if ((me.pos().distance2d(pvpStart) > PVP_LEASH) && !hitByRecently(p.objectId(), now, 4000) && !planned) {
             over = "no chasing";
         } else {
             over = null;
@@ -376,7 +790,7 @@ public final class BasicBrain implements Brain {
         if (over != null) {
             ctx.note("the fight with a player is over: " + over);
             ctx.act().stop();
-            pvpOver(now);
+            pvpOver(ctx, now);
             return 1000;
         }
         detail = "fights " + p.name();
@@ -421,13 +835,18 @@ public final class BasicBrain implements Brain {
         return 600;
     }
 
-    private void pvpOver(long now) {
+    private void pvpOver(BrainContext ctx, long now) {
+        if ((pvpId != 0) && "revenge".equals(lastPvpWhy)) {
+            ctx.memory().forget(pvpId, org.l2start.bots.api.Memory.Tag.KILLED_ME);
+            ctx.memory().forget(pvpId, org.l2start.bots.api.Memory.Tag.ATTACKED_ME);
+        }
         pvpDone.put(pvpId, now + PVP_IGNORE_MS);
         pvpDone.values().removeIf(t -> t < now);
         if (pvpDecision.size() > 50) {
             pvpDecision.clear();
         }
         pvpId = 0;
+        lastPvpWhy = "";
     }
 
     /** A living monster that is fighting this bot (self-defence comes before anything else). */
@@ -577,7 +996,8 @@ public final class BasicBrain implements Brain {
                 zone = null; // not walking across the world
             }
             if (zone == null) {
-                idleUntil = now + 300_000;
+                // a beginner always has something to do: a short stroll in its village, then another look for a ground
+                idleUntil = now + (me.level() <= 10 ? 20_000 + ctx.rnd().nextInt(40_000) : 300_000);
                 enter(ctx, Phase.TOWN_IDLE, "no hunting ground for level " + me.level());
                 return 5000;
             }
@@ -635,6 +1055,13 @@ public final class BasicBrain implements Brain {
                 return 2000;
             }
         }
+        if (w.geo().pathfinding() && !stuckNow) {
+            // no straight leg (inside a building, e.g. Einhovant's School): stock pathfinding finds the way round the walls
+            final Pos to = me.pos().distance2d(dest) <= 3500 ? dest : me.pos().toward(dest, LEG);
+            if (ctx.act().moveTo(new Pos(to.x(), to.y(), w.geo().height(to))).ok()) {
+                return 2000;
+            }
+        }
         if (detourSide == 0) {
             detourSide = ctx.rnd().nextBoolean() ? 1 : -1;
         }
@@ -678,13 +1105,16 @@ public final class BasicBrain implements Brain {
             if (n.aggressive() && (lvl <= 5)) {
                 continue;
             }
+            if (n.champion() && (n.level() > (lvl - 5))) {
+                continue; // EXTRAS_PLAN §1: x6 HP, a solo bot only takes champions well below its level
+            }
             if (n.engagedByOther() || ((n.targetId() != 0) && (n.targetId() != me.objectId()))) {
                 continue; // somebody else's
             }
             if (blacklist.containsKey(n.objectId()) || claims.takenByOther(n.objectId(), botId, now)) {
                 continue;
             }
-            if (nearRealPlayer(w, n)) {
+            if (nearRealPlayer(w, n, playerMobRadius)) {
                 continue; // a real player's monster: never steal it
             }
             if (!w.geo().canMoveTo(me.pos(), n.pos())) {
@@ -701,12 +1131,57 @@ public final class BasicBrain implements Brain {
 
     /** A real (not bot) player stands next to this monster, or the monster fights one. */
     static boolean nearRealPlayer(WorldView w, NpcView n) {
+        return nearRealPlayer(w, n, PLAYER_MOB_RADIUS);
+    }
+
+    /** @param radius "next to": a newbie companion hunts the gremlins of its new player too, only not the one he fights */
+    static boolean nearRealPlayer(WorldView w, NpcView n, int radius) {
         for (PlayerView p : w.players()) {
-            if (!p.bot() && ((p.pos().distance2d(n.pos()) <= PLAYER_MOB_RADIUS) || (p.targetId() == n.objectId()) || (n.targetId() == p.objectId()))) {
+            if (!p.bot() && ((p.pos().distance2d(n.pos()) <= radius) || (p.targetId() == n.objectId()) || (n.targetId() == p.objectId()))) {
                 return true;
             }
         }
         return false;
+    }
+
+    // ------------------------------------------------------------------ newbie companion (docs/STARTER_ZONES_PLAN.md S6)
+
+    private int playerMobRadius = PLAYER_MOB_RADIUS;
+    private int newbieKillCount;
+    private int newbieTarget;
+
+    /** Run to the gremlins, hunt them (10-15 kills), then run to its village; there the director takes over. */
+    private long newbie(BrainContext ctx, WorldView w, SelfView me, long now, Assignment a, NpcView attacker) {
+        if (newbieKillCount >= newbieTarget) {
+            if (fightId != 0) {
+                final long d = fight(ctx, w, me, now);
+                if (d > 0) {
+                    return d;
+                }
+            }
+            if (attacker != null) {
+                return startFight(ctx, me, attacker, now);
+            }
+            standIfSitting(ctx, me);
+            if (phase != Phase.LEVEL) {
+                enter(ctx, Phase.LEVEL, "newbie: back to the village");
+            }
+            detail = "newbie: back to the village";
+            if ((a.exit() == null) || (me.pos().distance2d(a.exit()) < 150)) {
+                return 3000; // home: the director gives it town life or lets it vanish
+            }
+            return walk(ctx, w, me, a.exit(), now);
+        }
+        playerMobRadius = 120;
+        try {
+            return hunt(ctx, w, me, now, new Assignment(a.seq(), Assignment.Kind.HUNT, a.place(), a.center(), 500, a.minLevel(), a.maxLevel(), a.spots(), List.of(), null), attacker);
+        } finally {
+            playerMobRadius = PLAYER_MOB_RADIUS;
+        }
+    }
+
+    public int newbieKills() {
+        return newbieKillCount;
     }
 
     // ------------------------------------------------------------------ presence director orders
@@ -725,6 +1200,7 @@ public final class BasicBrain implements Brain {
             case LEAVE_SOE -> escapeHome(ctx, w, me, now, a, attacker);
             case LEAVE_SPOT -> logoutHere(ctx, w, me, now, attacker);
             case ERRANDS -> errands(ctx, w, me, now, a, attacker);
+            case NEWBIE -> newbie(ctx, w, me, now, a, attacker);
             case TRANSIT -> transit(ctx, me, now);
             case TOWN -> town(ctx, w, me, now, a, attacker);
             case HUNT -> hunt(ctx, w, me, now, a, attacker);
@@ -767,6 +1243,13 @@ public final class BasicBrain implements Brain {
             standIfSitting(ctx, me);
             transitUntil = now + 3000 + ctx.rnd().nextInt(7000);
             enter(ctx, Phase.TOWN_IDLE, "transit at the gatekeeper of " + a.place());
+        } else if (a.kind() == Assignment.Kind.NEWBIE) {
+            zone = null;
+            mobBelow = 3;
+            mobAbove = 2;
+            newbieKillCount = 0;
+            newbieTarget = Assignment.newbieKills(a.seq(), botId);
+            enter(ctx, Phase.LEVEL, "newbie: to the gremlins, " + newbieTarget + " kills");
         } else if (a.kind() == Assignment.Kind.HUNT) {
             mobBelow = 8;
             mobAbove = 1;
@@ -1017,6 +1500,7 @@ public final class BasicBrain implements Brain {
     private long afk(BrainContext ctx, SelfView me, long now) {
         if ((afkAt > 0) && (now >= afkAt) && (fightId == 0)) {
             afkAt = 0;
+            afkSince = now;
             afkUntil = now + 60_000 + ctx.rnd().nextInt(9 * 60_000);
             ctx.act().stop();
             ctx.note("afk for " + ((afkUntil - now) / 60_000) + " min");
@@ -1497,6 +1981,14 @@ public final class BasicBrain implements Brain {
         }
         sb.append("\nSkills cast ").append(playstyleCasts).append(", buffs ").append(buffs).append(", heals ").append(heals).append(", summoned ").append(summoned)
             .append(", swept ").append(sweeps).append(", round to the back ").append(sneaks);
+        sb.append(companionDetails(ctxNow));
+        if (lastPvpVerdict != null) {
+            sb.append("\nPvP: ").append(lastPvpVerdict.intent()).append(" (").append(lastPvpVerdict.why()).append(")");
+            if (lastPvpTarget != null && !lastPvpTarget.isEmpty()) {
+                sb.append(" → ").append(lastPvpTarget);
+            }
+            sb.append(", mode ").append(pvpMode.name().toLowerCase(java.util.Locale.ROOT));
+        }
         return sb.toString();
     }
 
@@ -1603,10 +2095,16 @@ public final class BasicBrain implements Brain {
 
     /** Phase 4g: heal, raise and buff party members; followers stay by the leader and fight its monster (bots-brain-basic PartyPlay). */
     static volatile boolean partyPlay = true;
+    /** Phase 6d: bots look for party in towns (LFP/LFM shout/trade), answer party whispers and the player's LFP. */
+    static volatile boolean social = true;
+    /** Phase 6d: at most this many bots whisper back to one player LFP/LFM shout. */
+    static volatile int lfpReplies = 2;
+    /** Phase 6d: quiet=0.5, normal=1, lively=2 — scales how often bots post LFP/LFM. */
+    static volatile double socialNoise = 1.0;
     /** A healer heals a party member below this HP %, even in a fight. */
     static final double PARTY_HEAL_HP = 60;
     static final int RESURRECTION = 1016;
-    /** Buffs a bot may put on a party member (prophet / elder / shillien elder lines and the like); what it knows of them. */
+    /** @deprecated KT12 F3: use {@link PartyBuffs#wanted}; kept for any external reference. */
     static final int[] PARTY_BUFFS = { 1204, 1040, 1068, 1045, 1048, 1086, 1077, 1242, 1085, 1059, 1062, 1035, 1078, 1240, 1087, 1268, 1044, 1036, 1243, 1257 };
     private final Map<String, Long> partyBuffed = new HashMap<>();
     private long partyTried;
@@ -1676,11 +2174,22 @@ public final class BasicBrain implements Brain {
         if (me.mpPct() < 50) {
             return 0;
         }
+        final boolean peace = me.inPeaceZone();
         for (PartyMember m : pm) {
             if (m.dead() || (m.distance() > 600)) {
                 continue;
             }
-            for (int id : PARTY_BUFFS) {
+            final java.util.Set<Integer> known = new java.util.LinkedHashSet<>();
+            for (SkillView s : me.skills()) {
+                if (s != null) {
+                    known.add(s.id());
+                }
+            }
+            // known empty (tests without skill list): fall back to full wanted; live bots filter by learned
+            final java.util.List<Integer> buffIds = known.isEmpty()
+                ? PartyBuffs.wanted(me.classId(), m.classId(), peace)
+                : PartyBuffs.filterLearnable(PartyBuffs.wanted(me.classId(), m.classId(), peace), known);
+            for (int id : buffIds) {
                 final SkillView s = skill(me, id);
                 final String key = id + ">" + m.objectId();
                 if (!usable(me, s) || (partyBuffed.getOrDefault(key, 0L) > now)) {
@@ -1883,6 +2392,1281 @@ public final class BasicBrain implements Brain {
         return 1500 + ctx.rnd().nextInt(1000);
     }
 
+    // ------------------------------------------------------------------ phase 6b/6c: a party with a real player
+
+    /** Bot modes in a real player's party, set by his commands in the party chat. */
+    public enum PartyMode {
+        ASSIST, FOLLOW, FREE, STOP, SIT
+    }
+
+    /** A mate farther than this is "gone" (teleported, scroll of escape, died and went to town). */
+    static final int MATE_FAR = 3000;
+    /** How long a patient bot (or one asked to wait) waits for its mate. */
+    static final long MATE_WAIT_MS = 10 * 60_000L;
+    /** The mate stands still this long: AFK, the bot says goodbye. */
+    static final long MATE_AFK_MS = 10 * 60_000L;
+    /** Deaths in one party after which the bot has had enough. */
+    static final int PARTY_DEATHS_MAX = 3;
+
+    private record Speech(String channel, String to, String text, long due) {
+    }
+
+    private final List<Speech> speech = new ArrayList<>();
+    private BotEvent.PartyInvite ptInvite;
+    private PartyDecision.Answer ptAnswer;
+    private long ptAnswerAt;
+    private final Map<Integer, long[]> ptDeclined = new HashMap<>(); // charId -> {refusals in a row, last refusal}
+    private int ptMateId;
+    private String ptMate = "";
+    private long ptSince;
+    private long ptMinuteAt;
+    private long ptSessionEnd;
+    private boolean ptWarned;
+    private long ptLeaveAt;
+    private Pos ptMatePos;
+    private long ptMateStillSince;
+    private long ptFarSince;
+    private boolean ptWaiting;
+    private boolean ptAgreedWait;
+    /** KT12 F1: catching up via gatekeeper (not sitting until the mate returns). */
+    private boolean ptCatchingUp;
+    /** Position when the last GK hop was asked; if unchanged, run to the mate instead of hopping again. */
+    private Pos ptGkTriedAt;
+    private PartyMode ptMode = PartyMode.ASSIST;
+    private boolean ptBuffAsked;
+    private boolean ptHealAsked;
+    private boolean ptResAsked;
+    private boolean ptDeadInParty;
+    private int ptDeaths;
+    private int ptParties;
+    private int ptInvites;
+    private int ptCommands;
+    // phase 6d: LFP/LFM in towns
+    long lfpShoutAt;
+    long lfpNextTry;
+    String askInviteTo;
+    long askInviteAt;
+    // phase 6e: whisper replies (never first) and party-chat reactions
+    private static final long WHISPER_COOLDOWN_MS = 8_000L;
+    private static final long WHISPER_DIALOG_MS = 15 * 60_000L;
+    private static final long PARTY_REACT_COOLDOWN_MS = 150_000L; // 2.5 min mid of 2–3
+    private final Map<Integer, Long> whisperNextAt = new HashMap<>();
+    /** Phase 6g: after «отстань» — no whisper replies until this time. */
+    private final Map<Integer, Long> whisperMuteUntil = new HashMap<>();
+    private final Map<Integer, WhisperDialog> whisperDialog = new HashMap<>();
+    private String pendingWhFrom;
+    private String pendingWhText;
+    private long pendingWhBusy;
+    private long partyReactAt;
+    private int ptMateLevel;
+    private java.util.Set<Integer> ptSeenBuffs = java.util.Set.of();
+
+    public PartyMode partyMode() {
+        return ptMode;
+    }
+
+    /** The real player it plays with now (0 = none). */
+    public int mateId() {
+        return ptMateId;
+    }
+
+    public int partiesWithPlayers() {
+        return ptParties;
+    }
+
+    /** The real player of its party (the first one), null = none. */
+    static PartyMember mate(WorldView w) {
+        for (PartyMember m : w.party()) {
+            if (!m.bot()) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /** Events of the party with real players and phase 6d town search (whispers, LFP shouts, pair redirect). */
+    private void socialEvents(BrainContext ctx, WorldView w, SelfView me, long now) {
+        for (BotEvent e : w.events()) {
+            switch (e) {
+                case BotEvent.PartyInvite inv -> onInvite(ctx, w, me, inv, now);
+                case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
+                case BotEvent.Chat c -> {
+                    if ("PARTY".equals(c.channel()) && (c.fromId() == ptMateId) && (ptMateId != 0)) {
+                        onPartyCommand(ctx, w, me, c.text(), now);
+                    } else if (social && isLfpChannel(c.channel())) {
+                        onLfpChat(ctx, w, me, c, now);
+                    }
+                }
+                case BotEvent.PartyRedirect pr -> onPartyRedirect(ctx, pr, now);
+                case BotEvent.DuelInvite di -> onDuelInvite(ctx, me, di, now);
+                case BotEvent.PledgeInvite pi -> onPledgeInvite(ctx, me, pi, now);
+                case BotEvent.ClanRally cr -> onClanRally(ctx, me, cr, now);
+                case BotEvent.Died d -> {
+                    if (ptMateId != 0) {
+                        ptDeaths++;
+                        ptDeadInParty = true;
+                    }
+                }
+                default -> {
+                }
+            }
+        }
+    }
+
+    private BotEvent.DuelInvite duelInvite;
+    private DuelDecision.Answer duelAnswer;
+    private long duelAnswerAt;
+
+    private BotEvent.PledgeInvite pledgeInvite;
+    private PledgeDecision.Answer pledgeAnswer;
+    private long pledgeAnswerAt;
+    private long nextClanRallyAt;
+    private Pos clanRallyAt;
+    private long clanRallyUntil;
+
+    /** Phase 7e: ClanInvitePlayers (set from bots-core / module). */
+    static volatile boolean clanInvitePlayers = true;
+
+    /** Phase 7b: a live player challenged us — decide accept/decline, answer after a short reaction delay. */
+    private void onDuelInvite(BrainContext ctx, SelfView me, BotEvent.DuelInvite di, long now) {
+        if (duelInvite != null) {
+            return;
+        }
+        duelAnswer = DuelDecision.decide(ctx.info(), ctx.memory().of(di.fromId()), me.level(), di.fromLevel(), ctx.rnd());
+        duelInvite = di;
+        duelAnswerAt = now + Math.min(6000, 800 + ctx.info().reactionMs() + ctx.rnd().nextInt(2500));
+        ctx.note("duel from " + di.from() + ": " + duelAnswer + " in " + ((duelAnswerAt - now) / 1000) + " s");
+    }
+
+    private void answerDuel(BrainContext ctx, SelfView me, long now) {
+        if ((duelInvite == null) || (now < duelAnswerAt) || me.dead()) {
+            return;
+        }
+        final BotEvent.DuelInvite di = duelInvite;
+        final DuelDecision.Answer a = duelAnswer;
+        duelInvite = null;
+        duelAnswer = null;
+        final boolean yes = a == DuelDecision.Answer.ACCEPT;
+        final ActionResult r = ctx.act().answerDuel(yes);
+        if (!r.ok()) {
+            ctx.note("duel of " + di.from() + " gone (" + r + ")");
+            return;
+        }
+        ctx.pvp().note(yes ? org.l2start.bots.chat.PvpBoard.Stat.DUEL_OK : org.l2start.bots.chat.PvpBoard.Stat.DUEL_NO, now);
+        ctx.note((yes ? "accepted" : "declined") + " duel from " + di.from());
+    }
+
+    private void onPledgeInvite(BrainContext ctx, SelfView me, BotEvent.PledgeInvite pi, long now) {
+        if (pledgeInvite != null) {
+            return;
+        }
+        final boolean academy = pi.pledgeType() == PledgeDecision.ACADEMY;
+        pledgeAnswer = PledgeDecision.decideJoin(ctx.info(), ctx.memory().of(pi.fromId()), pi.joinEnabled(), pi.canLeaveBotClan(), me.level(), academy,
+            ctx.rnd());
+        pledgeInvite = pi;
+        pledgeAnswerAt = now + Math.min(8000, 1000 + ctx.info().reactionMs() + ctx.rnd().nextInt(3000));
+        ctx.note("pledge from " + pi.from() + " type " + pi.pledgeType() + ": " + pledgeAnswer);
+    }
+
+    private void answerPledge(BrainContext ctx, SelfView me, long now) {
+        if ((pledgeInvite == null) || (now < pledgeAnswerAt) || me.dead()) {
+            return;
+        }
+        final BotEvent.PledgeInvite pi = pledgeInvite;
+        final PledgeDecision.Answer a = pledgeAnswer;
+        pledgeInvite = null;
+        pledgeAnswer = null;
+        final boolean yes = a == PledgeDecision.Answer.ACCEPT;
+        final ActionResult r = ctx.act().answerPledge(yes);
+        if (!r.ok()) {
+            ctx.note("pledge of " + pi.from() + " gone (" + r + ")");
+            return;
+        }
+        ctx.note((yes ? "accepted" : "declined") + " pledge from " + pi.from());
+        if (!yes && (ctx.rnd().nextDouble() < 0.15) && (ctx.social().tryWhisper(me.objectId(), now))) {
+            final var lines = ctx.chat().lines("CLAN_DECLINE", java.util.Map.of("player", pi.from()), "EN");
+            if (!lines.isEmpty()) {
+                ctx.act().whisper(pi.from(), lines.get(0));
+            }
+        }
+    }
+
+    private void onClanRally(BrainContext ctx, SelfView me, BotEvent.ClanRally cr, long now) {
+        if (me.clanId() == 0) {
+            return;
+        }
+        clanRallyAt = new Pos(cr.x(), cr.y(), cr.z());
+        clanRallyUntil = now + 5 * 60_000L;
+        ctx.note("clan rally " + cr.kind() + " from " + cr.from());
+    }
+
+    private void maybeClanRally(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if ((clanRallyAt != null) && (now < clanRallyUntil) && !me.dead()) {
+            if (me.pos().distance2d(clanRallyAt) > 250) {
+                ctx.act().moveTo(clanRallyAt);
+            }
+            return;
+        }
+        clanRallyAt = null;
+        if (!me.clanLeader() || me.dead() || (now < nextClanRallyAt)) {
+            return;
+        }
+        nextClanRallyAt = now + 20 * 60_000L + ctx.rnd().nextInt(20 * 60_000);
+        if (ctx.rnd().nextDouble() > 0.2) {
+            return;
+        }
+        final var lines = ctx.chat().lines("CLAN_RALLY", java.util.Map.of(), "EN");
+        if (!lines.isEmpty()) {
+            ctx.act().sayClan(lines.get(0));
+            ctx.note("clan rally shout");
+        }
+    }
+
+    private static boolean isLfpChannel(String channel) {
+        return "SHOUT".equals(channel) || "TRADE".equals(channel) || "ALL".equals(channel);
+    }
+
+    /** Phase 6d/6e/6g: whisper from a live player — party-ask first (6d), else template reply (6e). Never first. */
+    private void onWhisper(BrainContext ctx, WorldView w, SelfView me, BotEvent.Whisper wh, long now) {
+        final PlayerView from = playerByName(w, wh.from());
+        if ((from == null) || from.bot()) {
+            return;
+        }
+        if (ctx.act().playerBlocksUs(wh.from())) {
+            return; // stock BlockList /blockall
+        }
+        if (social && LfpParse.isPartyAsk(wh.text()) && !WhisperParse.isLeaveAlone(wh.text())) {
+            if (from.socialBusy()) {
+                return;
+            }
+            onPartyWhisper(ctx, w, me, from, wh, now);
+            return;
+        }
+        onSocialWhisper(ctx, w, me, from, wh.text(), now, false);
+    }
+
+    /** Phase 6d: player whispered about party (often after the bot's LFP/LFM). */
+    private void onPartyWhisper(BrainContext ctx, WorldView w, SelfView me, PlayerView from, BotEvent.Whisper wh, long now) {
+        ctx.social().noteAgreed(from.objectId(), me.objectId(), now);
+        final boolean leaving = leavingSocial(ctx);
+        final boolean can = canInvitePlayer(w, me, from, leaving);
+        final Map<String, String> vars = Map.of("player", from.name());
+        if (can && (LfpParse.isPartyYes(wh.text()) || LfpParse.isPartyAsk(wh.text()))) {
+            speak(ctx, "WHISPER", from.name(), "ASK_OK", vars, now + ctx.reactionDelay());
+            scheduleInvite(from.name(), Math.max(speechDue(), now + ctx.reactionDelay()) + 400 + ctx.rnd().nextInt(900));
+        } else {
+            speak(ctx, "WHISPER", from.name(), "ASK_NO", vars, now + ctx.reactionDelay());
+        }
+    }
+
+    /**
+     * Phase 6e: template whisper reply. Defers in combat; cooldown and short dialog memory; ANNOYED on insult.
+     * @param afterCombat true when flushing a deferred line (preface with BUSY_COMBAT)
+     */
+    private void onSocialWhisper(BrainContext ctx, WorldView w, SelfView me, PlayerView from, String text, long now, boolean afterCombat) {
+        if (WhisperParse.isFlood(text)) {
+            return;
+        }
+        // phase 6g: «отстань» / stop spam — ANNOYED + 24 h silence
+        if (WhisperParse.isLeaveAlone(text)) {
+            ctx.memory().note(from.objectId(), -20, org.l2start.bots.api.Memory.Tag.ANNOYED, true);
+            whisperMuteUntil.put(from.objectId(), now + SocialBoard.ANNOYED_WHISPER_MS);
+            return;
+        }
+        final Long muted = whisperMuteUntil.get(from.objectId());
+        if ((muted != null) && (now < muted)) {
+            return;
+        }
+        if (from.socialBusy()) {
+            return; // player in combat / store / NPC dialog
+        }
+        if (!afterCombat && (inCombat() || me.attacking() || (fightId != 0))) {
+            pendingWhFrom = from.name();
+            pendingWhText = text;
+            pendingWhBusy = now;
+            return;
+        }
+        final Long next = whisperNextAt.get(from.objectId());
+        if ((next != null) && (now < next)) {
+            return;
+        }
+        final WhisperParse.Intent intent = WhisperParse.parse(text);
+        rememberWhisper(from.objectId(), intent, text, now);
+        if (intent == WhisperParse.Intent.ASK_PARTY && social) {
+            onPartyWhisper(ctx, w, me, from, new BotEvent.Whisper(from.name(), text), now);
+            return;
+        }
+        if ((intent == WhisperParse.Intent.ASK_CLAN) && me.clanLeader() && clanInvitePlayers && (from.clanId() == 0)) {
+            final var mem = ctx.memory().of(from.objectId());
+            final boolean academy = text.toLowerCase(java.util.Locale.ROOT).contains("academ") || text.toLowerCase(java.util.Locale.ROOT).contains("академ");
+            final PledgeDecision.Answer a = PledgeDecision.decideAskIn(ctx.info(), mem, true, true, from.level(), ctx.rnd());
+            if ((a == PledgeDecision.Answer.ACCEPT) && ctx.act().inviteClan(from.name(), academy ? PledgeDecision.ACADEMY : 0).ok()) {
+                ctx.note("clan invite after whisper from " + from.name());
+            } else if (ctx.social().tryWhisper(ctx.info().botId(), now)) {
+                final var lines = ctx.chat().lines("CLAN_DECLINE", java.util.Map.of("player", from.name()), WhisperParse.langOf(text));
+                if (!lines.isEmpty()) {
+                    ctx.act().whisper(from.name(), lines.get(0));
+                }
+            }
+            whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+            return;
+        }
+        if (intent == WhisperParse.Intent.INSULT) {
+            ctx.memory().note(from.objectId(), -15, org.l2start.bots.api.Memory.Tag.ANNOYED, true);
+            if (ctx.rnd().nextDouble() > (0.35 + (ctx.info().chattiness() * 0.4))) {
+                whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+                return; // short or silent — no long fights
+            }
+        }
+        if (intent == WhisperParse.Intent.UNKNOWN) {
+            if (ctx.rnd().nextDouble() > ctx.info().chattiness()) {
+                whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+                return;
+            }
+        }
+        if (ctx.memory().of(from.objectId()).has(org.l2start.bots.api.Memory.Tag.ANNOYED)
+            && (intent != WhisperParse.Intent.INSULT) && (ctx.rnd().nextDouble() < 0.7)) {
+            return;
+        }
+        if (!ctx.social().tryWhisper(ctx.info().botId(), now)) {
+            return; // per-bot whisper hour limit
+        }
+        final String lang = WhisperParse.langOf(text);
+        String phrase = whisperPhrase(intent);
+        if (phrase == null) {
+            return;
+        }
+        final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(from.objectId());
+        // phase 6f: acquaintances sometimes recall shared party time (never whisper first)
+        if (((intent == WhisperParse.Intent.GREET) || (intent == WhisperParse.Intent.HOW_ARE_YOU)) && (mem.partyMinutes() >= 10)
+            && ((mem.affinity() > 20) || mem.has(org.l2start.bots.api.Memory.Tag.PARTY)) && (ctx.rnd().nextDouble() < 0.4)) {
+            phrase = "MEMORY_PARTY";
+        }
+        // buff/res asks while in party with this player: act like a party command
+        if ((from.objectId() == ptMateId) && (ptMateId != 0)) {
+            if (intent == WhisperParse.Intent.ASK_BUFF && canBuff(me)) {
+                ptBuffAsked = true;
+                partyBuffed.keySet().removeIf(k -> k.endsWith(">" + ptMateId));
+                partyTried = 0;
+            } else if (intent == WhisperParse.Intent.ASK_RES) {
+                if (skill(me, RESURRECTION) == null) {
+                    speak(ctx, "WHISPER", from.name(), "NO_RES", whisperVars(ctx, me, from, lang), now + ctx.reactionDelay(), lang);
+                    whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+                    return;
+                }
+                ptResAsked = true;
+            }
+        }
+        long due = now + ctx.reactionDelay();
+        if (afterCombat) {
+            speak(ctx, "WHISPER", from.name(), "BUSY_COMBAT", whisperVars(ctx, me, from, lang), due, lang);
+            due = Math.max(speechDue(), due) + 400;
+        }
+        speak(ctx, "WHISPER", from.name(), phrase, whisperVars(ctx, me, from, lang), due, lang);
+        whisperNextAt.put(from.objectId(), now + WHISPER_COOLDOWN_MS);
+    }
+
+    private void flushPendingWhisper(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if ((pendingWhFrom == null) || inCombat() || me.attacking() || (fightId != 0)) {
+            return;
+        }
+        if ((now - pendingWhBusy) > 120_000L) {
+            pendingWhFrom = null;
+            pendingWhText = null;
+            return;
+        }
+        final String fromName = pendingWhFrom;
+        final String text = pendingWhText;
+        pendingWhFrom = null;
+        pendingWhText = null;
+        final PlayerView from = playerByName(w, fromName);
+        if ((from == null) || from.bot()) {
+            return;
+        }
+        onSocialWhisper(ctx, w, me, from, text, now, true);
+    }
+
+    private static String whisperPhrase(WhisperParse.Intent intent) {
+        return switch (intent) {
+            case GREET -> "GREET";
+            case BYE -> "WHISPER_BYE";
+            case THANKS -> "WHISPER_THANKS";
+            case SORRY -> "WHISPER_SORRY";
+            case HOW_ARE_YOU -> "HOW_ARE_YOU";
+            case ASK_LEVEL -> "ASK_LEVEL";
+            case ASK_CLASS -> "ASK_CLASS";
+            case ASK_SPOT -> "ASK_SPOT";
+            case WHERE_TO_HUNT -> "WHERE_TO_HUNT";
+            case ASK_RES -> "ASK_RES";
+            case ASK_BUFF -> "ASK_BUFF";
+            case INSULT -> "INSULT";
+            case UNKNOWN -> "WHISPER_HUH";
+            case ASK_PARTY, ASK_CLAN -> null;
+        };
+    }
+
+    private Map<String, String> whisperVars(BrainContext ctx, SelfView me, PlayerView from, String lang) {
+        final Assignment order = ctx.assignment();
+        String spot = (order == null) || (order.place() == null) || order.place().isBlank() ? "" : order.place();
+        if (spot.isEmpty()) {
+            spot = (lang != null && lang.toUpperCase(java.util.Locale.ROOT).startsWith("EN")) ? "around here" : "тут рядом";
+        }
+        final String useLang = lang == null ? ctx.info().lang() : lang;
+        final int mins = ctx.memory().of(from.objectId()).partyMinutes();
+        return Map.of(
+            "player", from.name(),
+            "level", Integer.toString(me.level()),
+            "class", ClassLabels.name(me.classId(), useLang),
+            "role", roleWord(me.classId(), useLang),
+            "spot", spot,
+            "minutes", Integer.toString(Math.max(0, mins)));
+    }
+
+    private void rememberWhisper(int charId, WhisperParse.Intent intent, String text, long now) {
+        final WhisperDialog d = whisperDialog.computeIfAbsent(charId, k -> new WhisperDialog());
+        if ((now - d.lastAt) > WHISPER_DIALOG_MS) {
+            d.intents.clear();
+            d.lines.clear();
+        }
+        d.lastAt = now;
+        d.intents.addLast(intent);
+        d.lines.addLast(text == null ? "" : text);
+        while (d.intents.size() > 6) {
+            d.intents.removeFirst();
+            d.lines.removeFirst();
+        }
+    }
+
+    /** Short dialog memory with one player (last 6 lines / intents, 15 min). */
+    private static final class WhisperDialog {
+        final java.util.ArrayDeque<WhisperParse.Intent> intents = new java.util.ArrayDeque<>();
+        final java.util.ArrayDeque<String> lines = new java.util.ArrayDeque<>();
+        long lastAt;
+    }
+
+    /** Phase 6d: player's LFP/LFM in shout/trade/all — a fitting bot may whisper back. */
+    private void onLfpChat(BrainContext ctx, WorldView w, SelfView me, BotEvent.Chat c, long now) {
+        final LfpParse.Call call = LfpParse.parse(c.text());
+        if (call == null) {
+            return;
+        }
+        if ((ptMateId != 0) || leavingSocial(ctx) || me.dead()) {
+            return;
+        }
+        if (!LfpParse.fits(call.role(), me.classId()) || !LfpParse.levelOk(me.level(), call.level())) {
+            return;
+        }
+        final PlayerView from = playerByName(w, c.from());
+        if ((from != null) && (from.socialBusy() || from.bot())) {
+            return;
+        }
+        if ((from != null) && ctx.act().playerBlocksUs(from.name())) {
+            return;
+        }
+        // phase 6f: acquaintances reply more readily; strangers often stay quiet
+        final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(c.fromId());
+        final boolean known = (mem.affinity() > 30) || mem.has(org.l2start.bots.api.Memory.Tag.PARTY) || (mem.partyMinutes() >= 60);
+        if (!known && (ctx.rnd().nextDouble() > (0.35 + (ctx.info().sociability() * 0.4)))) {
+            return;
+        }
+        if (!ctx.social().tryReply(c.fromId(), now, lfpReplies)) {
+            return;
+        }
+        ctx.social().noteAgreed(c.fromId(), me.objectId(), now);
+        speak(ctx, "WHISPER", c.from(), "LFP_REPLY", Map.of("player", c.from(), "level", Integer.toString(me.level()), "role", roleWord(me.classId(), ctx.info().lang())),
+            now + ctx.reactionDelay());
+    }
+
+    /** Phase 6d: player invited a bot that is already in a bot-only party. */
+    private void onPartyRedirect(BrainContext ctx, BotEvent.PartyRedirect pr, long now) {
+        if (pr.whisper()) {
+            speak(ctx, "WHISPER", pr.from(), "PAIR_REDIRECT", Map.of("player", pr.from()), now + ctx.reactionDelay());
+        }
+        if (pr.invite()) {
+            final long base = pr.whisper() ? Math.max(speechDue(), now + ctx.reactionDelay()) : now + ctx.reactionDelay();
+            scheduleInvite(pr.from(), base + 400 + ctx.rnd().nextInt(1200));
+        }
+    }
+
+    private long speechDue() {
+        return speech.isEmpty() ? 0 : speech.get(speech.size() - 1).due();
+    }
+
+    private void scheduleInvite(String name, long at) {
+        askInviteTo = name;
+        askInviteAt = at;
+    }
+
+    private void flushInvite(BrainContext ctx, long now) {
+        if ((askInviteTo == null) || (now < askInviteAt)) {
+            return;
+        }
+        final String to = askInviteTo;
+        askInviteTo = null;
+        askInviteAt = 0;
+        final ActionResult r = ctx.act().inviteParty(to);
+        if (!r.ok()) {
+            ctx.note("did not invite " + to + " (" + r + ")");
+        }
+    }
+
+    /** Phase 6d: in town near a live player, occasionally shout LFP/LFM. */
+    private void maybeShoutLfp(BrainContext ctx, WorldView w, SelfView me, long now) {
+        if (!social || (ptMateId != 0) || me.dead() || leavingSocial(ctx)) {
+            return;
+        }
+        if (!inTownForLfp(ctx, me)) {
+            return;
+        }
+        if (!hasLivePlayer(w)) {
+            return;
+        }
+        if (now < lfpNextTry) {
+            return;
+        }
+        final double noise = Math.max(0.25, socialNoise);
+        lfpNextTry = now + (long) ((180_000 + ctx.rnd().nextInt(300_000)) / noise); // 3..8 min / noise
+        final double p = Math.min(0.95, 0.15 * ctx.info().sociability() * noise);
+        if (ctx.rnd().nextDouble() >= p) {
+            return;
+        }
+        if ((lfpShoutAt > 0) && ((now - lfpShoutAt) < SocialBoard.BOT_SHOUT_COOLDOWN_MS)) {
+            return;
+        }
+        if (!ctx.social().tryShout(now)) {
+            return;
+        }
+        final boolean botParty = !w.party().isEmpty() && allBots(w.party());
+        final String intent = botParty && (w.partyLeader() || (w.party().size() <= 1)) ? "LFM" : "LFP";
+        final Assignment order = ctx.assignment();
+        final String spot = (order == null) || (order.place() == null) ? "" : order.place();
+        final String channel = (me.level() >= 20) && ctx.rnd().nextBoolean() ? "TRADE" : "SHOUT";
+        final String lang = ctx.info().lang();
+        speak(ctx, channel, null, intent,
+            Map.of("level", Integer.toString(me.level()), "class", ClassLabels.name(me.classId(), lang),
+                "role", roleWord(me.classId(), lang), "spot", spot, "player", ""), now);
+        lfpShoutAt = now;
+        ctx.note("lfp " + intent + " via " + channel);
+    }
+
+    private boolean inTownForLfp(BrainContext ctx, SelfView me) {
+        if (me.inPeaceZone() || (phase == Phase.TOWN_IDLE)) {
+            return true;
+        }
+        final Assignment a = ctx.assignment();
+        return (a != null) && (a.kind() == Assignment.Kind.TOWN);
+    }
+
+    private static boolean hasLivePlayer(WorldView w) {
+        for (PlayerView p : w.players()) {
+            if (!p.bot()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean allBots(List<PartyMember> party) {
+        for (PartyMember m : party) {
+            if (!m.bot()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean leavingSocial(BrainContext ctx) {
+        final Assignment a = ctx.assignment();
+        return (a != null) && a.passing();
+    }
+
+    /** May invite a live player into its party (alone or as leader of a bot-only party). */
+    private boolean canInvitePlayer(WorldView w, SelfView me, PlayerView from, boolean leaving) {
+        if ((ptMateId != 0) || leaving || me.dead() || (from == null)) {
+            return false;
+        }
+        if (!LfpParse.levelOk(me.level(), from.level())) {
+            return false;
+        }
+        final List<PartyMember> pm = w.party();
+        if (pm.isEmpty()) {
+            return true;
+        }
+        if (!w.partyLeader() || (pm.size() >= 9) || !allBots(pm)) {
+            return false;
+        }
+        return true;
+    }
+
+    private static PlayerView playerByName(WorldView w, String name) {
+        if (name == null) {
+            return null;
+        }
+        for (PlayerView p : w.players()) {
+            if (name.equalsIgnoreCase(p.name())) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    /** Role word for LFP phrases: RU хил/баф/дд, EN heal/buff/dd. */
+    static String roleWord(int classId, String lang) {
+        final boolean ru = (lang != null) && lang.toUpperCase(java.util.Locale.ROOT).startsWith("RU");
+        return switch (LfpParse.roleOf(classId)) {
+            case HEAL -> ru ? "хил" : "heal";
+            case BUFF -> ru ? "баф" : "buff";
+            default -> ru ? "дд" : "dd";
+        };
+    }
+
+    private void onInvite(BrainContext ctx, WorldView w, SelfView me, BotEvent.PartyInvite inv, long now) {
+        ptInvites++;
+        if (!w.party().isEmpty() || (ptInvite != null)) {
+            return; // the stock request already said "member of another party", or one is pending
+        }
+        final Assignment order = ctx.assignment();
+        final PartyDecision.Doing doing = me.dead() ? PartyDecision.Doing.BUSY
+            : (order != null) && order.passing() ? PartyDecision.Doing.LEAVING
+            : ((order == null) && (phase == Phase.TOWN_IDLE)) || ((order != null) && (order.kind() == Assignment.Kind.TOWN)) ? PartyDecision.Doing.TOWN
+            : PartyDecision.Doing.HUNTING;
+        final long[] dec = ptDeclined.getOrDefault(inv.fromId(), new long[] { 0, 0 });
+        ptAnswer = PartyDecision.decide(ctx.info(), me.level(), inv, doing, ctx.memory().of(inv.fromId()), (int) dec[0], now - dec[1], support(me.classId()),
+            ctx.social().isAgreed(inv.fromId(), me.objectId(), now), ctx.rnd());
+        ptInvite = inv;
+        // a person reads the dialog and clicks: 2-8 s by reaction (the stock invitation waits 15 s)
+        ptAnswerAt = now + Math.min(9000, 1500 + ctx.info().reactionMs() * 2L + ctx.rnd().nextInt(5000));
+        ctx.note("invited by " + inv.from() + " (lv " + inv.fromLevel() + "): " + ptAnswer + " in " + ((ptAnswerAt - now) / 1000) + " s");
+    }
+
+    /** Answers a pending invitation when its time comes. */
+    private void answerInvite(BrainContext ctx, SelfView me, long now) {
+        if ((ptInvite == null) || (now < ptAnswerAt)) {
+            return;
+        }
+        final BotEvent.PartyInvite inv = ptInvite;
+        final PartyDecision.Answer a = ptAnswer;
+        ptInvite = null;
+        ptAnswer = null;
+        if (a == PartyDecision.Answer.IGNORE) {
+            ctx.note("let the invitation of " + inv.from() + " expire");
+            noteDeclined(inv.fromId(), now);
+            ctx.memory().note(inv.fromId(), 0, org.l2start.bots.api.Memory.Tag.DECLINED, true);
+            return;
+        }
+        final ActionResult r = ctx.act().answerParty(a.yes());
+        if (!r.ok()) {
+            ctx.note("invitation of " + inv.from() + " gone (" + r + ")");
+            return;
+        }
+        if (a.yes()) {
+            ctx.memory().note(inv.fromId(), 1, null, true);
+            ptDeclined.remove(inv.fromId());
+            ctx.social().noteInviteOk(now);
+            if (ctx.rnd().nextDouble() < (0.6 + (ctx.info().chattiness() * 0.4))) {
+                speak(ctx, "PARTY", null, a.intent, Map.of("player", inv.from()), now + 500);
+            }
+            return;
+        }
+        noteDeclined(inv.fromId(), now);
+        ctx.memory().note(inv.fromId(), 0, org.l2start.bots.api.Memory.Tag.DECLINED, true);
+        ctx.social().noteInviteNo(now);
+        if ((a.intent != null) && (ctx.rnd().nextDouble() < (0.35 + (ctx.info().chattiness() * 0.4)))) {
+            speak(ctx, "WHISPER", inv.from(), a.intent, Map.of("player", inv.from()), now); // an answer to his invitation, never first
+        }
+    }
+
+    private void noteDeclined(int charId, long now) {
+        final long[] d = ptDeclined.computeIfAbsent(charId, k -> new long[] { 0, 0 });
+        if ((now - d[1]) > (PartyDecision.ASK_AGAIN_MS * 3)) {
+            d[0] = 0;
+        }
+        d[0]++;
+        d[1] = now;
+    }
+
+    /** Queue a phrase of this intent: it is "typed" first (Humanizer), a typo fix comes right after. */
+    private void speak(BrainContext ctx, String channel, String to, String intent, Map<String, String> vars, long from) {
+        speak(ctx, channel, to, intent, vars, from, null);
+    }
+
+    /** Same as {@link #speak} with an optional phrase language (phase 6e whisper replies). */
+    private void speak(BrainContext ctx, String channel, String to, String intent, Map<String, String> vars, long from, String lang) {
+        if ("PARTY".equals(channel) && !partyChatOk(ctx, intent)) {
+            return;
+        }
+        if ("WHISPER".equals(channel) && (to != null) && ctx.act().playerBlocksUs(to)) {
+            return;
+        }
+        long due = Math.max(from, speech.isEmpty() ? from : speech.get(speech.size() - 1).due());
+        boolean said = false;
+        for (String line : ctx.chat().lines(intent, vars, lang)) {
+            due += line.startsWith("*") ? 600 + ctx.rnd().nextInt(900) : ctx.chat().typingMs(line);
+            speech.add(new Speech(channel, to, line, due));
+            said = true;
+        }
+        if (said && isPartyEmote(intent)) {
+            ctx.social().noteEmote(ctx.now());
+        }
+    }
+
+    /**
+     * Phase 6g: while the mate is busy (combat / store / NPC), only urgent party lines («мобы» / «рес нет»).
+     * When free, command replies always go; spontaneous reactions are scaled by {@link #socialNoise}.
+     */
+    private boolean partyChatOk(BrainContext ctx, String intent) {
+        if (isUrgentParty(intent)) {
+            return true;
+        }
+        if (ptMateId != 0) {
+            final PlayerView mate = playerByName(ctx.world(), ptMate);
+            if ((mate != null) && mate.socialBusy()) {
+                return false;
+            }
+        }
+        if (!isPartyEmote(intent)) {
+            return true; // answers to party commands
+        }
+        // quiet ~0.55, normal ~0.7, lively ~1.0
+        return ctx.rnd().nextDouble() <= Math.min(1.0, 0.4 + (0.3 * socialNoise));
+    }
+
+    /** «рес нет» and «мобы» (SORRY_KS) — still said when the mate is in combat / store / NPC dialog. */
+    private static boolean isUrgentParty(String intent) {
+        return "NO_RES".equals(intent) || "SORRY_KS".equals(intent);
+    }
+
+    private static boolean isPartyEmote(String intent) {
+        return "GRATS".equals(intent) || "THANKS_BUFF".equals(intent) || "THANKS_RES".equals(intent) || "SORRY_KS".equals(intent);
+    }
+
+    private void flushSpeech(BrainContext ctx, long now) {
+        while (!speech.isEmpty() && (speech.get(0).due() <= now)) {
+            final Speech s = speech.remove(0);
+            final ActionResult r = switch (s.channel()) {
+                case "WHISPER" -> ctx.act().whisper(s.to(), s.text());
+                case "SHOUT" -> ctx.act().sayShout(s.text());
+                case "TRADE" -> ctx.act().sayTrade(s.text());
+                default -> ctx.act().sayParty(s.text());
+            };
+            if (!r.ok()) {
+                ctx.note("did not say '" + s.text() + "' (" + r + ")");
+            }
+        }
+    }
+
+    /** When something social is due next (0 = nothing pending). */
+    private long socialDue() {
+        long due = ptInvite == null ? 0 : ptAnswerAt;
+        if (!speech.isEmpty()) {
+            due = due == 0 ? speech.get(0).due() : Math.min(due, speech.get(0).due());
+        }
+        if (ptLeaveAt > 0) {
+            due = due == 0 ? ptLeaveAt : Math.min(due, ptLeaveAt);
+        }
+        if ((askInviteTo != null) && (askInviteAt > 0)) {
+            due = due == 0 ? askInviteAt : Math.min(due, askInviteAt);
+        }
+        if (social && (ptMateId == 0) && (lfpNextTry > 0)) {
+            due = due == 0 ? lfpNextTry : Math.min(due, lfpNextTry);
+        }
+        return due;
+    }
+
+    private void onPartyCommand(BrainContext ctx, WorldView w, SelfView me, String text, long now) {
+        final PartyCommands.Command c = PartyCommands.parse(text);
+        if (c == PartyCommands.Command.NONE) {
+            if (text.toLowerCase(java.util.Locale.ROOT).contains(me.name().toLowerCase(java.util.Locale.ROOT)) && (ctx.rnd().nextDouble() < 0.4)) {
+                speak(ctx, "PARTY", null, "HUH", Map.of(), now + ctx.reactionDelay());
+            }
+            return;
+        }
+        ptCommands++;
+        ctx.note("party command from " + ptMate + ": " + c);
+        String reply = "ACK";
+        switch (c) {
+            case STOP -> {
+                ptMode = PartyMode.STOP;
+                endFight();
+                ctx.act().stop();
+            }
+            case FOLLOW -> ptMode = PartyMode.FOLLOW;
+            case ASSIST -> ptMode = PartyMode.ASSIST;
+            case FREE_HUNT -> ptMode = PartyMode.FREE;
+            case SIT -> ptMode = PartyMode.SIT;
+            case WAIT -> {
+                ptAgreedWait = true;
+                reply = "WAIT";
+            }
+            case BUFF -> {
+                if (!canBuff(me)) {
+                    reply = "HUH";
+                } else {
+                    ptBuffAsked = true;
+                    partyBuffed.keySet().removeIf(k -> k.endsWith(">" + ptMateId));
+                    partyTried = 0;
+                    reply = null; // "buffed" when it is done
+                }
+            }
+            case HEAL -> {
+                if (healSkill(me) == null) {
+                    reply = "HUH";
+                } else {
+                    ptHealAsked = true;
+                }
+            }
+            case RES -> {
+                if (skill(me, RESURRECTION) == null) {
+                    reply = "NO_RES";
+                } else {
+                    ptResAsked = true;
+                }
+            }
+            case GIVE_LEAD -> {
+                if (w.partyLeader() && ctx.act().giveLeader(ptMateId).ok()) {
+                    reply = "LEADER";
+                } else {
+                    reply = null;
+                }
+            }
+            case TAKE_LEAD -> reply = "ACK"; // only the leader can hand it over; the bot keeps following its mate anyway
+            default -> {
+            }
+        }
+        if ((reply != null) && (("ACK".equals(reply) && (ctx.rnd().nextDouble() < (0.5 + (ctx.info().chattiness() * 0.5)))) || !"ACK".equals(reply))) {
+            speak(ctx, "PARTY", null, reply, Map.of("player", ptMate), now + ctx.reactionDelay());
+        }
+    }
+
+    private static boolean canBuff(SelfView me) {
+        for (int id : PartyBuffs.wanted(me.classId(), me.classId(), false)) {
+            if (skill(me, id) != null) {
+                return true;
+            }
+        }
+        if (PartyBuffs.isBladedancer(me.classId()) || PartyBuffs.isSwordsinger(me.classId())) {
+            return true; // dances/songs; FakeWorld may not list them until added
+        }
+        return false;
+    }
+
+    private static SkillView healSkill(SelfView me) {
+        for (int id : HEALS) {
+            final SkillView s = skill(me, id);
+            if (s != null) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    private void startCompanion(BrainContext ctx, PartyMember mate, long now) {
+        ptMateId = mate.objectId();
+        ptMate = mate.name();
+        ptSince = now;
+        ptMinuteAt = now + 60_000;
+        // a session of 40-100 min, longer for patient personas
+        ptSessionEnd = now + ((40 + Math.round(ctx.info().patience() * 40) + ctx.rnd().nextInt(20)) * 60_000L);
+        ptWarned = false;
+        ptLeaveAt = 0;
+        ptMatePos = mate.pos();
+        ptMateStillSince = now;
+        ptFarSince = 0;
+        ptWaiting = false;
+        ptAgreedWait = false;
+        ptCatchingUp = false;
+        ptGkTriedAt = null;
+        ptMode = PartyMode.ASSIST;
+        ptBuffAsked = false;
+        ptHealAsked = false;
+        ptResAsked = false;
+        ptDeaths = 0;
+        ptDeadInParty = false;
+        ptParties++;
+        ptMateLevel = mate.level();
+        ptSeenBuffs = activeBuffIds(ctx.world().self());
+        partyReactAt = 0;
+        endFight();
+        errand = null;
+        enter(ctx, Phase.LEVEL, "party with " + mate.name());
+    }
+
+    /**
+     * Phase 6e: party-chat only — GRATS on mate level-up, thanks for a new buff, rare KS sorry.
+     * Cooldown 2–3 min; never whispers first.
+     */
+    private void partyReact(BrainContext ctx, WorldView w, SelfView me, PartyMember mate, long now) {
+        if (mate.level() > ptMateLevel) {
+            ptMateLevel = mate.level();
+            partySay(ctx, "GRATS", Map.of("player", mate.name()), now + ctx.reactionDelay());
+        } else {
+            ptMateLevel = mate.level();
+        }
+        final java.util.Set<Integer> buffs = activeBuffIds(me);
+        if (!buffs.equals(ptSeenBuffs)) {
+            boolean gained = false;
+            for (Integer id : buffs) {
+                if (!ptSeenBuffs.contains(id)) {
+                    gained = true;
+                    break;
+                }
+            }
+            // startCompanion already baselined ptSeenBuffs; only thank when a new buff appears after that
+            if (gained && (mate.distance() < 1200) && !mate.dead()) {
+                ctx.memory().note(ptMateId, 2, org.l2start.bots.api.Memory.Tag.BUFFED_ME, false);
+                partySay(ctx, "THANKS_BUFF", Map.of("player", mate.name()), now + ctx.reactionDelay());
+            }
+        }
+        ptSeenBuffs = buffs;
+    }
+
+    private void maybeSorryKs(BrainContext ctx, PartyMember mate, int deadMobId, long now) {
+        if ((ptMode != PartyMode.FREE) || (deadMobId == 0) || (mate.targetId() != deadMobId)) {
+            return;
+        }
+        if (ctx.rnd().nextDouble() > 0.22) {
+            return;
+        }
+        partySay(ctx, "SORRY_KS", Map.of("player", mate.name()), now + ctx.reactionDelay());
+    }
+
+    /** Party chat with the 2–3 min reaction cooldown (phase 6e). */
+    private void partySay(BrainContext ctx, String intent, Map<String, String> vars, long from) {
+        final long now = from;
+        if ((partyReactAt > 0) && (now < partyReactAt)) {
+            return;
+        }
+        speak(ctx, "PARTY", null, intent, vars, from);
+        partyReactAt = now + PARTY_REACT_COOLDOWN_MS + ctx.rnd().nextInt(60_000);
+    }
+
+    private static java.util.Set<Integer> activeBuffIds(SelfView me) {
+        final java.util.HashSet<Integer> ids = new java.util.HashSet<>();
+        for (SkillView s : me.skills()) {
+            if ((s.kind() == SkillView.Kind.BUFF) && (s.buffLeft() > 0)) {
+                ids.add(s.id());
+            }
+        }
+        return ids.isEmpty() ? java.util.Set.of() : java.util.Set.copyOf(ids);
+    }
+
+    /** The party is over (left, kicked, disbanded): it remembers how it went and is an ordinary bot again. */
+    private void endCompanion(BrainContext ctx, long now, String why) {
+        if (ptMateId == 0) {
+            return;
+        }
+        final int minutes = (int) ((now - ptSince) / 60_000);
+        ctx.memory().note(ptMateId, Math.min(15, 2 + (minutes / 5)) - (ptDeaths * 2), org.l2start.bots.api.Memory.Tag.PARTY, false);
+        ctx.memory().forget(ptMateId, org.l2start.bots.api.Memory.Tag.DECLINED);
+        ctx.note("party with " + ptMate + " over after " + minutes + " min: " + why);
+        ptMateId = 0;
+        ptMate = "";
+        ptLeaveAt = 0;
+        ptMode = PartyMode.ASSIST;
+        speech.removeIf(s -> "PARTY".equals(s.channel()));
+        endFight();
+        if (ctx.assignment() == null) {
+            idleUntil = now + 30_000;
+        }
+    }
+
+    /** Say goodbye now, leave a few seconds later (after typing it). */
+    private void beginLeave(BrainContext ctx, String intent, long now, String why) {
+        if (ptLeaveAt > 0) {
+            return;
+        }
+        ctx.note("leaves the party of " + ptMate + ": " + why);
+        speak(ctx, "PARTY", null, intent, Map.of("player", ptMate), now + ctx.reactionDelay());
+        final long said = speech.isEmpty() ? now : speech.get(speech.size() - 1).due();
+        ptLeaveAt = Math.max(now + 2000, said + 1500 + ctx.rnd().nextInt(2500));
+    }
+
+    /**
+     * Phase 6c: play with the real player of its party: follow him, fight his monster, heal, buff and raise him, obey
+     * his commands, leave politely. @return ms to the next tick, 0 = not in such a party (the usual behaviour runs)
+     */
+    private long companion(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
+        final PartyMember mate = mate(w);
+        if (mate == null) {
+            endCompanion(ctx, now, ptLeaveAt > 0 ? "left" : "the party broke up");
+            return 0;
+        }
+        if (mate.objectId() != ptMateId) {
+            if (ptMateId != 0) {
+                endCompanion(ctx, now, "another player");
+            }
+            startCompanion(ctx, mate, now);
+        }
+        partyReact(ctx, w, me, mate, now);
+        if ((phase == Phase.DEAD) || ptDeadInParty) {
+            ptDeadInParty = false;
+            enter(ctx, Phase.LEVEL, "party with " + ptMate);
+            if (!me.inPeaceZone() && (mate.distance() < 2000)) {
+                // raised where it fell: by its mate (or a healer of the party)
+                ctx.memory().note(ptMateId, 8, org.l2start.bots.api.Memory.Tag.REZZED_ME, false);
+                speak(ctx, "PARTY", null, "THANKS_RES", Map.of("player", ptMate), now + ctx.reactionDelay());
+            }
+        }
+        if (now >= ptMinuteAt) {
+            ptMinuteAt += 60_000;
+            ctx.memory().partyMinutes(ptMateId, 1);
+        }
+        if (ptLeaveAt > 0) {
+            if (now >= ptLeaveAt) {
+                ctx.act().leaveParty();
+                endCompanion(ctx, now, "said goodbye");
+                return ctx.reactionDelay();
+            }
+            detail = "says goodbye to " + ptMate;
+            return Math.max(300, ptLeaveAt - now);
+        }
+        // reasons to leave
+        if (Math.abs(me.level() - mate.level()) >= PartyDecision.GAP_NO) {
+            beginLeave(ctx, "BYE", now, "level gap grew");
+        } else if (ptDeaths >= PARTY_DEATHS_MAX) {
+            beginLeave(ctx, "BYE", now, "died " + ptDeaths + " times");
+        } else if (!ptWarned && (now >= (ptSessionEnd - 60_000 - ctx.rnd().nextInt(120_000)))) {
+            ptWarned = true;
+            speak(ctx, "PARTY", null, "WARN_LEAVE", Map.of(), now + ctx.reactionDelay());
+        } else if (ptWarned && (now >= ptSessionEnd) && (fightId == 0)) {
+            beginLeave(ctx, "BYE", now, "end of its session");
+        }
+        if ((ptMatePos == null) || (ptMatePos.distance2d(mate.pos()) > 40) || mate.dead()) {
+            ptMatePos = mate.pos();
+            ptMateStillSince = now;
+        } else if ((now - ptMateStillSince) > MATE_AFK_MS) {
+            beginLeave(ctx, "AFK_BYE", now, ptMate + " AFK");
+        }
+        if (ptLeaveAt > 0) {
+            return 500;
+        }
+        // the mate is gone (teleported, escaped, in town after a death): catch up via GK (KT12 F1)
+        if (mate.distance() > MATE_FAR) {
+            return catchUp(ctx, w, me, mate, now, attacker);
+        }
+        ptFarSince = 0;
+        ptWaiting = false;
+        ptCatchingUp = false;
+        ptGkTriedAt = null;
+        // KT12 F5: spoiler Sweep / Spoil while playing with a real player (companion path skips the solo sweep tick)
+        final long swept = sweep(ctx, w, me, now);
+        if (swept > 0) {
+            return swept;
+        }
+        final long spoiled = partySpoil(ctx, w, me, mate, now);
+        if (spoiled > 0) {
+            return spoiled;
+        }
+        // heal, raise and buff the party (the mate included)
+        if (ptHealAsked && !mate.dead() && (mate.hpPct() < 95) && (mate.distance() < 900) && !me.casting()) {
+            final SkillView h = healSkill(me);
+            ptHealAsked = false;
+            if ((h != null) && usable(me, h) && ctx.act().cast(h.id(), mate.objectId()).ok()) {
+                partyHeals++;
+                detail = "heals " + ptMate;
+                return 2500;
+            }
+        }
+        if (me.sitting() && (attacker != null)) {
+            ctx.act().stand();
+            return 800;
+        }
+        final long pc = partyCare(ctx, w, me, now, attacker);
+        if (pc > 0) {
+            if (ptBuffAsked && detail.equals("buffs " + ptMate)) {
+                ptBuffAsked = false;
+                speak(ctx, "PARTY", null, "BUFFED", Map.of("player", ptMate), now + 2500);
+            } else if (detail.equals("resurrects " + ptMate)) {
+                ptResAsked = false;
+                ctx.memory().note(ptMateId, 5, org.l2start.bots.api.Memory.Tag.I_REZZED, false);
+                speak(ctx, "PARTY", null, "RESSED", Map.of("player", ptMate), now + 800);
+            }
+            return pc;
+        }
+        if (ptBuffAsked && (now > (partyTried + 6000))) {
+            ptBuffAsked = false; // nothing left to put on: everything is on already
+            speak(ctx, "PARTY", null, "BUFFED", Map.of("player", ptMate), now + ctx.reactionDelay());
+        }
+        if (mate.dead() && ptResAsked && (skill(me, RESURRECTION) == null)) {
+            ptResAsked = false;
+            speak(ctx, "PARTY", null, "NO_RES", Map.of(), now + ctx.reactionDelay());
+        }
+        final long peeled = peel(ctx, w, me, now);
+        if (peeled > 0) {
+            return peeled;
+        }
+        if (fightId != 0) {
+            if (ptMode == PartyMode.STOP) {
+                endFight();
+                ctx.act().stop();
+            } else {
+                final int killing = fightId;
+                final boolean mateOnIt = mate.targetId() == killing;
+                final long d = fight(ctx, w, me, now);
+                if ((d == 0) && (fightId == 0) && mateOnIt) {
+                    maybeSorryKs(ctx, mate, killing, now);
+                }
+                if (d > 0) {
+                    return d;
+                }
+            }
+        }
+        if ((attacker != null) && ((ptMode != PartyMode.STOP) || (me.hpPct() < 60))) {
+            standIfSitting(ctx, me);
+            return startFight(ctx, me, attacker, now);
+        }
+        if ((ptMode != PartyMode.STOP) && (ptMode != PartyMode.SIT)) {
+            final long d = defendParty(ctx, w, me, now); // a monster on the mate (or a partner) is our fight
+            if (d > 0) {
+                return d;
+            }
+            if ((ptMode == PartyMode.ASSIST) || (ptMode == PartyMode.FREE)) {
+                final NpcView mob = mate.targetId() == 0 ? null : w.npc(mate.targetId());
+                if ((mob != null) && !mob.dead() && mob.monster() && mob.attackable() && (mob.distance() < 1500)
+                    && ((mob.hpPct() < 100) || (mob.targetId() == mate.objectId()) || mob.attackingNow())) {
+                    errand = null;
+                    standIfSitting(ctx, me);
+                    detail = "assists " + ptMate;
+                    return startFight(ctx, me, mob, now, true);
+                }
+            }
+            if (ptMode == PartyMode.FREE) {
+                final NpcView mob = freeMob(w, me, mate);
+                if (mob != null) {
+                    standIfSitting(ctx, me);
+                    detail = "hunts by " + ptMate;
+                    return startFight(ctx, me, mob, now, true);
+                }
+            }
+        }
+        // rest: when its mate sits, when told to, or when it needs it (Living Worlds PhantomPartyDowntime)
+        final boolean restNow = (ptMode == PartyMode.SIT) || (mate.sitting() && (mate.distance() < 600)) || needsRest(me);
+        if (restNow && (aggroNear(w, me, AGGRO_NEAR) == null) && (mate.distance() < 900)) {
+            if (!me.sitting()) {
+                if (me.moving() || me.attacking() || me.casting()) {
+                    ctx.act().stop();
+                    return 800;
+                }
+                ctx.act().sit();
+            }
+            detail = "rests by " + ptMate;
+            if ((ptMode == PartyMode.SIT) && !mate.sitting() && (mate.distance() > 300)) {
+                ptMode = PartyMode.ASSIST; // the mate walked on: so do we
+            }
+            return 2000;
+        }
+        if (me.sitting()) {
+            ctx.act().stand();
+            return 1000;
+        }
+        if (ptMode != PartyMode.STOP) {
+            final long buffed = selfBuff(ctx, me, now);
+            if (buffed > 0) {
+                return buffed;
+            }
+        }
+        if (ptMode == PartyMode.STOP) {
+            detail = "holds by " + ptMate;
+            return 1500;
+        }
+        // its place in the formation: melee next to the mate, archers, mages and healers a little behind
+        final boolean back = me.mage() || me.bow() || support(me.classId());
+        final int keep = back ? 260 + (int) (botId % 140) : 110 + (int) (botId % 90);
+        if (mate.distance() > (keep + 160)) {
+            detail = "follows " + ptMate;
+            ctx.act().setWalking(false);
+            final Pos spot = mate.pos().toward(me.pos(), keep);
+            return Math.min(1200, walk(ctx, w, me, spot, now));
+        }
+        detail = "by " + ptMate + (ptMode == PartyMode.FREE ? " (free hunt)" : "");
+        return 1000 + ctx.rnd().nextInt(600);
+    }
+
+    /** Free hunt by the mate: the nearest fitting monster within 900 of him that nobody else fights. */
+    private NpcView freeMob(WorldView w, SelfView me, PartyMember mate) {
+        NpcView best = null;
+        for (NpcView n : w.npcs()) {
+            if (!n.monster() || n.dead() || !n.attackable() || n.engagedByOther() || (n.pos().distance2d(mate.pos()) > 900) || (n.level() > (me.level() + 5))
+                || (n.level() < (me.level() - 9)) || blacklist.getOrDefault(n.objectId(), 0L) > ctxNow) {
+                continue;
+            }
+            if ((best == null) || (n.distance() < best.distance())) {
+                best = n;
+            }
+        }
+        return best;
+    }
+
+    private long ctxNow;
+
+    /**
+     * Mate is farther than {@link #MATE_FAR}: walk to the nearest gatekeeper, take stock TeleporterData hops toward
+     * him, then run. Timeout {@link #MATE_WAIT_MS} → goodbye. Never air-teleports to the player.
+     */
+    private long catchUp(BrainContext ctx, WorldView w, SelfView me, PartyMember mate, long now, NpcView attacker) {
+        if (ptFarSince == 0) {
+            ptFarSince = now;
+        }
+        if ((now - ptFarSince) > MATE_WAIT_MS) {
+            beginLeave(ctx, "BYE", now, "could not catch up in 10 min");
+            return 500;
+        }
+        if (!ptCatchingUp) {
+            ptCatchingUp = true;
+            ptWaiting = true; // "жди" / patience still means we try; phrase is WAIT
+            speak(ctx, "PARTY", null, "WAIT", Map.of(), now + ctx.reactionDelay());
+            ctx.note("catches up to " + ptMate + " via gatekeeper (up to 10 min)");
+        }
+        if (fightId != 0) {
+            final long d = fight(ctx, w, me, now);
+            if (d > 0) {
+                return d;
+            }
+        }
+        if (attacker != null) {
+            return startFight(ctx, me, attacker, now);
+        }
+        standIfSitting(ctx, me);
+        final Pos gk = ctx.act().nearestGk();
+        final double meToMate = me.pos().distance2d(mate.pos());
+        if (gk != null) {
+            final double dGk = me.pos().distance2d(gk);
+            // walk to the GK when it is not farther from the mate than we are (hop can help)
+            final boolean towardMate = gk.distance2d(mate.pos()) <= (meToMate + 200);
+            if ((dGk > 150) && towardMate) {
+                ptGkTriedAt = null;
+                detail = "catch-up to gk";
+                return walk(ctx, w, me, gk, now);
+            }
+            if (dGk <= 150) {
+                // hop already asked here with no move: same town — run to the mate
+                if ((ptGkTriedAt != null) && (ptGkTriedAt.distance2d(me.pos()) < 80)) {
+                    detail = "catch-up run";
+                    return walk(ctx, w, me, mate.pos(), now);
+                }
+                ptGkTriedAt = me.pos();
+                final org.l2start.bots.api.ActionResult r = ctx.act().teleportViaGk(mate.pos());
+                detail = "catch-up teleport";
+                if (r == org.l2start.bots.api.ActionResult.NOT_REACHABLE) {
+                    return walk(ctx, w, me, gk, now);
+                }
+                return 2500;
+            }
+        }
+        ptGkTriedAt = null;
+        detail = "catch-up run";
+        return walk(ctx, w, me, mate.pos(), now);
+    }
+
+    /** For //bots info. */
+    private String companionDetails(long now) {
+        if (ptMateId == 0) {
+            return ptParties == 0 ? "" : "\nParties with players: " + ptParties + ", invitations " + ptInvites;
+        }
+        return "\nParty with " + ptMate + " for " + ((now - ptSince) / 60_000) + " min, mode " + ptMode + ", commands " + ptCommands + ", deaths " + ptDeaths
+            + (ptCatchingUp ? ", catching up" : ptWaiting ? ", waiting" : "") + (ptWarned ? ", leaving soon" : "");
+    }
+
     // ------------------------------------------------------------------ roles (4c, second part): summons, sweep, heals, back
 
     /** Config Summons of bots-brain-basic: summoners call and command their servitor. */
@@ -1891,9 +3675,16 @@ public final class BasicBrain implements Brain {
     static final double SUMMONER_NUKE_MP = 60;
     static final int SERVITOR_HEAL = 1127;
     static final int DASH = 4;
+    static final int SPOIL = 254;
     static final int SWEEPER = 42;
     /** The body of a spoiled monster waits this long for Sweeper. */
     static final long SWEEP_MS = 6000;
+    /** Scavenger / Bounty Hunter / Warsmith lines (KT12 F5 party spoil). */
+    static final java.util.Set<Integer> SPOILER_CLASSES = java.util.Set.of(54, 55, 56, 57, 117, 118);
+
+    static boolean spoiler(int classId) {
+        return SPOILER_CLASSES.contains(classId);
+    }
     /** Self heals, best first: Major Heal, Greater Battle Heal, Greater Heal, Battle Heal, Heal. */
     static final int[] HEALS = { 1401, 1218, 1217, 1015, 1011 };
     /** Out of a fight a healer heals itself below this HP % instead of sitting down. */
@@ -2046,6 +3837,13 @@ public final class BasicBrain implements Brain {
     /** Sweeper on the body of the monster it spoiled and killed. */
     private long sweep(BrainContext ctx, WorldView w, SelfView me, long now) {
         if (sweepId == 0) {
+            final NpcView near = spoiledCorpseNear(w, me, 600);
+            if (near != null) {
+                sweepId = near.objectId();
+                sweepUntil = now + SWEEP_MS;
+            }
+        }
+        if (sweepId == 0) {
             return 0;
         }
         final NpcView body = w.npc(sweepId);
@@ -2068,6 +3866,59 @@ public final class BasicBrain implements Brain {
             return 1200;
         }
         return 0;
+    }
+
+    /**
+     * KT12 F5: in a player's party a Scavenger/BH Spoils the mate's (or free-hunt) target when not yet spoiled,
+     * and queues Sweeper on spoiled corpses next to the mate.
+     */
+    private long partySpoil(BrainContext ctx, WorldView w, SelfView me, PartyMember mate, long now) {
+        if (me.casting() || me.sitting()) {
+            return 0;
+        }
+        final SkillView spoil = skill(me, SPOIL);
+        final SkillView sweeper = skill(me, SWEEPER);
+        if ((spoil == null) && (sweeper == null) && !spoiler(me.classId())) {
+            return 0;
+        }
+        if (sweeper != null) {
+            for (NpcView n : w.npcs()) {
+                if (n.dead() && n.spoiled() && (n.pos().distance2d(mate.pos()) < 900) && (n.distance() < 900)) {
+                    sweepId = n.objectId();
+                    sweepUntil = now + SWEEP_MS;
+                    return sweep(ctx, w, me, now);
+                }
+            }
+        }
+        if ((spoil == null) || !usable(me, spoil) || (ptMode == PartyMode.STOP) || (ptMode == PartyMode.SIT)) {
+            return 0;
+        }
+        NpcView target = mate.targetId() == 0 ? null : w.npc(mate.targetId());
+        if ((target == null) || target.dead() || !target.monster() || target.spoiled() || (target.distance() > 900)) {
+            if (ptMode == PartyMode.FREE) {
+                target = freeMob(w, me, mate);
+            } else {
+                return 0;
+            }
+        }
+        if ((target == null) || target.dead() || target.spoiled() || (target.distance() > 900)) {
+            return 0;
+        }
+        final ActionResult r = ctx.act().cast(SPOIL, target.objectId());
+        if (r.ok()) {
+            detail = "spoils for " + ptMate;
+            return 1500;
+        }
+        return 0;
+    }
+
+    private static NpcView spoiledCorpseNear(WorldView w, SelfView me, int range) {
+        for (NpcView n : w.npcs()) {
+            if (n.dead() && n.spoiled() && (n.distance() < range)) {
+                return n;
+            }
+        }
+        return null;
     }
 
     /** Dash before running away (rogues, daggers). */

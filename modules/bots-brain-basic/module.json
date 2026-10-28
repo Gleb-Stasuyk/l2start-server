@@ -1,13 +1,23 @@
 {
   "id": "bots-brain-basic",
   "name": "Bots: basic brain",
-  "description": "The minimal bot brain of phase 3 (step 3d): bots stroll in their starting village, walk to hunting grounds of their level (data/levelzones.xml, from stock spawns), kill monsters (warriors hit, mystics nuke), pick up their drops, rest, die and come back, learn skills for SP. Step 3e: follows the orders of the presence director (town errands and groups, hunting on the given ground, leaving out of sight or by the gatekeeper) and never takes a monster a real player fights or stands next to. Registers brain 'basic' with bots-core.",
-  "version": "0.4.0",
+  "description": "The minimal bot brain of phase 3 (step 3d): bots stroll in their starting village, walk to hunting grounds of their level (data/levelzones.xml, from stock spawns), kill monsters (warriors hit, mystics nuke), pick up their drops, rest, die and come back, learn skills for SP. Step 3e: follows the orders of the presence director (town errands and groups, hunting on the given ground, leaving out of sight or by the gatekeeper) and never takes a monster a real player fights or stands next to. Phase 6b/6c: answers a real player's party invitation by level, role, character and memory, then plays with him (follows, fights his monster, heals, buffs and raises him, obeys his party chat commands, leaves politely). Registers brain 'basic' with bots-core.",
+  "version": "0.5.2",
   "kind": "jar",
   "platform": "^1.2",
   "entrypoint": "org.l2start.bots.brain.basic.BotsBrainBasicModule",
   "defaultEnabled": { "solo": true, "online": false },
   "config": {
+    "Social": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 6d: bots look for party in towns (LFP/LFM shout/trade), answer party whispers and the player's LFP. Off = phase 5 behaviour (party invite answers from 6b/6c still work)." },
+    "LfpReplies": { "type": "int", "default": 2, "min": 0, "max": 5, "reloadable": true, "description": "Phase 6d: at most this many bots whisper back to one player LFP/LFM shout." },
+    "SocialNoise": { "type": "enum", "values": ["quiet", "normal", "lively"], "default": "lively", "reloadable": true, "description": "Phase 6d/6g: how often bots post LFP/LFM and party-chat chatter (quiet ~half, lively ~double of normal)." },
+    "PvpAggression": { "type": "enum", "values": ["off", "low", "normal", "high"], "default": "normal", "reloadable": true, "description": "Phase 7a/7g: first-attack aggression toward live players (off = never first; protect and revenge still work). Legacy 'on' maps to normal." },
+    "PvpPlayerCooldown": { "type": "duration", "default": "12m", "min": "0s", "reloadable": true, "description": "Phase 7a: minimum time between first-attack decisions of one bot toward the same live player." },
+    "PvpProtectParty": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7a: defend party mates under player attack (not disabled by PvpAggression=off)." },
+    "PvpProtectClan": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7a: defend clan mates under player attack (not disabled by PvpAggression=off). Clan membership comes in 7d." },
+    "ClanInvitePlayers": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7e: bot-clan leaders may invite live players nearby." },
+    "PvpRevenge": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 7a: act on KILLED_ME / ATTACKED_ME grudges (not disabled by PvpAggression=off)." },
+    "PvpRevengeTimeout": { "type": "duration", "default": "30m", "min": "0s", "reloadable": true, "description": "Phase 7a: how long KILLED_ME / ATTACKED_ME stay active for revenge (0 = never expire)." },
     "PvpFightBack": { "type": "string", "default": "0.5", "reloadable": true, "description": "When a real player attacks a bot: base chance that it fights back like a player in PvP (flag, karma rules), else it flees and leaves. Adjusted by level difference and persona aggression." },
     "Potions": { "type": "bool", "default": true, "reloadable": true, "description": "Bots drink HP potions in a fight (they get 20 of their grade when they appear); the potion reuse is respected." },
     "PotionHpPercent": { "type": "string", "default": "40,60", "reloadable": true, "description": "HP percent below which a bot drinks a potion: min,max; each persona has its own threshold in this range." },
@@ -19,5 +29,5 @@
     "AfkShare": { "type": "string", "default": "0.15", "reloadable": true, "description": "Phase 4d: share of hunts with one 'away from the keyboard' of 1-10 min (stands still, never sits); in town half of it at each NPC visit." },
     "Summons": { "type": "bool", "default": true, "reloadable": true, "description": "Phase 4c: summoners call their servitor on the hunting ground (crystals come with them), send it at their target, heal it with Servitor Heal and keep their MP while it tanks; the servitor goes when the bot dies or leaves." }
   },
-  "dependencies": [ { "id": "bots-core", "version": "^0.5" } ]
+  "dependencies": [ { "id": "bots-core", "version": "^0.7" } ]
 }

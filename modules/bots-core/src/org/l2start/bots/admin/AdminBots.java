@@ -107,6 +107,21 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "stats":
                     showStats(gm);
                     return true;
+                case "social":
+                    showSocial(gm);
+                    return true;
+                case "pvp":
+                    showPvp(gm);
+                    return true;
+                case "pk":
+                    makePk(gm, st.hasMoreTokens() ? st.nextToken() : "");
+                    return true;
+                case "clans":
+                    showClans(gm);
+                    return true;
+                case "clan":
+                    showClan(gm, st.hasMoreTokens() ? st.nextToken() : "");
+                    return true;
                 case "pause":
                 case "resume":
                     core.brains().setPaused("pause".equals(sub));
@@ -131,6 +146,12 @@ public final class AdminBots implements IAdminCommandHandler {
                 case "near":
                     showNear(gm);
                     return true;
+                case "spots": {
+                    final String arg = st.hasMoreTokens() ? st.nextToken() : "1500";
+                    final int radius = isNumber(arg) ? Math.max(50, Math.min(20_000, Integer.parseInt(arg))) : 1500;
+                    showSpots(gm, radius);
+                    return true;
+                }
                 case "goto": {
                     final BotRecord r = core.registry().byName(st.hasMoreTokens() ? st.nextToken() : "");
                     if ((r == null) || !r.inWorld()) {
@@ -141,7 +162,7 @@ public final class AdminBots implements IAdminCommandHandler {
                     return true;
                 }
                 default:
-                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
+                    gm.sendMessage("//bots [list [page]] | director [pause|resume] | near | spots [radius] | create <n> [classId] | spawn <n|name> [here] | despawn <name|all> | info <name> | stats | social | pvp | pk <name> | clans | clan <name> | pause | resume | sit|stand|gear|return <name|all> | goto <name>");
                     return true;
             }
         } catch (RuntimeException e) {
@@ -149,6 +170,26 @@ public final class AdminBots implements IAdminCommandHandler {
             gm.sendMessage("//bots " + sub + " failed: " + e.getMessage());
             return true;
         }
+    }
+
+    /** //bots spots [radius]: bots around the GM with activity, goal, time without moving, and the piles; the same lines go to the log. */
+    private void showSpots(Player gm, int radius) {
+        final List<String> lines = core.brains().spotsDump(new org.l2start.bots.api.Pos(gm.getX(), gm.getY(), gm.getZ()), radius);
+        for (String l : lines) {
+            core.ctx().log().info("//bots spots by " + gm.getName() + ": " + l);
+        }
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: spots</title><body>");
+        int shown = 0;
+        for (String l : lines) {
+            if (sb.length() > 7000) { // client html limit: the rest is in the log
+                sb.append("... ").append(lines.size() - shown).append(" more lines in the log<br>");
+                break;
+            }
+            sb.append(escape(l)).append("<br>");
+            shown++;
+        }
+        sb.append("</body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 
     /** Small visible actions, to check that players around a bot see what it does (hook P3-BOT-CHARINFO). */
@@ -261,6 +302,13 @@ public final class AdminBots implements IAdminCommandHandler {
         final org.l2start.bots.api.Assignment a = r.assignment();
         sb.append("Order: ").append(a == null ? "none (manual)" : escape(a.toString())).append(", paper level ").append(r.paperLevel(System.currentTimeMillis())).append("<br>");
         sb.append("Deaths: ").append(r.deaths()).append(", whispers received: ").append(r.whispers()).append("<br>");
+        final org.l2start.bots.core.BotsCoreModule.MemoryView mem = core.memoryOf(r);
+        if (!mem.lines().isEmpty()) {
+            sb.append("Memory: ");
+            for (String l : mem.lines()) {
+                sb.append(escape(l)).append("<br>");
+            }
+        }
         if (r.trouble() != null) {
             sb.append("<font color=\"FF6666\">Last trouble: ").append(escape(r.trouble())).append("</font><br>");
         }
@@ -338,6 +386,255 @@ public final class AdminBots implements IAdminCommandHandler {
         sb.append("<td><button value=\"").append(paused ? "Resume" : "Pause").append("\" action=\"bypass -h admin_bots ").append(paused ? "resume" : "pause").append("\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td>");
         sb.append("<td><button value=\"List\" action=\"bypass -h admin_bots list\" width=70 height=20 back=\"L2UI_ct1.button_df\" fore=\"L2UI_ct1.button_df\"></td></tr></table>");
         sb.append("</body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7b/7c: hourly PvP counters + online PK bots. */
+    private void showPvp(Player gm) {
+        final org.l2start.bots.chat.PvpBoard board = core.brains().pvp();
+        final long now = System.currentTimeMillis();
+        final java.util.Map<org.l2start.bots.chat.PvpBoard.Stat, Integer> c = board.hourCounts(now);
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: PvP</title><body>");
+        sb.append("<font color=\"LEVEL\">PvP (last hour)</font><br>");
+        sb.append("First attacks: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.ATTACK, 0)).append("<br>");
+        sb.append("Defence: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DEFEND, 0)).append("<br>");
+        sb.append("Revenge: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.REVENGE, 0)).append("<br>");
+        sb.append("Flees: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.FLEE, 0)).append("<br>");
+        sb.append("Call help: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.CALL_HELP, 0)).append("<br>");
+        sb.append("PK hunts: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.PK_HUNT, 0)).append("<br>");
+        sb.append("Duels accepted: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DUEL_OK, 0)).append(", declined: ")
+            .append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.DUEL_NO, 0)).append("<br>");
+        sb.append("Blocked by cooldown: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.LIMIT, 0)).append("<br>");
+        sb.append("Blocked by peace zone: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.ZONE, 0)).append("<br>");
+        sb.append("PK kills: ").append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.PK_KILL, 0)).append(", deaths: ")
+            .append(c.getOrDefault(org.l2start.bots.chat.PvpBoard.Stat.PK_DEATH, 0)).append("<br>");
+        sb.append("<br><font color=\"LEVEL\">PK bots online</font><br>");
+        int n = 0;
+        for (BotRecord r : core.registry().all()) {
+            if (!r.inWorld() || (r.persona() == null) || !r.persona().pk()) {
+                continue;
+            }
+            n++;
+            final Player p = r.player();
+            final int karma = p == null ? 0 : p.getKarma();
+            sb.append(r.name()).append(" karma ").append(karma).append(" K/D ")
+                .append(board.pkKillsHour(r.botId(), now)).append('/').append(board.pkDeathsHour(r.botId(), now)).append("<br>");
+        }
+        if (n == 0) {
+            sb.append("(none — //bots pk &lt;name&gt;)<br>");
+        }
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "pvp");
+        button(sb, "Social", "social");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7d: list bot clans. */
+    private void showClans(Player gm) {
+        final org.l2start.bots.clan.ClanService svc = core.clans();
+        if (svc == null) {
+            gm.sendMessage("Bot clans are not ready.");
+            return;
+        }
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: clans</title><body>");
+        sb.append("<font color=\"LEVEL\">Bot clans (").append(svc.clans().size()).append('/').append(svc.wantClans()).append(")</font><br>");
+        sb.append("сток/герб: ✓ = ClanTable+crest, ! = нет герба, — = нет стока<br>");
+        final org.l2start.bots.clan.ClanHallBids halls = core.clanHallBids();
+        for (org.l2start.bots.clan.ClanStore.Row r : svc.clans()) {
+            final BotRecord leader = byBotId(r.leaderBotId());
+            int online = 0;
+            int total = 0;
+            for (org.l2start.bots.clan.ClanStore.Member m : svc.members(r.clanId())) {
+                total++;
+                final BotRecord b = byBotId(m.botId());
+                if ((b != null) && b.inWorld()) {
+                    online++;
+                }
+            }
+            final org.l2jmobius.gameserver.entity.clan.Clan stock = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(r.clanId());
+            final String kh = halls == null ? "—" : halls.hallLabel(stock);
+            sb.append("<a action=\"bypass -h admin_bots clan ").append(r.name()).append("\">").append(r.name()).append("</a>");
+            sb.append(" lv ").append(r.level()).append(" leader ").append(leader == null ? "?" : leader.name());
+            sb.append(" ").append(online).append('/').append(total);
+            sb.append(" KH ").append(kh);
+            sb.append(" [").append(svc.stockCrestMark(r)).append("]<br>");
+        }
+        if (svc.clans().isEmpty()) {
+            sb.append("(none yet)<br>");
+        }
+        final org.l2start.bots.clan.AcademyRecruiters recruiters = core.academyRecruiters();
+        if (recruiters != null) {
+            sb.append("<br><font color=\"LEVEL\">Academy recruiters</font><br>");
+            for (String line : recruiters.statusLines()) {
+                sb.append(line).append("<br>");
+            }
+        }
+        final org.l2start.bots.clan.AcademyRewards rewards = core.academyRewards();
+        if (rewards != null) {
+            sb.append("<br><font color=\"LEVEL\">Academy live players / payouts</font><br>");
+            int shown = 0;
+            for (org.l2start.bots.clan.AcademyRewards.Row row : rewards.paidSummary()) {
+                if (shown++ >= 20) {
+                    sb.append("…<br>");
+                    break;
+                }
+                sb.append("char#").append(row.charId()).append(" clan ").append(row.botClanId());
+                sb.append(row.joinPaid() ? " join✓" : " join—");
+                sb.append(row.graduatePaid() ? " grad✓" : " grad—");
+                sb.append("<br>");
+            }
+            if (shown == 0) {
+                sb.append("(none)<br>");
+            }
+        }
+        final var inPlayer = svc.playerClanBotIds();
+        if (!inPlayer.isEmpty()) {
+            sb.append("<br><font color=\"LEVEL\">Bots in player clans (").append(inPlayer.size()).append(")</font><br>");
+            for (Integer id : inPlayer) {
+                final BotRecord b = byBotId(id);
+                sb.append(b == null ? ("#" + id) : b.name());
+                if (b != null) {
+                    sb.append(b.inWorld() ? " online" : " offline");
+                    final Player p = b.player();
+                    if ((p != null) && (p.getClan() != null)) {
+                        sb.append(" @ ").append(p.getClan().getName());
+                    }
+                }
+                sb.append("<br>");
+            }
+        }
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "clans");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    /** Phase 7d/7e: roster of one bot clan (bots + live members if stock clan exists). */
+    private void showClan(Player gm, String name) {
+        final org.l2start.bots.clan.ClanService svc = core.clans();
+        if (svc == null) {
+            gm.sendMessage("Bot clans are not ready.");
+            return;
+        }
+        if (name == null || name.isBlank()) {
+            gm.sendMessage("Usage: //bots clan <name>");
+            return;
+        }
+        final var row = svc.byName(name);
+        if (row.isEmpty()) {
+            gm.sendMessage("No bot clan named " + name);
+            return;
+        }
+        final org.l2start.bots.clan.ClanStore.Row r = row.get();
+        final StringBuilder sb = new StringBuilder("<html><title>Clan ").append(r.name()).append("</title><body>");
+        sb.append("<font color=\"LEVEL\">").append(r.name()).append("</font> lv ").append(r.level());
+        sb.append(" target ").append(r.targetSize()).append(" id ").append(r.clanId());
+        if (svc.isBig(r)) {
+            sb.append(" BIG");
+        }
+        sb.append("<br>");
+        for (org.l2start.bots.clan.ClanStore.Member m : svc.members(r.clanId())) {
+            final BotRecord b = byBotId(m.botId());
+            sb.append(m.role()).append(' ').append(b == null ? ("#" + m.botId()) : b.name());
+            if (b != null) {
+                sb.append(" lv ").append(b.paperLevel(System.currentTimeMillis()));
+                sb.append(b.inWorld() ? " online" : " offline");
+                if (b.status() == BotRecord.Status.TRADER) {
+                    sb.append(" trader");
+                }
+            }
+            sb.append("<br>");
+        }
+        final org.l2jmobius.gameserver.entity.clan.Clan stock = org.l2jmobius.gameserver.data.sql.ClanTable.getInstance().getClan(r.clanId());
+        if (stock != null) {
+            final org.l2start.bots.clan.ClanHallBids halls = core.clanHallBids();
+            sb.append("KH ").append(halls == null ? "—" : halls.hallLabel(stock)).append("<br>");
+            sb.append("<br><font color=\"LEVEL\">Live players</font><br>");
+            boolean any = false;
+            boolean anyAcad = false;
+            for (org.l2jmobius.gameserver.entity.clan.ClanMember m : stock.getMembers()) {
+                final Player p = m == null ? null : m.getPlayer();
+                if ((p == null) || core.registry().isBot(p)) {
+                    continue;
+                }
+                any = true;
+                final boolean acad = m.getPledgeType() == org.l2jmobius.gameserver.entity.clan.Clan.SUBUNIT_ACADEMY;
+                if (acad) {
+                    anyAcad = true;
+                }
+                sb.append(p.getName()).append(" lv ").append(p.getLevel());
+                sb.append(acad ? " academy" : " main");
+                sb.append(p.isOnline() ? " online" : " offline").append("<br>");
+            }
+            if (!any) {
+                sb.append("(none online)<br>");
+            } else if (!anyAcad) {
+                sb.append("(no academy members online)<br>");
+            }
+        }
+        sb.append("<br><a action=\"bypass -h admin_bots clans\">Back</a></body></html>");
+        gm.sendPacket(new NpcHtmlMessage(sb.toString()));
+    }
+
+    private BotRecord byBotId(int botId) {
+        for (BotRecord r : core.registry().all()) {
+            if (r.botId() == botId) {
+                return r;
+            }
+        }
+        return null;
+    }
+
+    /** Phase 7c: mark persona as PK and spawn next to the GM for testing. */
+    private void makePk(Player gm, String name) {
+        if (name == null || name.isBlank()) {
+            gm.sendMessage("Usage: //bots pk <name>");
+            return;
+        }
+        try {
+            final String msg = core.makePkNear(name, gm);
+            gm.sendMessage(msg);
+        } catch (Exception e) {
+            gm.sendMessage("pk failed: " + e.getMessage());
+            core.ctx().log().warn("//bots pk failed", e);
+        }
+    }
+
+    /** Phase 6g: hourly social counters and who is ANNOYED. */
+    private void showSocial(Player gm) {
+        final org.l2start.bots.chat.SocialBoard board = core.brains().social();
+        if (board == null) {
+            gm.sendMessage("Social board is not ready.");
+            return;
+        }
+        final long now = System.currentTimeMillis();
+        final java.util.Map<org.l2start.bots.chat.SocialBoard.Stat, Integer> c = board.hourCounts(now);
+        final StringBuilder sb = new StringBuilder("<html><title>Bots: social</title><body>");
+        sb.append("<font color=\"LEVEL\">Social (last hour)</font><br>");
+        sb.append("LFP shouts: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.SHOUT, 0)).append(" / ").append(board.shoutsPerHour()).append("<br>");
+        sb.append("LFP replies: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.LFP_REPLY, 0)).append("<br>");
+        sb.append("Whisper answers: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.WHISPER, 0)).append(" (cap ").append(board.whispersPerHour()).append("/bot)<br>");
+        sb.append("Invites accepted: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.INVITE_OK, 0)).append(", declined: ")
+            .append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.INVITE_NO, 0)).append("<br>");
+        sb.append("Party reactions: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.EMOTE, 0)).append("<br>");
+        sb.append("Limit hits: ").append(c.getOrDefault(org.l2start.bots.chat.SocialBoard.Stat.LIMIT, 0)).append("<br>");
+        sb.append("<br><font color=\"LEVEL\">ANNOYED</font><br>");
+        final java.util.List<String> annoyed = core.annoyedSummary();
+        if (annoyed.isEmpty()) {
+            sb.append("(none)<br>");
+        } else {
+            for (String line : annoyed) {
+                sb.append(escape(line)).append("<br>");
+            }
+        }
+        sb.append("<br><table width=280><tr>");
+        button(sb, "Refresh", "social");
+        button(sb, "Stats", "stats");
+        button(sb, "List", "list");
+        sb.append("</tr></table></body></html>");
         gm.sendPacket(new NpcHtmlMessage(sb.toString()));
     }
 

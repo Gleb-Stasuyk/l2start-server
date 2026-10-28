@@ -96,7 +96,8 @@ public final class BotFactory {
             }
             player.setCurrentHp(player.getMaxHp());
             player.setCurrentMp(player.getMaxMp());
-            initNewChar(player);
+            final java.util.function.IntFunction<org.l2start.bots.api.Pos> picker = homePicker;
+            initNewChar(player, picker == null ? null : picker.apply(org.l2start.bots.director.StarterZones.raceOfStartClass(persona.classId())));
             final int botId = repo.insertIdentity(player.getObjectId(), login, name, persona.classId());
             repo.savePersona(botId, persona);
             repo.ensureState(botId, player.getX(), player.getY(), player.getZ()); // home = where it was created
@@ -113,8 +114,18 @@ public final class BotFactory {
         }
     }
 
-    /** Same order and conditions as CharacterCreate.initNewChar (stock), without the client parts. */
-    private static void initNewChar(Player newChar) {
+    /**
+     * Where a new bot lives (docs/STARTER_ZONES_PLAN.md S2): a spread point of the starting village of its race instead
+     * of the stock creation point (all mystics of a race share 4 such points); null = stock point.
+     */
+    private volatile java.util.function.IntFunction<org.l2start.bots.api.Pos> homePicker;
+
+    void setHomePicker(java.util.function.IntFunction<org.l2start.bots.api.Pos> picker) {
+        homePicker = picker;
+    }
+
+    /** Same order and conditions as CharacterCreate.initNewChar (stock), without the client parts; {@code home} replaces the stock creation point. */
+    private static void initNewChar(Player newChar, org.l2start.bots.api.Pos home) {
         World.addObject(newChar);
         if (PlayerConfig.STARTING_ADENA > 0) {
             newChar.addAdena(ItemProcessType.REWARD, PlayerConfig.STARTING_ADENA, null, false);
@@ -124,6 +135,8 @@ public final class BotFactory {
             newChar.setXYZInvisible(StartingLocationConfig.CUSTOM_STARTING_LOC_X, StartingLocationConfig.CUSTOM_STARTING_LOC_Y, StartingLocationConfig.CUSTOM_STARTING_LOC_Z);
         } else if (FactionSystemConfig.FACTION_SYSTEM_ENABLED) {
             newChar.setXYZInvisible(FactionSystemConfig.FACTION_STARTING_LOCATION.getX(), FactionSystemConfig.FACTION_STARTING_LOCATION.getY(), FactionSystemConfig.FACTION_STARTING_LOCATION.getZ());
+        } else if (home != null) {
+            newChar.setXYZInvisible(home.x(), home.y(), home.z());
         } else {
             final Location createLoc = template.getCreationPoint();
             newChar.setXYZInvisible(createLoc.getX(), createLoc.getY(), createLoc.getZ());

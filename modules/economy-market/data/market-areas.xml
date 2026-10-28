@@ -10,9 +10,9 @@
      `resources` more of them (static, besides the store quota) craft only intermediate materials (Steel, Leather...).
      A kept place outside the new layout = the places of the town are generated again (same names stay). -->
 <areas>
-	<town name="Giran" polygon="82725,147897 82710,149310 82194,149330 82218,147879" z="-3464" dz="64" spacing="75" npcGap="160" doorGap="320" reach="600">
+	<town name="Giran" polygon="82725,147897 82710,149310 82194,149330 82218,147879" z="-3464" dz="64" spacing="50" npcGap="120" doorGap="240" reach="600">
 		<!-- Adventure Guildsman 31805 of central Giran (data/spawns/Giran/GiranNPCs.xml) -->
-		<crafters npc="31805" x="82840" y="147796" z="-3472" heading="16500" rMin="170" rMax="420" front="70" spacing="90" resources="2" />
+		<crafters npc="31805" x="82840" y="147796" z="-3472" heading="16500" rMin="110" rMax="280" front="70" spacing="65" resources="6" />
 		<service id="giran-4udo" x="82703" y="147932" z="-3464" heading="49152" legacy="4UDO" race="DWARF" sex="MALE" classId="57" items="1463,1464,1465,3948,3949,3950" />
 	</town>
 </areas>

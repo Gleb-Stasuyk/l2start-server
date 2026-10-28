@@ -13,7 +13,9 @@ import java.util.List;
  *     LEAVE_SOE (end of a hunt, phase 4d: read a scroll of escape where it stands; in town the director logs it out
  *     unseen or sends it on ERRANDS), LEAVE_SPOT (log out right here, sitting, as a "restart": only with nobody near),
  *     ERRANDS (back in town from a hunt in front of a player: 2-3 NPCs - shop, warehouse, trainer - now and then AFK,
- *     then the gatekeeper at {@code exit} and "teleport" = log out)
+ *     then the gatekeeper at {@code exit} and "teleport" = log out),
+ *     NEWBIE (docs/STARTER_ZONES_PLAN.md S6: a beginner near a new live character: run to the gremlins at {@code center},
+ *     10-15 kills, then run to its village at {@code exit}; there the director gives it town life or lets it vanish)
  * @param place id of the town or hunting ground (world catalogue)
  * @param center centre of the place
  * @param radius radius of the place
@@ -25,7 +27,12 @@ import java.util.List;
  */
 public record Assignment(long seq, Kind kind, String place, Pos center, int radius, int minLevel, int maxLevel, List<Pos> spots, List<Anchor> anchors, Pos exit) {
     public enum Kind {
-        TOWN, HUNT, LEAVE_RUN, LEAVE_GK, TRANSIT, PASS, LEAVE_SOE, LEAVE_SPOT, ERRANDS
+        TOWN, HUNT, LEAVE_RUN, LEAVE_GK, TRANSIT, PASS, LEAVE_SOE, LEAVE_SPOT, ERRANDS, NEWBIE
+    }
+
+    /** Kills a NEWBIE companion makes before it goes back to its village: 10-15, stable for the order and the bot. */
+    public static int newbieKills(long seq, int botId) {
+        return 10 + Math.floorMod(Long.hashCode((seq * 31) + botId) * 0x9E3779B1, 6);
     }
 
     /** A point of interest in a town: kind = gk, shop, wh, trainer, restart. */

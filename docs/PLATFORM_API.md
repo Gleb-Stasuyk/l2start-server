@@ -1,4 +1,4 @@
-# API платформы для модулей (версия 1.4.0)
+# API платформы для модулей (версия 1.11.0)
 
 Пакет `org.l2start.platform.api`. Модуль kind `jar` реализует `GameModule`; всё остальное приходит через `ModuleContext`.
 Правило: **регистрируй всё только через контекст** — тогда платформа знает, что принадлежит модулю, и снимает это
@@ -20,7 +20,7 @@ public interface GameModule {
 | `log()` | `info/warn/error/debug`; в логе с префиксом `Module[<id>]:` |
 | `config()` | `getString/getBoolean/getInt/getLong/getDouble/getDuration/getList/getEnum`, `source(key)`, `asMap()`; ключи только из `module.json` |
 | `events()` | `onGlobal/onPlayers/onNpcs/onMonsters(EventType, Consumer)`, `onNpc(npcId, ...)`, `on(container, ...)` — слушатели событий Mobius |
-| `handlers()` | `admin(IAdminCommandHandler)`, `voiced(IVoicedCommandHandler)`, `bypass(IBypassHandler)`; занятая команда → ошибка `onEnable` |
+| `handlers()` | `admin(IAdminCommandHandler)`, `voiced(IVoicedCommandHandler)`, `bypass(IBypassHandler)`; занятая команда → ошибка `onEnable`; с 1.7: `wrapBypass(команда, старый -> новый)` — обернуть уже зарегистрированный (стоковый) bypass, ошибки обёртки → старый обработчик, при выгрузке модуля старый возвращается |
 | `scheduler()` | `schedule(name, delay, task)`, `fixedRate(name, initialDelay, period, task)` (ThreadPool Mobius) |
 | `db()` | `connection()`, `update(sql, params...)`, `query/queryOne(sql, RowMapper, params...)`, `table("x")` → `mod_<id>_x` |
 | `resources()` | `path("data/...")`, `html("95000.htm")` → путь для `NpcHtmlMessage.setFile` (`data/html/modules/<id>/95000.htm`) |
@@ -30,12 +30,18 @@ public interface GameModule {
 | `cleanup(name, Runnable)` | действие при выключении модуля (disable, circuit breaker, остановка сервера), в обратном порядке регистраций — например вывести ботов из мира |
 | `onStoreDeal(StoreDealListener)` | с 1.3: каждая строка удачной сделки в стоковой частной лавке (`StoreDeal`: продавец, покупатель, предмет, количество, цена за штуку, лавка-скупка ли; хук `P5-STORE-DEAL`), боты тоже. Только сообщает, сделку не меняет; снимается при выключении |
 | `onBotTradeRequest(BotTradeListener)` | с 1.4: настоящий игрок запросил трейд у бота (хук `P6-BOT-TRADE`, стоковый запрос уже отправлен); слушатель может ответить за бота (`true` = ответил: принял через `bot.startTrade(requester)` или отказал). Только когда партнёр — бот; снимается при выключении |
+| `onBotPartyRequest(BotPartyListener)` | с 1.5: настоящий игрок пригласил бота в пати (хук `P6-BOT-PARTY`, стоковое приглашение висит 15 с, у бота `activeRequester` = игрок); слушатель берёт ответ на себя (`true`) и отвечает позже со своего потока, как стоковый `RequestAnswerJoinParty`. С 1.8: `onPartyBusy` — бот уже в пати (пара ботов): модуль может ответить социально вместо стокового «член другой пати». Только когда цель — бот; снимается при выключении |
+| `onBotDuelRequest(BotDuelListener)` | с 1.9: настоящий игрок вызвал бота на дуэль (хук `P7-BOT-DUEL`, стоковый `ExDuelAskStart` уже ушёл); слушатель отвечает позже, как стоковый `RequestDuelAnswerStart`. Только когда цель — бот; снимается при выключении |
+| `onBotAttackable(BotAttackableListener)` | с 1.10: стоковый `Player.isAutoAttackable` вернул false; слушатель может всё же разрешить атаку (хук `P7-ATTACKABLE`, ПК-боты на белых вне взаимного PvP). Без слушателей = сток; снимается при выключении |
+| `onBotPledgeRequest(BotPledgeListener)` | с 1.11: настоящий игрок пригласил бота в клан / academy (хук `P7-BOT-PLEDGE`, стоковый `AskJoinPledge` уже ушёл); слушатель отвечает позже стоковой последовательностью ответа. Только когда цель — бот; снимается при выключении |
+| `onDrops(DropListener)` | с 1.6: дроп и спойл мёртвого монстра (хук `P7-DROP-FLOAT`): слушатель может собрать их из стоковых роллов (`stockRoll`), `null` = сток |
+| `onQuestReward(QuestRewardListener)` | с 1.6: количество предмета-награды квеста после стоковых рейтов (хук `P7-QUEST-REWARD`) |
 | `metrics()` | `counter(name).inc()/add()/get()`, `snapshot()`; видны в `//module info` |
 
 Классы модуля грузит отдельный class loader: сначала ядро и платформа, потом свой jar, потом jar'ы объявленных зависимостей.
 Другие модули невидимы.
 
-История: **1.4.0** (фаза 5, хук из фазы 6) — `onBotTradeRequest` (модуль `economy-market`, хук `P6-BOT-TRADE`); **1.3.0** (фаза 5) — `onStoreDeal` (хук `P5-STORE-DEAL`); модули с `^1.0`–`^1.3` работают как раньше.
+История: **1.11.0** (фаза 7e) — `onBotPledgeRequest` (хук `P7-BOT-PLEDGE`); **1.10.0** (фаза 7c) — `onBotAttackable` (хук `P7-ATTACKABLE`); **1.9.0** (фаза 7b) — `onBotDuelRequest` (хук `P7-BOT-DUEL`); **1.8.0** (фаза 6d) — `BotPartyListener.onPartyBusy` (хук `P6-BOT-PARTY` busy); **1.7.0** (extras) — `handlers().wrapBypass`; **1.6.0** (рейты) — `onDrops`, `onQuestReward`; **1.5.0** (фаза 6) — `onBotPartyRequest`; **1.4.0** (фаза 5) — `onBotTradeRequest`; **1.3.0** (фаза 5) — `onStoreDeal`; модули с `^1.0`–`^1.10` работают как раньше.
 **1.2.0** (фаза 3) — `botPresence` и `cleanup` (модуль `bots-core`, хуки `P3-BOT-CHARINFO`, `P3-BOT-WHISPER`);
 модули с `^1.0`/`^1.1` работают как раньше.
 **1.1.0** (фаза 2) — новый тип данных `initialEquipment` в `module.json` (стартовая экипировка, хук `P2-DATA-INITEQUIP`);

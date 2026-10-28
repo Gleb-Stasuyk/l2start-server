@@ -184,6 +184,12 @@ final class MarketRepository {
         return db.update("DELETE FROM items WHERE owner_id = ? AND loc = 'INVENTORY'", charId);
     }
 
+    /** Inventory of every shopper/browser persona (tutorial junk after logout). */
+    int clearShopperBags() throws SQLException {
+        return db.update("DELETE it FROM items it INNER JOIN mod_bots_core_identity i ON i.char_id = it.owner_id INNER JOIN "
+            + db.table("shopper") + " s ON s.bot_id = i.bot_id WHERE it.loc = 'INVENTORY'");
+    }
+
     /** Generated places of a town, in their order. */
     List<org.l2start.economy.market.model.StoreSpots.Spot> spots(String town) throws SQLException {
         return db.query("SELECT town, spot, x, y, z, heading, kind, profile, legacy, race, sex, class_id FROM " + db.table("spot") + " WHERE town = ? ORDER BY idx", rs -> new org.l2start.economy.market.model.StoreSpots.Spot(

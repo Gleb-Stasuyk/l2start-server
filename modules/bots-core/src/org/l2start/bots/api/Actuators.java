@@ -64,4 +64,111 @@ public interface Actuators {
     default ActionResult unsummon() {
         return ActionResult.INVALID;
     }
+
+    // ------------------------------------------------------------------ phase 6: party and chat (stock sequences)
+
+    /**
+     * Answer the pending party invitation like the client's dialog (stock {@code RequestAnswerJoinParty}): yes = join
+     * (or found) the inviter's party, no = "declined". INVALID when nothing is pending any more (expired).
+     */
+    default ActionResult answerParty(boolean accept) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Phase 7b: answer a pending duel ask like the stock {@code RequestDuelAnswerStart} (hook P7-BOT-DUEL).
+     * INVALID when nothing is pending.
+     */
+    default ActionResult answerDuel(boolean accept) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Phase 7e: answer a pending clan/academy invite like the stock {@code RequestAnswerJoinPledge}
+     * (hook P7-BOT-PLEDGE). INVALID when nothing is pending.
+     */
+    default ActionResult answerPledge(boolean accept) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Phase 7e: invite an online live player into this bot's clan (stock {@code RequestJoinPledge} sequence).
+     * Only the clan leader should call this. {@code pledgeType} 0 = main, -1 = academy.
+     */
+    default ActionResult inviteClan(String playerName, int pledgeType) {
+        return ActionResult.INVALID;
+    }
+
+    /** Phase 7e: write in clan chat (stock {@code ChatType.CLAN}). */
+    default ActionResult sayClan(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /** Leave its party (stock {@code RequestWithDrawalParty}). */
+    default ActionResult leaveParty() {
+        return ActionResult.INVALID;
+    }
+
+    /** Hand the party lead to this member (stock {@code RequestChangePartyLeader}; only the leader can). */
+    default ActionResult giveLeader(int objectId) {
+        return ActionResult.INVALID;
+    }
+
+    /** Write in the party chat (stock {@code ChatParty}); at most 6 lines a minute with {@link #say}. */
+    default ActionResult sayParty(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /** Whisper to a player who is online (stock {@code ChatWhisper}): only as an answer, never first (phase 6). */
+    default ActionResult whisper(String to, String text) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Phase 6g: the named player has this bot on their stock {@code BlockList} (or {@code /blockall}). Brains stay
+     * silent and refuse party when true.
+     */
+    default boolean playerBlocksUs(String playerName) {
+        return false;
+    }
+
+    /** Shout chat (stock {@code ChatShout}, region or global as the server is set). Phase 6d: LFP/LFM in towns. */
+    default ActionResult sayShout(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /** Trade chat (stock {@code ChatTrade}). Phase 6d: LFP/LFM alternate channel. */
+    default ActionResult sayTrade(String text) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Invite an online real player to the bot's party (stock {@code RequestJoinParty} sequence). Phase 6d: only as an
+     * answer to the player's whisper or LFP reply — never first. The player gets the stock dialog.
+     */
+    default ActionResult inviteParty(String playerName) {
+        return ActionResult.INVALID;
+    }
+
+    /** A social action (/socials: 2 greeting, 3 victory, 5 yes, 6 no, 7 bow, ...) seen by everybody around. */
+    default ActionResult social(int id) {
+        return ActionResult.INVALID;
+    }
+
+    /**
+     * Nearest gatekeeper walk target from the world catalogue (KT12 F1 catch-up). Null when the catalogue is unknown
+     * (tests without one, or no GK anchors).
+     */
+    default Pos nearestGk() {
+        return null;
+    }
+
+    /**
+     * One stock gatekeeper hop toward {@code dest} (TeleporterData NORMAL destination). Must stand next to a GK NPC.
+     * {@link ActionResult#NOT_REACHABLE} = walk closer to {@link #nearestGk()} first; never teleports straight to the
+     * player from the air.
+     */
+    default ActionResult teleportViaGk(Pos dest) {
+        return ActionResult.INVALID;
+    }
 }

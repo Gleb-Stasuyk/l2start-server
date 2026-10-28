@@ -63,6 +63,14 @@
 | `AfkShare` | `0.15` | этап 4d: шанс постоять AFK 1–10 мин за охоту (у NPC в городе — вдвое меньше) |
 | `PartyPlay` | `true` | этап 4g: поведение в паре/тройке (см. ниже); `false` = каждый сам по себе |
 | `Summons` | `true` | этап 4c: саммонеры вызывают слугу на охоте, посылают его на цель, лечат его и берегут MP, пока он танкует; `false` = без слуг |
+| `Social` | `true` | этап 6d: поиск пати в городах (LFP/LFM шаут/трейд), ответы на шёпот и на LFP игрока; `false` = как до 6d (инвайты 6b/6c остаются) |
+| `LfpReplies` | `2` | этап 6d: сколько ботов максимум отвечают шёпотом на одно LFP/LFM игрока (0–5) |
+| `SocialNoise` | `lively` | этап 6d/6g: `quiet` / `normal` / `lively` — как часто боты пишут LFP/LFM и болтают в пати |
+| `PvpAggression` | `normal` | этап 7a/7g: `off` / `low` / `normal` / `high` — инициатива к живым (`off` = не нападать первым; защита и месть отдельно) |
+| `PvpPlayerCooldown` | `12m` | этап 7a: пауза между решениями «напасть первым» на одного и того же живого |
+| `PvpProtectParty` / `PvpProtectClan` | `on` | этап 7a: защита пати/клана (клан — с 7d); не гасятся `off` |
+| `PvpRevenge` | `on` | этап 7a: месть по `KILLED_ME`/`ATTACKED_ME`; не гасится `off` |
+| `PvpRevengeTimeout` | `30m` | этап 7a: сколько держится обида (`0` = всегда) |
 
 ## Выживание и кайт (этап 4a)
 - **Банки:** только в бою, ниже личного порога; лучшая из имеющихся (Greater → обычная → Lesser), не чаще отката (10 с).
@@ -154,3 +162,7 @@
 - После боя бот 60 с не реагирует на того же игрока, если тот не ударит снова.
 
 Остальное поведение — константы мозга; выключение — `//module disable bots-brain-basic` или `Brain=` в `bots-core`.
+
+**Фаза 6 (6b–6g):** ответ на приглашение в пати живого игрока (`PartyDecision`) и игра с ним (режим компаньона в `BasicBrain`, команды пати-чата `PartyCommands`); поиск пати в городах (`maybeShoutLfp`, ответы на шёпот/LFP, `PartyRedirect`); ответы на шёпот (`WhisperParse`) и реакции в пати-чате (GRATS / THANKS_BUFF / SORRY_KS — без `SocialAction`); 6g — молчание при busy/BlockList/«отстань», `SocialNoise` на болтовню. Простым языком — `docs/BOTS_SOCIAL.md`.
+
+**Фаза 7a/7b (PvP):** зоны/`pvpFlag`/`karma`, обиды `ATTACKED_ME`/`KILLED_ME` (месть не мгновенно, таймаут `PvpRevengeTimeout`); `PvpDecision` → бой/бег/зов пати; инициатива только в PvP-зоне при перевесе, не на &lt;20, `PvpAggression≠off` для живых, кулдаун `PvpPlayerCooldown`; защита пати (`PvpProtectParty`); дуэли через хук `P7-BOT-DUEL` (`DuelDecision`); счётчики `//bots pvp`.

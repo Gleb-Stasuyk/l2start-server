@@ -28,6 +28,27 @@ public final class BotRegistry {
         byName.remove(key(r.name()), r);
     }
 
+    /** Update name index after a rename (identity already updated on the record). */
+    public void rename(BotRecord r, String oldName, String newName) {
+        if ((r == null) || (newName == null)) {
+            return;
+        }
+        if (oldName != null) {
+            byName.remove(key(oldName), r);
+        }
+        r.setName(newName);
+        byName.put(key(newName), r);
+    }
+
+    public BotRecord byBotId(int botId) {
+        for (BotRecord r : byChar.values()) {
+            if (r.botId() == botId) {
+                return r;
+            }
+        }
+        return null;
+    }
+
     public boolean isBot(Player player) {
         return (player != null) && byChar.containsKey(player.getObjectId());
     }

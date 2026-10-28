@@ -3,9 +3,10 @@
 #
 #   bash tools/smoke.sh [--build]
 #
-# --build  builds l2start-server:dev (target runtime) and l2start-server:smoke (target smoke) first.
-# Uses its own database volume (l2s-smoke-db-data), removed at the end; the normal l2s-db-data is never touched.
-# It REPLACES the running l2s-* containers (same names/ports). Start the normal stack afterwards (start.bat solo).
+# --build  builds l2start-server:smoke-runtime (target runtime) and l2start-server:smoke (target smoke) first.
+# Runs as its own compose project "l2s-smoke" (containers l2s-smoke-*, network l2s-smoke-net, volumes l2s-smoke-*,
+# images l2start-server:smoke-runtime and :smoke, no host ports), removed at the end. The solo/online stack (l2s-*
+# containers, l2s-db-data) is never touched and may keep running.
 #
 # Scenarios:
 # The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market: on in both profiles; bots-core,
@@ -24,8 +25,8 @@
 #   7 bots      solo, AutoCreate=20 AutoSpawn=10, RequireGeodata=false -> 20 bot characters (banned accounts, online=0,
 #                                                      starting gear, personas, state), 10 in the world, logged out on shutdown;
 #                                                      brain 'basic' runs: the bots walk, attack and kill monsters, 0 brain errors;
-#                                                      after a restart (brain off, so they stand) the SAME 10 come back (restore) at the
-#                                                      same places, nothing created twice
+#                                                      after a restart (brain off, so they stand) the SAME 10 come back (restore) near the
+#                                                      same places (every login scattered 150..2500), nothing created twice
 set -uo pipefail
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -34,7 +35,9 @@ ENVF=profiles/solo.env
 # shellcheck disable=SC1090
 . "./$ENVF"
 DBN=${L2S_DB_NAME:-l2start}
-C=(docker compose --env-file "$ENVF" -f docker-compose.yml -f compose.smoke.yml)
+C=(docker compose -p l2s-smoke --env-file "$ENVF" -f docker-compose.yml -f compose.smoke.yml)
+DBC=l2s-smoke-db
+GAMEC=l2s-smoke-game
 BASE="$ROOT/tools/smoke/baseline.txt"
 OUT=${SMOKE_OUT:-$ROOT/build/smoke}
 mkdir -p "$OUT"
@@ -46,21 +49,29 @@ say() { echo "$*" | tee -a "$SUMMARY"; }
 ok() { say "  PASS  $*"; }
 ko() { say "  FAIL  $*"; fails=$((fails + 1)); }
 check() { local d="$1"; shift; if "$@"; then ok "$d"; else ko "$d"; fi; }
-sql() { docker exec l2s-db mariadb -uroot -p"$L2S_DB_PASSWORD" -N -B "$DBN" -e "$1" 2>/dev/null | tr -d '\r'; }
-gamelog() { docker logs l2s-game 2>&1 | tr -d '\r'; }
+sql() { docker exec "$DBC" mariadb -uroot -p"$L2S_DB_PASSWORD" -N -B "$DBN" -e "$1" 2>/dev/null | tr -d '\r'; }
+gamelog() { docker logs "$GAMEC" 2>&1 | tr -d '\r'; }
 has() { grep -qF -- "$1" "$2"; }
 hasnt() { ! grep -qF -- "$1" "$2"; }
 counts() { sed -E 's/^\[[^]]*\] //' "$1" | grep -iE 'loaded|spawn files parsed|spawns have been initialized' | grep -v 'Server loaded in' | grep -vE '^(Platform|Module\[)' | grep -v 'FIXTURE'; }
 state_is() { grep -qE "Platform:   $1 [^ ]+ $2(:|\$)" "$3"; }
+# rates-floating SELFTEST lines (docs/RATES_PLAN.md): 3 levels, adena exactly x5, spoil x1.5..x9 of stock, exact items never above 1
+rates_lines() { grep -E 'Module\[rates-floating\]: SELFTEST mob ' "$1"; }
+rates_adena() { [ "$(rates_lines "$1" | grep -cE 'adena x(4\.99[5-9]|5\.00[0-5]) ')" = 3 ]; }
+rates_items() {
+  [ "$(rates_lines "$1" | wc -l)" = 3 ] || return 1
+  rates_lines "$1" | awk '{ if (!match($0, /spoil pieces\/kill [0-9.]+ -> [0-9.]+ \(x[0-9.]+/)) bad=1; else { s=substr($0, RSTART, RLENGTH); sub(/.*\(x/, "", s); if (s+0 < 1.5 || s+0 > 9) bad=1 }
+    if (!match($0, /exact max [01]$/)) bad=1 } END { exit bad }'
+}
 
 wait_game() { # wait_game healthy|exited TIMEOUT_S
   local want=$1 limit=$2 t=0 st
   while [ $t -lt "$limit" ]; do
-    st=$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{end}}' l2s-game 2>/dev/null || echo missing/)
+    st=$(docker inspect -f '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$GAMEC" 2>/dev/null || echo missing/)
     case "$want/$st" in
       healthy/running/healthy) return 0 ;;
       exited/exited/*) return 0 ;;
-      healthy/exited/*) echo "game exited (code $(docker inspect -f '{{.State.ExitCode}}' l2s-game))"; return 1 ;;
+      healthy/exited/*) echo "game exited (code $(docker inspect -f '{{.State.ExitCode}}' "$GAMEC"))"; return 1 ;;
     esac
     sleep 5; t=$((t + 5))
   done
@@ -76,16 +87,16 @@ start_game() { # start_game PROFILE DISABLE_ALL FIXTURES(on|off) [BOTS_CREATE BO
 
 cleanup() {
   "${C[@]}" down --remove-orphans >/dev/null 2>&1 || true
-  docker volume rm -f l2s-smoke-db-data l2s-smoke-game-logs >/dev/null 2>&1 || true
+  docker volume rm -f l2s-smoke-db-data l2s-smoke-login-logs l2s-smoke-game-logs >/dev/null 2>&1 || true
 }
 
 if [ "${1:-}" = "--build" ]; then
   say "building images ..."
   # relative paths from the repo root (absolute /f/... paths would break docker.exe under Git Bash)
-  (cd "$ROOT" && docker build -f docker/Dockerfile --target runtime -t l2start-server:dev .) || exit 2
+  (cd "$ROOT" && docker build -f docker/Dockerfile --target runtime -t l2start-server:smoke-runtime .) || exit 2
   (cd "$ROOT" && docker build -f docker/Dockerfile --target smoke -t l2start-server:smoke .) || exit 2
 fi
-docker image inspect l2start-server:dev l2start-server:smoke >/dev/null 2>&1 || { echo "images missing: run with --build"; exit 2; }
+docker image inspect l2start-server:smoke-runtime l2start-server:smoke >/dev/null 2>&1 || { echo "images missing: run with --build"; exit 2; }
 
 say "== smoke $(date '+%Y-%m-%d %H:%M:%S %Z'), output in $OUT"
 cleanup
@@ -111,7 +122,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 14 discovered: 8 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 17 discovered: 11 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -154,7 +165,7 @@ MIG=$(sql "SELECT COUNT(*) FROM platform_module_migrations")
 
 # ---- 3 restart: nothing is migrated twice
 say "-- 3 restart"
-docker restart -t 120 l2s-game >/dev/null
+docker restart -t 120 "$GAMEC" >/dev/null
 sleep 10
 if wait_game healthy 900; then ok "game healthy after restart"; else ko "game healthy after restart"; fi
 gamelog > "$OUT/3-restart.log"
@@ -168,7 +179,7 @@ say "-- 4 online + fixtures (FailurePolicy=abort)"
 start_game online false on
 if wait_game exited 900; then ok "game stopped"; else ko "game stopped"; fi
 gamelog > "$OUT/4-online-abort.log"
-check "exit code 1" test "$(docker inspect -f '{{.State.ExitCode}}' l2s-game)" = 1
+check "exit code 1" test "$(docker inspect -f '{{.State.ExitCode}}' "$GAMEC")" = 1
 check "FailurePolicy=abort logged" grep -qE 'Platform: FailurePolicy=abort \(profile online\)' "$OUT/4-online-abort.log"
 check "no client port opened" hasnt "GameServer: Started" "$OUT/4-online-abort.log"
 
@@ -178,7 +189,7 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots disabled" grep -qE 'Platform: profile=online, 14 discovered: 3 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots disabled (+ world-info, town-buffer)" grep -qE 'Platform: profile=online, 17 discovered: 6 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
 check "online: stock no-store zones kept" hasnt "stores anywhere:" "$OUT/5-online.log"
 check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
@@ -188,10 +199,24 @@ real_modules() { # real_modules LOG N
   check "$2: lw-fixes RUNNING" state_is lw-fixes RUNNING "$1"
   check "$2: lw-fixes cursed weapon fix on" has "Module[lw-fixes]: enabled: CursedWeaponRefresh=true" "$1"
   check "$2: profile override AutoLoot = True" has "override game/Player.ini: AutoLoot = True" "$1"
-  check "$2: profile override DisableTutorial = True" has "override game/Player.ini: DisableTutorial = True" "$1"
+  check "$2: profile override DisableTutorial = False" has "override game/Player.ini: DisableTutorial = False" "$1"
+  check "$2: rates override RateXp = 10" has "override game/Rates.ini: RateXp = 10" "$1"
+  check "$2: rates override RateSp = 10" has "override game/Rates.ini: RateSp = 10" "$1"
+  check "$2: rates override RateQuestRewardAdena = 5" has "override game/Rates.ini: RateQuestRewardAdena = 5" "$1"
+  check "$2: rates override RateQuestReward = 1" has "override game/Rates.ini: RateQuestReward = 1" "$1"
+  check "$2: rates override QuestItemDropAmountMultiplier = 1" has "override game/Rates.ini: QuestItemDropAmountMultiplier = 1" "$1"
+  check "$2: rates override RateDropManor = 3" has "override game/Rates.ini: RateDropManor = 3" "$1"
   check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
   check "$2: no platform error for starter-kit / lw-fixes / economy-market" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes|economy-market) ' \"\$0\"" "$1"
   check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
+  check "$2: rates-floating RUNNING (hooks P7-DROP-FLOAT, P7-QUEST-REWARD)" state_is rates-floating RUNNING "$1"
+  check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, champion x2.0 \(adena x3.0\), adena x5.0' "$1"
+  check "$2: platform API 1.11.0" grep -qE 'Platform: API 1\.11\.0,' "$1"
+  check "$2: world-info RUNNING (hook P8-TELEPORT-NAME)" state_is world-info RUNNING "$1"
+  check "$2: town-buffer RUNNING (buffers)" state_is town-buffer RUNNING "$1"
+  check "$2: rates override XP x10 applied" has "override game/Rates.ini: RateXp = 10" "$1"
+  check "$2: extras: champions on (Custom override)" has "override game/Custom/ChampionMonsters.ini: ChampionEnable = True" "$1"
+  check "$2: extras: shift+click view for players" has "override game/NPC.ini: AltGameViewNpc = True" "$1"
   check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
   if grep -vE "$VOLATILE" "$OUT/baseline.txt" | diff - "$OUT/$2-counts.txt" > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
@@ -202,15 +227,24 @@ real_modules "$OUT/5-online.log" 5
 say "-- 6 solo, real modules only"
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
+t=0; while [ $t -lt 120 ] && ! gamelog | grep -E 'Module\[rates-floating\]: SELFTEST done' >/dev/null; do sleep 3; t=$((t + 3)); done
 gamelog > "$OUT/6-solo.log"
-check "summary: 5 running, fixtures disabled" grep -qE 'Platform: profile=solo, 14 discovered: 5 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+say "   rates selftest:"; rates_lines "$OUT/6-solo.log" | sed -E 's/.*SELFTEST //' | cut -c1-240
+check "rates SELFTEST finished" grep -qE 'Module\[rates-floating\]: SELFTEST done' "$OUT/6-solo.log"
+check "rates SELFTEST: adena exactly x5 at levels 20/40/60" rates_adena "$OUT/6-solo.log"
+check "rates SELFTEST: spoil x1.5..x9 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
+check "summary: 8 running, fixtures disabled" grep -qE 'Platform: profile=solo, 17 discovered: 8 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
 check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bots-core\]: brain 'basic' registered \(in use\)" "$OUT/6-solo.log"
 check "bots-brain-basic: hunting grounds loaded" grep -qE "Module\[bots-brain-basic\]: brain 'basic' registered: [0-9]+ hunting grounds around 5 starting villages" "$OUT/6-solo.log"
 check "runtime started" grep -qE 'Module\[bots-core\]: runtime: [0-9]+ shards, wave 100 ms, budget 25 ms' "$OUT/6-solo.log"
 check "bots-core ready, no geodata in the smoke image" grep -qE 'Module\[bots-core\]: ready: 0 bots known .*geodata in starting villages: NO' "$OUT/6-solo.log"
-check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_account mod_bots_core_identity mod_bots_core_persona mod_bots_core_progress mod_bots_core_state "
+check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%'" | sort | tr '\n' ' ')" = "mod_bots_core_academy_reward mod_bots_core_account mod_bots_core_clan mod_bots_core_clan_member mod_bots_core_identity mod_bots_core_memory mod_bots_core_newbie mod_bots_core_persona mod_bots_core_pk_ledger mod_bots_core_player_clan mod_bots_core_progress mod_bots_core_state "
+# phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
+check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify + busy)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" -ge 3
+check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
+check "platform API 1.11.0 (phase 7e pledge hook)" grep -qE 'Platform: API 1\.11\.0' "$OUT/6-solo.log"
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"
@@ -257,8 +291,8 @@ INWORLD="SELECT i.char_name FROM mod_bots_core_identity i JOIN mod_bots_core_sta
 sql "$INWORLD" > "$OUT/7-inworld-before.txt"
 sql "SELECT i.char_name, i.class_id, c.x, c.y, c.z, c.online, a.accessLevel FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN accounts a ON a.login=i.account_name ORDER BY i.bot_id" > "$OUT/7-bots.txt"
 POS="SELECT i.char_name, c.x, c.y, c.z FROM mod_bots_core_identity i JOIN characters c ON c.charId=i.char_id JOIN mod_bots_core_state s ON s.bot_id=i.bot_id WHERE s.in_world=1 AND c.curHp > 0 ORDER BY 1"
-docker stop -t 120 l2s-game >/dev/null
-docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/7-bots-stop.log"
+docker stop -t 120 "$GAMEC" >/dev/null
+docker logs "$GAMEC" 2>&1 | tr -d '\r' > "$OUT/7-bots-stop.log"
 check "clean shutdown: the 10 bots logged out" grep -qE 'Module\[bots-core\]: logged out 10 bots \((server shutdown|module stopped)\)' "$OUT/7-bots-stop.log"
 sql "$POS" > "$OUT/7-pos-before.txt"
 # restart with brain "none": restored bots stand still, so their places can be compared at the next stop
@@ -273,17 +307,18 @@ check "still 20 bots, 20 accounts" test "$(sql "SELECT COUNT(*) FROM mod_bots_co
 check "ready line sees 20 bots, 10 to restore" grep -qE 'Module\[bots-core\]: ready: 20 bots known \(0 retired, 0 given a persona\), to restore 10' "$OUT/7-bots-restart.log"
 sql "$INWORLD" > "$OUT/7-inworld-after.txt"
 check "the same 10 bots are in the world after the restart" diff -q "$OUT/7-inworld-before.txt" "$OUT/7-inworld-after.txt"
-docker stop -t 120 l2s-game >/dev/null
+docker stop -t 120 "$GAMEC" >/dev/null
 sql "$POS" > "$OUT/7-pos-after.txt"
 # a bot that was dead at the 1st stop goes to town after the restart: compare the ones alive at the 1st stop
 cut -f1 "$OUT/7-pos-before.txt" > "$OUT/7-pos-names.txt"
 grep -F -w -f "$OUT/7-pos-names.txt" "$OUT/7-pos-after.txt" > "$OUT/7-pos-after-same.txt"
-check "same places: positions saved at the 2nd stop == positions at the 1st stop (>= 8 of 10 bots alive)" bash -c "diff -q \"\$0\" \"\$1\" && test \$(wc -l < \"\$0\") -ge 8" "$OUT/7-pos-before.txt" "$OUT/7-pos-after-same.txt"
+# every login is scattered (docs/STARTER_ZONES_PLAN.md S1): back near the same places, never on the very same spot
+check "near the same places: back 150..2500 from where they logged out (>= 8 of 10 bots alive)" bash -c 'join -t "$(printf "\t")" <(sort "$0") <(sort "$1") | awk -F"\t" "{ d = sqrt((\$2 - \$5) ^ 2 + (\$3 - \$6) ^ 2); if ((d >= 149) && (d <= 2500)) ok++ } END { exit !(ok >= 8) }"' "$OUT/7-pos-before.txt" "$OUT/7-pos-after-same.txt"
 
 # ---- 8 presence director: two test players (Anchors) - one in Giran, one on a level 39-40 ground (Field of Silence)
 say "-- 8 presence director (Anchors: Giran + Field of Silence)"
-docker stop -t 120 l2s-game >/dev/null 2>&1 || true
-export SMOKE_BOTS_PRESENCE=director SMOKE_BOTS_ANCHORS="82800;148500;-3450,88659;189101;-3610" SMOKE_MARKET_SELFTEST=true SMOKE_MARKET_STORES=Giran:60
+docker stop -t 120 "$GAMEC" >/dev/null 2>&1 || true
+export SMOKE_BOTS_PRESENCE=director SMOKE_BOTS_ANCHORS="82800;148500;-3450,88659;189101;-3610" SMOKE_MARKET_SELFTEST=true SMOKE_MARKET_STORES=Giran:120
 start_game solo false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 check "director: anchors 2, old in-world marks cleared" wait_log 'Module\[bots-core\]: presence: director \([0-9]+ old in-world marks cleared, anchors 2\)' 300
@@ -298,23 +333,23 @@ check "director: no bots-core errors" bash -c "! grep -E 'Module\[bots-(core|bra
 say "   last director/runtime lines:"; grep -E 'DIRECTOR players=|BOTS world=|presence: director|overload:' "$OUT/8-director.log" | tail -6 | cut -c1-400
 say "   error lines (first 15):"; grep -E 'Module\[bots-(core|brain-basic)\]: .*(ERROR|cannot)|Platform: module bots-(core|brain-basic) |brain of |SEVERE|Exception' "$OUT/8-director.log" | grep -Ev 'slow call|cannot tell' | head -15 | cut -c1-400
 # economy-market 5b-5f: 60 static bot traders at generated Giran places (polygon), crafters at the Adventure Guildsman, the 4UDO service trader, dwarf crafters
-check "traders: 60 store places generated in Giran (kept in the database)" wait_log 'Module\[economy-market\]: traders: 60 new store places generated in Giran' 240
+check "traders: Giran store places generated (kept in the database)" wait_log 'Module\[economy-market\]: traders: [0-9]+ new store places generated in Giran' 240
 check "traders: the first store opened in Giran" wait_log 'Module\[economy-market\]: trader .* opened ' 240
-t8=0; while [ $t8 -lt 240 ] && [ "$(gamelog | grep -cE 'Module\[economy-market\]: trader .* opened ')" -lt 58 ]; do sleep 3; t8=$((t8 + 3)); done
-check "traders: >= 55 stores opened at the start without waiting for players" test "$(gamelog | grep -cE 'Module\[economy-market\]: trader .* opened (SELL|PACKAGE|BUY|CRAFT|SERVICE) ')" -ge 55
+t8=0; while [ $t8 -lt 240 ] && [ "$(gamelog | grep -cE 'Module\[economy-market\]: trader .* opened ')" -lt 100 ]; do sleep 3; t8=$((t8 + 3)); done
+check "traders: >= 100 stores opened at the start without waiting for players" test "$(gamelog | grep -cE 'Module\[economy-market\]: trader .* opened (SELL|PACKAGE|BUY|CRAFT|SERVICE) ')" -ge 100
 check "traders: buy stores among them" wait_log 'Module\[economy-market\]: trader .* opened BUY ' 30
 check "traders: dwarf crafters (MANUFACTURE stores)" wait_log 'Module\[economy-market\]: trader .* opened CRAFT ' 30
 check "traders: 4UDO sells shots at the NPC price at 82703,147932" wait_log 'Module\[economy-market\]: trader 4UDO opened SERVICE .* at giran-4udo \(6 lines\)' 30
 check "SELFTEST: a sale from a bot sell store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST sell deal ok' 120
 check "SELFTEST: a sale to a bot buy store, no duplicated goods" wait_log 'Module\[economy-market\]: SELFTEST buy deal ok' 30
 check "SELFTEST: paying with all adena works (hook P5-STORE-ADENA)" wait_log 'Module\[economy-market\]: SELFTEST all-adena deal (ok|skipped)' 30
-check "traders: 60 places in the database (+2 resource crafters)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND profile<>'resources'")" = 60
-check "traders: places at least 60 apart" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot a JOIN mod_economy_market_spot b ON a.town=b.town AND a.spot<b.spot WHERE (a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y) < 3600")" = 0
+check "traders: >= 100 places in the database (StoresPerTown 120, polygon fit)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND profile<>'resources'")" -ge 100
+check "traders: places at least 50 apart" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot a JOIN mod_economy_market_spot b ON a.town=b.town AND a.spot<b.spot WHERE (a.x-b.x)*(a.x-b.x)+(a.y-b.y)*(a.y-b.y) < 2500")" = 0
 check "traders: all non-crafter places inside Gleb's market polygon (82194..82725, 147879..149330)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind<>'CRAFT' AND NOT (x BETWEEN 82194 AND 82725 AND y BETWEEN 147879 AND 149330)")" = 0
 check "traders: no place on 4UDO (82703,147932)" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND (x-82703)*(x-82703)+(y-147932)*(y-147932) < 5625")" = 0
-check "traders: crafters sit around the Adventure Guildsman (82840,147796), not on him" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 160*160 AND 430*430")" -ge 4
-check "traders: 2 static resource crafters (dwarves) around the Adventure Guildsman" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND profile='resources' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 160*160 AND 430*430")" = 2
-check "traders: a resource crafter opened its workshop (Steel, Leather, Cord ...)" wait_log 'Module\[economy-market\]: trader .* opened CRAFT .* at giran-res[12] ' 60
+check "traders: crafters sit around the Adventure Guildsman (82840,147796), not on him" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 100*100 AND 300*300")" -ge 10
+check "traders: 6 static resource crafters (dwarves) around the Adventure Guildsman" test "$(sql "SELECT COUNT(*) FROM mod_economy_market_spot WHERE town='Giran' AND kind='CRAFT' AND profile='resources' AND (x-82840)*(x-82840)+(y-147796)*(y-147796) BETWEEN 100*100 AND 300*300")" = 6
+check "traders: a resource crafter opened its workshop (Steel, Leather, Cord ...)" wait_log 'Module\[economy-market\]: trader .* opened CRAFT .* at giran-res[1-9] ' 60
 say "   places: $(sql "SELECT kind='CRAFT', COUNT(*), MIN(x), MAX(x), MIN(y), MAX(y) FROM mod_economy_market_spot WHERE town='Giran' GROUP BY kind='CRAFT'" | tr '\t\n' ' ;')"
 # 5f: bot ads in the trade chat (SelfTest: also without a real player)
 check "trade chat: bot traders write WTS/WTB ads" wait_log 'Module\[economy-market\]: trade chat ad: ' 150
@@ -334,8 +369,8 @@ say "   economy-market error lines (first 20):"; grep -v 'slow call' "$OUT/8-tra
 say "   trader bag items while they stand: $(sql "SELECT COUNT(*) FROM items WHERE loc='INVENTORY' AND owner_id IN (SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER')")"
 TRADERS="SELECT char_id FROM mod_bots_core_identity WHERE status='TRADER'"
 check "traders: personas kept per place (>= 55, no progress rows)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity i WHERE status='TRADER' AND NOT EXISTS (SELECT 1 FROM mod_bots_core_progress g WHERE g.bot_id=i.bot_id)")" -ge 55
-docker stop -t 120 l2s-game >/dev/null
-docker logs l2s-game 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
+docker stop -t 120 "$GAMEC" >/dev/null
+docker logs "$GAMEC" 2>&1 | tr -d '\r' > "$OUT/8-director-stop.log"
 check "director: bots logged out on shutdown, nobody marked to come back" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_state WHERE in_world<>0")" = 0
 sleep 1
 check "traders: stores on paper after the stop (>= 10 places with lines)" test "$(sql "SELECT COUNT(DISTINCT s.bot_id) FROM mod_economy_market_store s JOIN mod_economy_market_store_item i ON i.bot_id=s.bot_id WHERE s.town='Giran'")" -ge 10

@@ -1,16 +1,19 @@
 package org.l2start.bots.core;
 
 import org.l2jmobius.gameserver.config.GeoEngineConfig;
-import org.l2jmobius.gameserver.data.xml.MapRegionData;
+import org.l2jmobius.gameserver.data.xml.TeleporterData;
 import org.l2jmobius.gameserver.entity.Location;
 import org.l2jmobius.gameserver.entity.World;
 import org.l2jmobius.gameserver.entity.WorldObject;
 import org.l2jmobius.gameserver.entity.actor.Creature;
 import org.l2jmobius.gameserver.entity.actor.Player;
 import org.l2jmobius.gameserver.entity.actor.Summon;
-import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportWhereType;
+import org.l2jmobius.gameserver.entity.actor.enums.player.TeleportType;
+import org.l2jmobius.gameserver.entity.actor.instance.Teleporter;
 import org.l2jmobius.gameserver.entity.item.enums.ItemLocation;
 import org.l2jmobius.gameserver.entity.item.instance.Item;
+import org.l2jmobius.gameserver.entity.teleporter.TeleportHolder;
+import org.l2jmobius.gameserver.entity.teleporter.TeleportLocation;
 import org.l2jmobius.gameserver.geoengine.GeoEngine;
 import org.l2jmobius.gameserver.handler.IItemHandler;
 import org.l2jmobius.gameserver.handler.ItemHandler;
@@ -20,6 +23,7 @@ import org.l2jmobius.gameserver.network.serverpackets.CreatureSay;
 import org.l2start.bots.api.ActionResult;
 import org.l2start.bots.api.Actuators;
 import org.l2start.bots.api.Pos;
+import org.l2start.bots.director.GkGraph;
 
 /**
  * {@link Actuators} on stock AI intentions and requests, each one checked by a validator first (alive, distance,
@@ -31,16 +35,28 @@ final class MobiusActuators implements Actuators {
     static final int MAX_TARGET = 2500;
     static final int SAY_PER_MINUTE = 6;
 
+    /** Interaction range with a gatekeeper NPC (stock dialog distance). */
+    static final int GK_RANGE = 150;
+
     /** Where actions are reported (action log, metrics) and how a bot leaves the world. */
     interface Sink {
         void done(BotRecord r, String action, Object arg, ActionResult result);
 
         void logout(BotRecord r);
 
+        /** Phase 7e: leave bot-clan paper before stock-joining a live player's clan. */
+        default void prepareJoinPlayerClan(BotRecord r, Player p) {
+        }
+
         /** Run off the bot's shard (database writes). */
         void async(String name, Runnable task);
 
         long now();
+
+        /** Gatekeeper graph for catch-up (null without the presence director). */
+        default GkGraph gkGraph() {
+            return null;
+        }
     }
 
     private final BotRecord r;
@@ -230,13 +246,312 @@ final class MobiusActuators implements Actuators {
         if ((p == null) || (text == null) || text.isBlank() || (text.length() > 100)) {
             return done("say", text, ActionResult.INVALID);
         }
-        if ((said[saidPos] != 0) && ((now - said[saidPos]) < 60_000)) {
+        if (!speak(now)) {
             return done("say", text, ActionResult.COOLDOWN);
+        }
+        p.broadcastPacket(new CreatureSay(p, ChatType.GENERAL, p.getName(), text));
+        return done("say", text, ActionResult.OK);
+    }
+
+    /** One more line of chat (any channel): at most {@link #SAY_PER_MINUTE} a minute. */
+    private boolean speak(long now) {
+        if ((said[saidPos] != 0) && ((now - said[saidPos]) < 60_000)) {
+            return false;
         }
         said[saidPos] = now;
         saidPos = (saidPos + 1) % said.length;
-        p.broadcastPacket(new CreatureSay(p, ChatType.GENERAL, p.getName(), text));
-        return done("say", text, ActionResult.OK);
+        return true;
+    }
+
+    private static boolean okText(String text) {
+        return (text != null) && !text.isBlank() && (text.length() <= 100);
+    }
+
+    // ------------------------------------------------------------------ phase 6: party and chat
+
+    @Override
+    public ActionResult answerParty(boolean accept) {
+        final Player p = r.player();
+        final Player requestor = p == null ? null : p.getActiveRequester();
+        if ((p == null) || (requestor == null) || (p.isInParty() && accept)) {
+            return done("answerParty", accept, ActionResult.INVALID);
+        }
+        // stock RequestAnswerJoinParty with the answer of the dialog (1 = yes, 0 = no), party rooms aside
+        requestor.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.JoinParty(accept ? 1 : 0));
+        ActionResult res = ActionResult.OK;
+        if (accept) {
+            if (requestor.isInParty()) {
+                if (requestor.getParty().getMemberCount() >= 9) {
+                    final org.l2jmobius.gameserver.network.serverpackets.SystemMessage sm = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+                        org.l2jmobius.gameserver.network.SystemMessageId.THE_PARTY_IS_FULL);
+                    requestor.sendPacket(sm);
+                    res = ActionResult.INVALID;
+                } else {
+                    p.joinParty(requestor.getParty());
+                }
+            } else if (!p.isDead()) {
+                requestor.setParty(new org.l2jmobius.gameserver.entity.groups.Party(requestor, requestor.getPartyDistributionType()));
+                p.joinParty(requestor.getParty());
+            }
+        }
+        if (requestor.isInParty()) {
+            requestor.getParty().setPendingInvitation(false);
+        }
+        p.setActiveRequester(null);
+        requestor.onTransactionResponse();
+        return done("answerParty", accept, res);
+    }
+
+    @Override
+    public ActionResult answerDuel(boolean accept) {
+        final Player p = r.player();
+        final Player requestor = p == null ? null : p.getActiveRequester();
+        if ((p == null) || (requestor == null)) {
+            return done("answerDuel", accept, ActionResult.INVALID);
+        }
+        // stock RequestDuelAnswerStart (1v1 / party from the pending ask)
+        if (accept) {
+            if (requestor.isInDuel() || p.isInDuel()) {
+                p.setActiveRequester(null);
+                requestor.onTransactionResponse();
+                return done("answerDuel", accept, ActionResult.INVALID);
+            }
+            final boolean party = requestor.isInParty() && p.isInParty() && (requestor.getParty() != p.getParty());
+            org.l2jmobius.gameserver.managers.DuelManager.getInstance().addDuel(requestor, p, party ? 1 : 0);
+        } else {
+            final org.l2jmobius.gameserver.network.serverpackets.SystemMessage msg = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+                org.l2jmobius.gameserver.network.SystemMessageId.S1_HAS_DECLINED_YOUR_CHALLENGE_TO_A_DUEL);
+            msg.addPcName(p);
+            requestor.sendPacket(msg);
+        }
+        p.setActiveRequester(null);
+        requestor.onTransactionResponse();
+        return done("answerDuel", accept, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult answerPledge(boolean accept) {
+        final Player p = r.player();
+        if ((p == null) || (p.getRequest() == null)) {
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        final Player requestor = p.getRequest().getPartner();
+        if (requestor == null) {
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        // stock RequestAnswerJoinPledge
+        if (!accept) {
+            final org.l2jmobius.gameserver.network.serverpackets.SystemMessage sm = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+                org.l2jmobius.gameserver.network.SystemMessageId.S1_DID_NOT_RESPOND_INVITATION_TO_THE_CLAN_HAS_BEEN_CANCELLED);
+            sm.addString(p.getName());
+            requestor.sendPacket(sm);
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.OK);
+        }
+        if (!(requestor.getRequest().getRequestPacket() instanceof org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge req)) {
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        final org.l2jmobius.gameserver.entity.clan.Clan clan = requestor.getClan();
+        if (clan == null) {
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        // leave bot-clan before stock join checks (traders/leaders already declined in brain)
+        sink.prepareJoinPlayerClan(r, p);
+        if (!clan.checkClanJoinCondition(requestor, p, req.getPledgeType())) {
+            p.getRequest().onRequestResponse();
+            return done("answerPledge", accept, ActionResult.INVALID);
+        }
+        p.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.JoinPledge(requestor.getClanId()));
+        p.setPledgeType(req.getPledgeType());
+        if (req.getPledgeType() == org.l2jmobius.gameserver.entity.clan.Clan.SUBUNIT_ACADEMY) {
+            p.setPowerGrade(9);
+            p.setLvlJoinedAcademy(p.getLevel());
+        } else {
+            p.setPowerGrade(5);
+        }
+        clan.addClanMember(p);
+        p.setClanPrivileges(p.getClan().getRankPrivs(p.getPowerGrade()));
+        p.sendPacket(org.l2jmobius.gameserver.network.SystemMessageId.ENTERED_THE_CLAN);
+        final org.l2jmobius.gameserver.network.serverpackets.SystemMessage joined = new org.l2jmobius.gameserver.network.serverpackets.SystemMessage(
+            org.l2jmobius.gameserver.network.SystemMessageId.S1_HAS_JOINED_THE_CLAN);
+        joined.addString(p.getName());
+        clan.broadcastToOnlineMembers(joined);
+        clan.broadcastToOtherOnlineMembers(new org.l2jmobius.gameserver.network.serverpackets.PledgeShowMemberListAdd(p), p);
+        clan.broadcastToOnlineMembers(new org.l2jmobius.gameserver.network.serverpackets.PledgeShowInfoUpdate(clan));
+        p.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.PledgeShowMemberListAll(clan, p));
+        p.setClanJoinExpiryTime(0);
+        p.broadcastUserInfo();
+        p.getRequest().onRequestResponse();
+        // phase 7e: leave bot-clan paper and pin as player-clan member (caller also marks via module)
+        return done("answerPledge", accept, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult inviteClan(String playerName, int pledgeType) {
+        final Player p = r.player();
+        final Player target = playerName == null ? null : World.getPlayer(playerName);
+        final org.l2jmobius.gameserver.entity.clan.Clan clan = p == null ? null : p.getClan();
+        // stock RequestJoinPledge: any member with INVITE_MEMBER (checkClanJoinCondition), not only the leader
+        if ((p == null) || (target == null) || (clan == null)
+            || (target.getClient() == null) || target.getClient().isDetached() || (target.getClan() != null)
+            || !clan.checkClanJoinCondition(p, target, pledgeType)) {
+            return done("inviteClan", playerName, ActionResult.INVALID);
+        }
+        // Stock AnswerJoinPledge requires requestor packet instanceof RequestJoinPledge.
+        final org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge packet = newJoinPledgePacket(target.getObjectId(), pledgeType);
+        if ((packet == null) || !p.getRequest().setRequest(target, packet)) {
+            return done("inviteClan", playerName, ActionResult.INVALID);
+        }
+        final String sub = clan.getSubPledge(pledgeType) != null ? clan.getSubPledge(pledgeType).getName() : null;
+        target.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.AskJoinPledge(p.getObjectId(), sub, pledgeType, clan.getName()));
+        return done("inviteClan", target.getName() + ":" + pledgeType, ActionResult.OK);
+    }
+
+    private static org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge newJoinPledgePacket(int targetOid, int pledgeType) {
+        try {
+            final var p = org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge.class.getDeclaredConstructor().newInstance();
+            final var t = org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge.class.getDeclaredField("_target");
+            final var typ = org.l2jmobius.gameserver.network.clientpackets.RequestJoinPledge.class.getDeclaredField("_pledgeType");
+            t.setAccessible(true);
+            typ.setAccessible(true);
+            t.setInt(p, targetOid);
+            typ.setInt(p, pledgeType);
+            return p;
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public ActionResult sayClan(String text) {
+        return channelSay("sayClan", ChatType.CLAN, text);
+    }
+
+    @Override
+    public ActionResult leaveParty() {
+        final Player p = r.player();
+        final org.l2jmobius.gameserver.entity.groups.Party party = p == null ? null : p.getParty();
+        if ((party == null) || (party.isInDimensionalRift() && !party.getDimensionalRift().getRevivedAtWaitingRoom().contains(p))) {
+            return done("leaveParty", "", ActionResult.INVALID);
+        }
+        party.removePartyMember(p, org.l2jmobius.gameserver.entity.groups.PartyMessageType.LEFT); // stock RequestWithDrawalParty
+        return done("leaveParty", "", ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult giveLeader(int objectId) {
+        final Player p = r.player();
+        final org.l2jmobius.gameserver.entity.groups.Party party = p == null ? null : p.getParty();
+        if ((party == null) || !party.isLeader(p) || !(World.findObject(objectId) instanceof Player to) || !party.getMembers().contains(to)) {
+            return done("giveLeader", objectId, ActionResult.INVALID);
+        }
+        party.changePartyLeader(to.getName()); // stock RequestChangePartyLeader
+        return done("giveLeader", objectId, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult sayParty(String text) {
+        final Player p = r.player();
+        if ((p == null) || !p.isInParty() || !okText(text)) {
+            return done("sayParty", text, ActionResult.INVALID);
+        }
+        if (!speak(sink.now())) {
+            return done("sayParty", text, ActionResult.COOLDOWN);
+        }
+        p.getParty().broadcastCreatureSay(new CreatureSay(p, ChatType.PARTY, p.getName(), text), p); // stock ChatParty
+        return done("sayParty", text, ActionResult.OK);
+    }
+
+    @Override
+    public boolean playerBlocksUs(String playerName) {
+        final Player p = r.player();
+        final Player them = playerName == null ? null : World.getPlayer(playerName);
+        return (p != null) && (them != null)
+            && org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(them, p);
+    }
+
+    @Override
+    public ActionResult whisper(String to, String text) {
+        final Player p = r.player();
+        final Player receiver = to == null ? null : World.getPlayer(to);
+        if ((p == null) || (receiver == null) || (receiver.getClient() == null) || !okText(text)
+            || org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(receiver, p)) {
+            return done("whisper", to, ActionResult.INVALID);
+        }
+        if (!speak(sink.now())) {
+            return done("whisper", to, ActionResult.COOLDOWN);
+        }
+        receiver.sendPacket(new CreatureSay(p, ChatType.WHISPER, p.getName(), text)); // stock ChatWhisper (no client: no echo)
+        return done("whisper", to + ": " + text, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult sayShout(String text) {
+        return channelSay("sayShout", ChatType.SHOUT, text);
+    }
+
+    @Override
+    public ActionResult sayTrade(String text) {
+        return channelSay("sayTrade", ChatType.TRADE, text);
+    }
+
+    /** Stock shout/trade handler (region or global as the server is set). */
+    private ActionResult channelSay(String name, ChatType type, String text) {
+        final Player p = alive();
+        if ((p == null) || !okText(text)) {
+            return done(name, text, ActionResult.INVALID);
+        }
+        if (!speak(sink.now())) {
+            return done(name, text, ActionResult.COOLDOWN);
+        }
+        final org.l2jmobius.gameserver.handler.IChatHandler h = org.l2jmobius.gameserver.handler.ChatHandler.getInstance().getHandler(type);
+        if (h == null) {
+            return done(name, text, ActionResult.INVALID);
+        }
+        h.onChat(type, p, null, text); // stock ChatShout / ChatTrade
+        return done(name, text, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult inviteParty(String playerName) {
+        final Player p = r.player();
+        final Player target = playerName == null ? null : World.getPlayer(playerName);
+        if ((p == null) || (target == null) || (target.getClient() == null) || target.getClient().isDetached()
+            || target.isInParty() || (target == p)
+            || org.l2jmobius.gameserver.entity.actor.holders.player.BlockList.isBlocked(target, p)
+            || p.isProcessingRequest() || target.isProcessingRequest()) {
+            return done("inviteParty", playerName, ActionResult.INVALID);
+        }
+        final org.l2jmobius.gameserver.entity.groups.Party party = p.getParty();
+        if (party != null) {
+            if (!party.isLeader(p) || (party.getMemberCount() >= 9)
+                || (party.getPendingInvitation() && !party.isInvitationRequestExpired())) {
+                return done("inviteParty", playerName, ActionResult.INVALID);
+            }
+            p.onTransactionRequest(target);
+            target.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.AskJoinParty(p.getName(), party.getDistributionType()));
+            party.setPendingInvitation(true); // stock addTargetToParty; player answers (no botPartyRequest)
+            return done("inviteParty", playerName, ActionResult.OK);
+        }
+        final org.l2jmobius.gameserver.entity.groups.PartyDistributionType dist = p.getPartyDistributionType() == null
+            ? org.l2jmobius.gameserver.entity.groups.PartyDistributionType.FINDERS_KEEPERS : p.getPartyDistributionType();
+        target.sendPacket(new org.l2jmobius.gameserver.network.serverpackets.AskJoinParty(p.getName(), dist));
+        target.setActiveRequester(p);
+        p.onTransactionRequest(target);
+        p.setPartyDistributionType(dist); // stock createNewParty; player answers
+        return done("inviteParty", playerName, ActionResult.OK);
+    }
+
+    @Override
+    public ActionResult social(int id) {
+        final Player p = alive();
+        if ((p == null) || (id < 2) || (id > 16) || p.isSitting() || p.isCastingNow() || p.isAttackingNow() || p.isMoving()) {
+            return done("social", id, ActionResult.INVALID);
+        }
+        p.broadcastPacket(new org.l2jmobius.gameserver.network.serverpackets.SocialAction(p.getObjectId(), id)); // stock RequestSocialAction
+        return done("social", id, ActionResult.OK);
     }
 
     @Override
@@ -249,7 +564,7 @@ final class MobiusActuators implements Actuators {
             world.returnToTown(r);
             return done("returnToTown", "dead", ActionResult.OK);
         }
-        final Location loc = MapRegionData.getInstance().getTeleToLocation(p, TeleportWhereType.TOWN);
+        final Location loc = world.townPoint(r, p);
         if (loc == null) {
             return done("returnToTown", "", ActionResult.NOT_REACHABLE);
         }
@@ -348,5 +663,68 @@ final class MobiusActuators implements Actuators {
         }
         sink.logout(r);
         return done("logout", "", ActionResult.OK);
+    }
+
+    @Override
+    public Pos nearestGk() {
+        final GkGraph g = sink.gkGraph();
+        final Player p = r.player();
+        if ((g == null) || (p == null)) {
+            return null;
+        }
+        return g.nearestGk(new Pos(p.getX(), p.getY(), p.getZ()));
+    }
+
+    @Override
+    public ActionResult teleportViaGk(Pos dest) {
+        final Player p = alive();
+        if ((p == null) || (dest == null)) {
+            return done("teleportViaGk", dest, ActionResult.INVALID);
+        }
+        final Teleporter npc = World.getFirstVisibleObjectInRange(p, Teleporter.class, GK_RANGE);
+        if (npc == null) {
+            return done("teleportViaGk", dest, ActionResult.NOT_REACHABLE);
+        }
+        final GkGraph graph = sink.gkGraph();
+        final TeleportHolder holder = TeleporterData.getInstance().getHolder(npc.getId(), TeleportType.NORMAL.name());
+        if (holder == null) {
+            return done("teleportViaGk", dest, ActionResult.INVALID);
+        }
+        final int locId;
+        if (graph != null) {
+            final GkGraph.Hop hop = graph.nextHop(npc.getId(), dest);
+            if (hop == null) {
+                return done("teleportViaGk", "already", ActionResult.OK); // right town: brain runs to the mate
+            }
+            locId = hop.locId();
+        } else {
+            // no graph: pick the NORMAL destination closest to dest (still a stock GK landing)
+            TeleportLocation best = null;
+            double bestD = Double.POSITIVE_INFINITY;
+            for (TeleportLocation loc : holder.getLocations()) {
+                final double d = Math.hypot(loc.getX() - dest.x(), loc.getY() - dest.y());
+                if (d < bestD) {
+                    bestD = d;
+                    best = loc;
+                }
+            }
+            if (best == null) {
+                return done("teleportViaGk", dest, ActionResult.INVALID);
+            }
+            locId = best.getId();
+        }
+        final TeleportLocation loc = holder.getLocation(locId);
+        if (loc == null) {
+            return done("teleportViaGk", dest, ActionResult.INVALID);
+        }
+        if (p.isSitting()) {
+            p.standUp();
+        }
+        p.abortAttack();
+        p.abortCast();
+        p.getAI().setIntentionActive();
+        // stock GK destination (not the player's coordinates); fee skipped — bots have no client wallet for this path
+        p.teleToLocation(loc, true);
+        return done("teleportViaGk", loc.getX() + "," + loc.getY(), ActionResult.OK);
     }
 }

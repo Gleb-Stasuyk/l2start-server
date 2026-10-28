@@ -61,7 +61,27 @@ public final class RecordingActuators implements Actuators {
     @Override public ActionResult petAttack(int id) { return rec("petAttack", id, () -> next.petAttack(id)); }
     @Override public ActionResult petFollow() { return rec("petFollow", "", next::petFollow); }
     @Override public ActionResult unsummon() { return rec("unsummon", "", next::unsummon); }
+    @Override public ActionResult answerParty(boolean yes) { return rec("answerParty", yes, () -> next.answerParty(yes)); }
+    @Override public ActionResult answerDuel(boolean yes) { return rec("answerDuel", yes, () -> next.answerDuel(yes)); }
+    @Override public ActionResult answerPledge(boolean yes) { return rec("answerPledge", yes, () -> next.answerPledge(yes)); }
+    @Override public ActionResult inviteClan(String name, int type) { return rec("inviteClan", name + ":" + type, () -> next.inviteClan(name, type)); }
+    @Override public ActionResult sayClan(String text) { return rec("sayClan", text, () -> next.sayClan(text)); }
+    @Override public ActionResult leaveParty() { return rec("leaveParty", "", next::leaveParty); }
+    @Override public ActionResult giveLeader(int id) { return rec("giveLeader", id, () -> next.giveLeader(id)); }
+    @Override public ActionResult sayParty(String text) { return rec("sayParty", text, () -> next.sayParty(text)); }
+    @Override public ActionResult whisper(String to, String text) { return rec("whisper", to + ":" + text, () -> next.whisper(to, text)); }
+    @Override public ActionResult sayShout(String text) { return rec("sayShout", text, () -> next.sayShout(text)); }
+    @Override public ActionResult sayTrade(String text) { return rec("sayTrade", text, () -> next.sayTrade(text)); }
+    @Override public ActionResult inviteParty(String name) { return rec("inviteParty", name, () -> next.inviteParty(name)); }
+    @Override public ActionResult social(int id) { return rec("social", id, () -> next.social(id)); }
+
+    @Override
+    public boolean playerBlocksUs(String playerName) {
+        return next != null && next.playerBlocksUs(playerName);
+    }
     @Override public ActionResult logout() { return rec("logout", "", next::logout); }
+    @Override public Pos nearestGk() { return next == null ? null : next.nearestGk(); }
+    @Override public ActionResult teleportViaGk(Pos dest) { return rec("teleportViaGk", dest, () -> next.teleportViaGk(dest)); }
 
     @Override
     public int learnSkills() {

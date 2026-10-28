@@ -4694,6 +4694,7 @@ public class Quest implements IEventTimerEvent<String>, IEventTimerCancel<String
 			count = Integer.MAX_VALUE;
 		}
 		
+		count = org.l2start.platform.hooks.CoreHooks.questReward(player, itemId, countValue, count); // [HOOK:P7-QUEST-REWARD] valuable rewards x1
 		// Add items to player's inventory.
 		final Item itemInstance = player.getInventory().addItem(ItemProcessType.QUEST, itemId, count, player, player.getTarget());
 		if (itemInstance == null)

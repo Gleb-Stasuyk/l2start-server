@@ -76,6 +76,7 @@ public class RequestJoinPledge extends ClientPacket
 		final String pledgeName = player.getClan().getName();
 		final String subPledgeName = (player.getClan().getSubPledge(_pledgeType) != null ? player.getClan().getSubPledge(_pledgeType).getName() : null);
 		target.sendPacket(new AskJoinPledge(player.getObjectId(), subPledgeName, _pledgeType, pledgeName));
+		org.l2start.platform.hooks.CoreHooks.botPledgeRequest(player, target, _pledgeType); // [HOOK:P7-BOT-PLEDGE]
 	}
 	
 	public int getPledgeType()

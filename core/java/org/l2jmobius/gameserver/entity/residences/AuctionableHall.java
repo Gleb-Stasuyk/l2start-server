@@ -83,6 +83,37 @@ public class AuctionableHall extends ClanHall
 		return _paidUntil;
 	}
 	
+	// >>> [HOOK:P7-CH-PAID]
+	/** Sync-pay lease from CWH when unpaid (bot modules after CWH top-up). */
+	public boolean ensurePaidFromCwh()
+	{
+		final long time = System.currentTimeMillis();
+		if (_paid && (_paidUntil > time))
+		{
+			return true;
+		}
+		final Clan clan = ClanTable.getInstance().getClan(getOwnerId());
+		if ((clan == null) || (clan.getWarehouse().getAdena() < getLease()))
+		{
+			return false;
+		}
+		if (_paidUntil != 0)
+		{
+			while (_paidUntil <= time)
+			{
+				_paidUntil += CH_RATE;
+			}
+		}
+		else
+		{
+			_paidUntil = time + CH_RATE;
+		}
+		clan.getWarehouse().destroyItemByItemId(ItemProcessType.FEE, Inventory.ADENA_ID, getLease(), null, null);
+		_paid = true;
+		updateDb();
+		return true;
+	}
+	// <<< [HOOK:P7-CH-PAID]
 	/** Return Grade */
 	@Override
 	public int getGrade()

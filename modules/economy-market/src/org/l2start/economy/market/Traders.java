@@ -109,6 +109,7 @@ final class Traders {
     private final Assortment assortment;
     private final Crafts crafts;
     private final Shoppers shoppers;
+    private final MarketBrowsers browsers;
     private final TradeChat chat;
     private final Random rnd = new Random();
     private final Map<String, Store> stores = new ConcurrentHashMap<>(); // spot id
@@ -133,8 +134,25 @@ final class Traders {
         legacy = StoreSpots.load(m.ctx().resources().path("data/store-spots.xml"));
         areas = MarketAreas.load(m.ctx().resources().path("data/market-areas.xml"));
         assortment = Assortment.load(m.ctx().resources().path("data/trader-profiles.xml"));
+        try {
+            final java.nio.file.Path list = m.ctx().resources().path("data/grocery-items.txt");
+            var grocery = org.l2start.economy.market.model.GroceryItems.loadList(list);
+            if (grocery.size() == 0) {
+                final java.nio.file.Path stockData = java.nio.file.Path.of("core/dist/game/data");
+                if (java.nio.file.Files.isDirectory(stockData.resolve("buylists"))) {
+                    grocery = org.l2start.economy.market.model.GroceryItems.load(stockData);
+                }
+            }
+            if (grocery.size() > 0) {
+                assortment.setGrocery(grocery);
+                m.ctx().log().info("grocery filter: " + grocery.size() + " items from Grocer buylists");
+            }
+        } catch (Exception e) {
+            m.ctx().log().warn("grocery filter not loaded: " + e.getMessage());
+        }
         crafts = new Crafts(m);
         shoppers = new Shoppers(m, this, pool);
+        browsers = new MarketBrowsers(m, this, pool);
         meetings = new Meetings(m, this, pool);
         chat = new TradeChat(m, this, meetings);
         m.ctx().events().<org.l2jmobius.gameserver.mechanics.events.holders.actor.player.OnPlayerChat> onGlobal(org.l2jmobius.gameserver.mechanics.events.EventType.ON_PLAYER_CHAT, chat::onChat);
@@ -188,6 +206,16 @@ final class Traders {
                     s.forceRestock = true;
                     continue;
                 }
+                if (s.open && (s.soldOutAt > 0) && !s.service() && !s.craft()) {
+                    try {
+                        replaceSoldOut(s, now, night, day, nightStay);
+                    } catch (Exception e) {
+                        warnOnce("replace " + s.spot.id(), "sold-out replace at " + s.spot.id() + ": " + e.getMessage());
+                        s.forceRestock = true;
+                        refreshInPlace(s, p, now, "sold out fallback");
+                    }
+                    continue;
+                }
                 if (s.open && (s.soldOutAt > 0)) {
                     s.forceRestock = true;
                     refreshInPlace(s, p, now, "sold out");
@@ -228,6 +256,11 @@ final class Traders {
             shoppers.tick(now); // 5e
         } catch (Exception e) {
             warnOnce("shoppers " + e.getClass().getSimpleName(), "shoppers: " + e);
+        }
+        try {
+            browsers.tick(now); // Giran market browsers
+        } catch (Exception e) {
+            warnOnce("browsers " + e.getClass().getSimpleName(), "browsers: " + e);
         }
         try {
             chat.tick(now); // 5f
@@ -307,6 +340,10 @@ final class Traders {
 
     TraderPool pool() {
         return pool;
+    }
+
+    Assortment assortment() {
+        return assortment;
     }
 
     /** The trader's price of an item now (sell or buy side, by its greed). */
@@ -419,7 +456,8 @@ final class Traders {
             }
         }
         for (MarketAreas.Service sv : areas.services(town)) {
-            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), a.spacing()));
+            // keep ≥75 clear of 4UDO (smoke / walk-up room); spacing alone can be tighter
+            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), Math.max(a.spacing(), 80)));
         }
         final List<SpotGenerator.Point> keptPts = new ArrayList<>();
         for (Spot s : kept) {
@@ -480,7 +518,7 @@ final class Traders {
             }
         }
         for (MarketAreas.Service sv : areas.services(town)) {
-            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), a.spacing()));
+            blockers.add(new SpotGenerator.Blocker(sv.spot().x(), sv.spot().y(), Math.max(a.spacing(), 80)));
         }
         final SpotGenerator.Area ring = new SpotGenerator.Area(a.town(), c.x(), c.y(), c.z(), c.x() - c.rMax(), c.x() + c.rMax(), c.y() - c.rMax(), c.y() + c.rMax(), a.dz(), c.spacing(), a.npcGap(), a.doorGap(),
             a.reach());
@@ -644,6 +682,27 @@ final class Traders {
         s.row = new StoreRow(botId, s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), title, s.row.openedAt(), now, linesStart);
     }
 
+    /**
+     * Empty sell/buy store: close, drop the persona from the spot, open with a new trader immediately
+     * (Giran keeps only active shops with goods).
+     */
+    private void replaceSoldOut(Store s, long now, boolean night, long day, double nightStay) throws Exception {
+        final int oldId = (s.row == null) ? 0 : s.row.botId();
+        final String oldName = (oldId > 0) ? pool.name(oldId) : "?";
+        close(s, "sold out, replace trader");
+        if (oldId > 0) {
+            repo.dropStore(oldId);
+        }
+        s.row = null;
+        s.lines = new ArrayList<>();
+        s.soldOutAt = 0;
+        s.forceRestock = true;
+        s.reopenAt = 0;
+        open(s, now, night, day, nightStay);
+        final int neu = (s.row == null) ? 0 : s.row.botId();
+        m.ctx().log().info("trader replaced at " + s.spot.id() + ": " + oldName + " -> " + (neu > 0 ? pool.name(neu) : "?"));
+    }
+
     /** In place, without a logout: what was sold leaves the lines, the paper life runs, the store opens again refilled. */
     private void refreshInPlace(Store s, Player p, long now, String why) throws Exception {
         synchronized (s) {
@@ -744,20 +803,17 @@ final class Traders {
             s.charId = p.getObjectId();
             byChar.put(p.getObjectId(), s);
             s.open = true;
-            if ((put == 0) && buy && (budgetLeft != Long.MAX_VALUE) && !s.lines.isEmpty()) {
-                // 5d: the day budget is spent: the buyer stays, "full for today" (an empty buy list, never store NONE)
-                p.getBuyList().setTitle(StoreTitle.fit("RU".equals(pool.lang(s.row.botId())) ? "Набрал, завтра снова" : "Full today, back tmrw"));
-                s.charId = p.getObjectId();
-                p.sitDown();
-                p.setPrivateStoreType(PrivateStoreType.BUY);
-                p.broadcastUserInfo();
-                p.broadcastPacket(new PrivateStoreMsgBuy(p));
-                m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + ": day budget of the players spent, buys nothing more today");
-                return;
-            }
             if (put == 0) {
+                // empty SELL or BUY (incl. day budget spent): replace trader — no open stores with 0 lines
                 emptyBag(p);
                 s.soldOutAt = 0;
+                if (!s.service() && !s.craft()) {
+                    s.forceRestock = true;
+                    m.ctx().log().info("trader " + p.getName() + " at " + s.spot.id() + " empty " + (buy ? "BUY" : "SELL") + ": will be replaced"
+                        + ((buy && (budgetLeft != Long.MAX_VALUE)) ? " (day budget)" : ""));
+                    s.soldOutAt = System.currentTimeMillis();
+                    return;
+                }
                 s.forceRestock = true;
                 m.ctx().log().warn("trader " + p.getName() + " at " + s.spot.id() + " has nothing to show (" + s.row.profile() + "): refilled on the restock timer");
                 return;
@@ -895,8 +951,28 @@ final class Traders {
     synchronized void stop() {
         stopped = true;
         shoppers.stop();
+        browsers.stop();
         meetings.stop();
         closeAll("server stop");
+        try {
+            final int n = repo.clearShopperBags();
+            if (n > 0) {
+                m.ctx().log().info("traders: cleared " + n + " leftover shopper/browser bag rows");
+            }
+        } catch (Exception e) {
+            m.ctx().log().warn("traders: clearShopperBags: " + e.getMessage());
+        }
+    }
+
+    /** Giran SELL/BUY/CRAFT places for market browsers (open or planned spots). */
+    List<Spot> giranBrowseSpots() {
+        final List<Spot> out = new ArrayList<>();
+        for (Store s : stores.values()) {
+            if ((s.spot != null) && MarketBrowsers.TOWN.equalsIgnoreCase(s.spot.town())) {
+                out.add(s.spot);
+            }
+        }
+        return out;
     }
 
     synchronized void closeAll(String reason) {

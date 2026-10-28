@@ -125,5 +125,5 @@ jobs:
         if: always()
         working-directory: docker
         run: |
-          docker compose --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml down --remove-orphans || true
-          docker volume rm -f l2s-smoke-db-data l2s-smoke-game-logs || true
+          docker compose -p l2s-smoke --env-file profiles/solo.env -f docker-compose.yml -f compose.smoke.yml down --remove-orphans || true
+          docker volume rm -f l2s-smoke-db-data l2s-smoke-login-logs l2s-smoke-game-logs || true

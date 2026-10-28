@@ -122,6 +122,40 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onDrops(org.l2start.platform.api.DropListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.DropListener guarded = (spoil, victim, killer, roll) -> {
+            final Object[] out = { null };
+            guard.run("drops", () -> out[0] = listener.onDrops(spoil, victim, killer, roll));
+            @SuppressWarnings("unchecked")
+            final java.util.List<org.l2jmobius.gameserver.entity.item.holders.ItemHolder> list = (java.util.List<org.l2jmobius.gameserver.entity.item.holders.ItemHolder>) out[0];
+            return list;
+        };
+        org.l2start.platform.hooks.DropHooks.addDrop(entry.id(), guarded);
+        ownership.add("drops", entry.id(), () -> org.l2start.platform.hooks.DropHooks.removeDrop(entry.id(), guarded));
+    }
+
+    @Override
+    public void onTeleportName(org.l2start.platform.api.TeleportNameListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.TeleportNameListener guarded = (p, where, name) -> guard.call("teleport name", () -> listener.onTeleportName(p, where, name), name);
+        org.l2start.platform.hooks.DropHooks.addName(entry.id(), guarded);
+        ownership.add("teleportName", entry.id(), () -> org.l2start.platform.hooks.DropHooks.removeName(entry.id(), guarded));
+    }
+
+    @Override
+    public void onQuestReward(org.l2start.platform.api.QuestRewardListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.QuestRewardListener guarded = (p, id, base, rated) -> {
+            final long[] out = { rated };
+            guard.run("quest reward", () -> out[0] = listener.onQuestReward(p, id, base, rated));
+            return out[0];
+        };
+        org.l2start.platform.hooks.DropHooks.addQuest(entry.id(), guarded);
+        ownership.add("questReward", entry.id(), () -> org.l2start.platform.hooks.DropHooks.removeQuest(entry.id(), guarded));
+    }
+
+    @Override
     public void onBotTradeRequest(org.l2start.platform.api.BotTradeListener listener) {
         java.util.Objects.requireNonNull(listener, "listener");
         final org.l2start.platform.api.BotTradeListener guarded = (r, b) -> {
@@ -131,6 +165,64 @@ public final class ModuleRuntime implements ModuleContext {
         };
         org.l2start.platform.hooks.TradeHooks.add(entry.id(), guarded);
         ownership.add("botTrade", entry.id(), () -> org.l2start.platform.hooks.TradeHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
+    public void onBotPartyRequest(org.l2start.platform.api.BotPartyListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotPartyListener guarded = new org.l2start.platform.api.BotPartyListener() {
+            @Override
+            public boolean onPartyRequest(org.l2jmobius.gameserver.entity.actor.Player r, org.l2jmobius.gameserver.entity.actor.Player b) {
+                final boolean[] out = { false };
+                guard.run("bot party request", () -> out[0] = listener.onPartyRequest(r, b));
+                return out[0];
+            }
+
+            @Override
+            public boolean onPartyBusy(org.l2jmobius.gameserver.entity.actor.Player r, org.l2jmobius.gameserver.entity.actor.Player b) {
+                final boolean[] out = { false };
+                guard.run("bot party busy", () -> out[0] = listener.onPartyBusy(r, b));
+                return out[0];
+            }
+        };
+        org.l2start.platform.hooks.PartyHooks.add(entry.id(), guarded);
+        ownership.add("botParty", entry.id(), () -> org.l2start.platform.hooks.PartyHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
+    public void onBotDuelRequest(org.l2start.platform.api.BotDuelListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotDuelListener guarded = (r, b, party) -> {
+            final boolean[] out = { false };
+            guard.run("bot duel request", () -> out[0] = listener.onDuelRequest(r, b, party));
+            return out[0];
+        };
+        org.l2start.platform.hooks.DuelHooks.add(entry.id(), guarded);
+        ownership.add("botDuel", entry.id(), () -> org.l2start.platform.hooks.DuelHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
+    public void onBotAttackable(org.l2start.platform.api.BotAttackableListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotAttackableListener guarded = (t, a) -> {
+            final boolean[] out = { false };
+            guard.run("bot attackable", () -> out[0] = listener.forceAttackable(t, a));
+            return out[0];
+        };
+        org.l2start.platform.hooks.AttackableHooks.add(entry.id(), guarded);
+        ownership.add("botAttackable", entry.id(), () -> org.l2start.platform.hooks.AttackableHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
+    public void onBotPledgeRequest(org.l2start.platform.api.BotPledgeListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.BotPledgeListener guarded = (r, b, type) -> {
+            final boolean[] out = { false };
+            guard.run("bot pledge request", () -> out[0] = listener.onPledgeRequest(r, b, type));
+            return out[0];
+        };
+        org.l2start.platform.hooks.PledgeHooks.add(entry.id(), guarded);
+        ownership.add("botPledge", entry.id(), () -> org.l2start.platform.hooks.PledgeHooks.remove(entry.id(), guarded));
     }
 
     @Override
@@ -260,6 +352,34 @@ public final class ModuleRuntime implements ModuleContext {
             };
             reg.registerHandler(wrapped);
             ownership.add("bypass", String.join(",", handler.getCommandList()), () -> reg.removeHandler(wrapped));
+        }
+
+        @Override
+        public void wrapBypass(String command, java.util.function.UnaryOperator<IBypassHandler> wrapper) {
+            final BypassHandler reg = BypassHandler.getInstance();
+            final IBypassHandler previous = reg.getHandler(command);
+            if (previous == null) {
+                throw new IllegalStateException("bypass " + command + " is not registered, nothing to wrap");
+            }
+            final IBypassHandler mine = java.util.Objects.requireNonNull(wrapper.apply(previous), "wrapper result");
+            final IBypassHandler wrapped = new IBypassHandler() {
+                @Override
+                public boolean onCommand(String cmd, Player player, Creature origin) {
+                    final Boolean r = guard.call("bypass " + command, () -> mine.onCommand(cmd, player, origin), null);
+                    return (r != null) ? r : previous.onCommand(cmd, player, origin);
+                }
+
+                @Override
+                public String[] getCommandList() {
+                    return new String[] { command };
+                }
+            };
+            reg.registerHandler(wrapped);
+            ownership.add("bypass-wrap", command, () -> {
+                if (reg.getHandler(command) == wrapped) {
+                    reg.registerHandler(previous); // its other commands point to it already
+                }
+            });
         }
     }
 

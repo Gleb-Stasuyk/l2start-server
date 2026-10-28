@@ -185,7 +185,8 @@ public final class MarketAreas {
     }
 
     /** Every 8th new place without a former trader's look is a crafter. */
-    static final int CRAFT_EVERY = 8;
+    /** Every N-th new place (after legacy) is a dwarf crafter; 7 ≈ 15 CRAFT at Giran:120 (was 8 → 5 at 60). */
+    static final int CRAFT_EVERY = 7;
 
     /**
      * Kind, theme and look of new places. Place {@code index} (0-based in the town) below {@code legacy.size()} takes

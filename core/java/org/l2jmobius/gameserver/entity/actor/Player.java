@@ -8492,6 +8492,12 @@ public class Player extends Playable
 			return true;
 		}
 		
+		// >>> [HOOK:P7-ATTACKABLE]
+		if (org.l2start.platform.hooks.CoreHooks.forceAutoAttackable(this, attacker))
+		{
+			return true;
+		}
+		// <<< [HOOK:P7-ATTACKABLE]
 		return false;
 	}
 	

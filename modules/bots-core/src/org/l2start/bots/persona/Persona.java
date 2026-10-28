@@ -8,17 +8,28 @@ import org.l2start.platform.util.Json;
 /**
  * The permanent character of a bot, generated from a seed (same seed + same settings = same persona).
  * Stored as JSON in mod_bots_core_persona.data; {@link #VERSION} grows when fields are added.
+ * @param pk phase 7c: PK persona (chaotic hunter); share {@code PkBotShare}
  */
-public record Persona(int version, long seed, String name, String nameStyle, Lang lang, int classId, int futureClassId, boolean female, int face, int hairStyle, int hairColor, Traits traits, Chronotype chronotype, String timezone) {
-    public static final int VERSION = 1;
+public record Persona(int version, long seed, String name, String nameStyle, Lang lang, int classId, int futureClassId, boolean female, int face, int hairStyle, int hairColor, Traits traits, Chronotype chronotype, String timezone, boolean pk) {
+    public static final int VERSION = 2;
 
     /** Chat language (used from phase 6): RU, EN, or a Russian player who mixes in English. */
     public enum Lang {
         RU, EN, MIX
     }
 
+    /** Phase 7c: copy with PK flag changed (admin / tests). */
+    public Persona withPk(boolean value) {
+        return new Persona(VERSION, seed, name, nameStyle, lang, classId, futureClassId, female, face, hairStyle, hairColor, traits, chronotype, timezone, value);
+    }
+
+    /** Rename (digit-share trim / admin). */
+    public Persona withName(String newName) {
+        return new Persona(VERSION, seed, newName, nameStyle, lang, classId, futureClassId, female, face, hairStyle, hairColor, traits, chronotype, timezone, pk);
+    }
+
     public String toJson() {
-        final StringBuilder sb = new StringBuilder(320);
+        final StringBuilder sb = new StringBuilder(340);
         sb.append('{');
         kv(sb, "version", version).append(',');
         kv(sb, "seed", String.valueOf(seed)).append(',');
@@ -39,7 +50,8 @@ public record Persona(int version, long seed, String name, String nameStyle, Lan
         kv(sb, "skill", traits.skill()).append(',');
         kv(sb, "chattiness", traits.chattiness()).append("},");
         kv(sb, "chronotype", chronotype.name()).append(',');
-        kv(sb, "timezone", timezone);
+        kv(sb, "timezone", timezone).append(',');
+        sb.append("\"pk\":").append(pk);
         return sb.append('}').toString();
     }
 
@@ -50,7 +62,7 @@ public record Persona(int version, long seed, String name, String nameStyle, Lan
         return new Persona(i(m, "version"), Long.parseLong(String.valueOf(m.get("seed"))), s(m, "name"), s(m, "nameStyle"), Lang.valueOf(s(m, "lang")), i(m, "classId"), i(m, "futureClassId"),
             Boolean.TRUE.equals(m.get("female")), i(m, "face"), i(m, "hairStyle"), i(m, "hairColor"),
             new Traits(d(t, "aggression"), d(t, "sociability"), d(t, "greed"), d(t, "patience"), d(t, "skill"), d(t, "chattiness")),
-            Chronotype.valueOf(s(m, "chronotype")), s(m, "timezone"));
+            Chronotype.valueOf(s(m, "chronotype")), s(m, "timezone"), Boolean.TRUE.equals(m.get("pk")));
     }
 
     private static String s(Map<String, Object> m, String k) {
@@ -85,6 +97,6 @@ public record Persona(int version, long seed, String name, String nameStyle, Lan
 
     /** Short text for //bots info. */
     public String summary() {
-        return nameStyle + " name, " + lang + ", " + chronotype + ", " + timezone;
+        return nameStyle + " name, " + lang + ", " + chronotype + ", " + timezone + (pk ? ", PK" : "");
     }
 }

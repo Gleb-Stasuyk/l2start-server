@@ -1,0 +1,20 @@
+{
+  "id": "town-buffer",
+  "name": "Town buffer bots",
+  "description": "Paid buffer BOTS (Prophet personas of bots-core, like on Gleb's x100 server) sitting at the gatekeepers of Gludio 48, Dion 55, Giran 64, Aden 74, Goddard 78: trade them the price in adena (stock trade window, hook P6-BOT-TRADE) and they cast the full Prophet set for a mage or a warrior (by the payer's class) at the skill levels of a Prophet of that level; stock 20 min. Needs bots-core (solo).",
+  "version": "2.0.0",
+  "kind": "jar",
+  "platform": "^1.4",
+  "entrypoint": "org.l2start.modules.townbuffer.TownBufferModule",
+  "dependencies": [ { "id": "bots-core", "version": "^0.7.0", "optional": true } ],
+  "defaultEnabled": { "solo": true, "online": true },
+  "migrations": "sql",
+  "config": {
+    "PriceMultiplier": { "type": "double", "default": 1.0, "min": 0, "max": 100, "reloadable": true, "description": "Price of a full set x this (the title shows the real price after a relog of the bot)." },
+    "TradeTimeout": { "type": "duration", "default": "60s", "min": "10s", "max": "10m", "reloadable": true, "description": "An open trade window without a deal is cancelled after this (old server: 60 s)." },
+    "AnswerDelay": { "type": "duration", "default": "1s", "min": 0, "max": "10s", "reloadable": true, "description": "Pause before the bot accepts a trade request and before it confirms (old server: 1 s)." },
+    "BuffWait": { "type": "duration", "default": "120s", "min": "10s", "max": "10m", "reloadable": true, "description": "A paid customer farther than CastRange is waited for this long, then the rest of the set is dropped." },
+    "CastRange": { "type": "int", "default": 900, "min": 100, "max": 2000, "reloadable": true, "description": "The bot does not walk: it buffs a customer within this distance (old server: 900)." },
+    "StandMpPercent": { "type": "int", "default": 80, "min": 0, "max": 100, "reloadable": true, "description": "Out of MP while buffing: sits until this much MP (old server: 80)." }
+  }
+}

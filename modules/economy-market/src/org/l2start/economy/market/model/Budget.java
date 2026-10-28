@@ -4,7 +4,7 @@ package org.l2start.economy.market.model;
  * Step 5d: where the adena of bots comes from and how much of it may reach real players. Pure.
  * <ul>
  * <li>An hour of farming at a level (x1 Interlude, rough): 2 000 + 50 x level^2 adena (lv 20 ~22k, lv 40 ~82k, lv 60
- * ~182k, lv 76 ~291k).</li>
+ * ~182k, lv 76 ~291k), times the adena rate of the server (FarmAdenaRate, 5 with rates-floating, docs/RATES_PLAN.md).</li>
  * <li>A hunter bot earns on paper a share of that per hour it hunts unseen (the rest went to gear) and pays its shots and
  * potions from it. No other adena comes to bots.</li>
  * <li>Bots pay a real player per day at most {@code BotAdenaPerPlayerDay} (0.3) of an hour of farming at the player's
@@ -21,12 +21,23 @@ public final class Budget {
     /** Hours of paper hunting counted between two arrivals at most. */
     public static final double HUNTER_MAX_GAP_HOURS = 24;
 
+    /** Adena rate of the server (config FarmAdenaRate), 1 = x1 Interlude. */
+    private static volatile double farmRate = 1;
+
     private Budget() {
+    }
+
+    public static void setFarmRate(double rate) {
+        farmRate = Math.max(0.1, Math.min(100, rate));
+    }
+
+    public static double farmRate() {
+        return farmRate;
     }
 
     public static long farmPerHour(int level) {
         final long l = Math.max(1, Math.min(80, level));
-        return 2_000 + (50 * l * l);
+        return Math.round((2_000 + (50 * l * l)) * farmRate);
     }
 
     /** Adena bots may pay one real player of {@code level} a day. */

@@ -38,13 +38,23 @@ public final class Director {
     /** A persona that could enter: not in the world, its level now (paper or real, the higher). */
     /** @param race 0 human, 1 elf, 2 dark elf, 3 orc, 4 dwarf, -1 unknown */
     /** @param activity 0..1: how much it is "their time" now (chronotype, local time of the persona; phase 4e) */
-    public record Candidate(int botId, int level, long lastLogout, int race, double activity) {
+    /** @param clanId phase 7d bot clan (0 = none; provisional or stock) */
+    /** @param clanStockPending phase 7e: provisional clan leader — prefer spawn so stock Clan+crest appear */
+    public record Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId, boolean clanStockPending) {
+        public Candidate(int botId, int level, long lastLogout, int race, double activity, int clanId) {
+            this(botId, level, lastLogout, race, activity, clanId, false);
+        }
+
+        public Candidate(int botId, int level, long lastLogout, int race, double activity) {
+            this(botId, level, lastLogout, race, activity, 0, false);
+        }
+
         public Candidate(int botId, int level, long lastLogout, int race) {
-            this(botId, level, lastLogout, race, 1);
+            this(botId, level, lastLogout, race, 1, 0, false);
         }
 
         public Candidate(int botId, int level, long lastLogout) {
-            this(botId, level, lastLogout, -1, 1);
+            this(botId, level, lastLogout, -1, 1, 0, false);
         }
     }
 
@@ -186,6 +196,8 @@ public final class Director {
 
     /** Phase 4g: share of hunters that come as a pair or trio (bots-core PartyShare). */
     private volatile double partyShare = 0.12;
+    /** Phase 7d: clan hunters take mixed (other clan / clanless) mates with this chance. */
+    private volatile double clanMixedPartyChance = 0.25;
     private int groupSeq;
     private long parties;
     private long partyLeaves;
@@ -200,6 +212,43 @@ public final class Director {
 
     public double partyShare() {
         return partyShare;
+    }
+
+    public void setClanMixedPartyChance(double chance) {
+        clanMixedPartyChance = Math.max(0, Math.min(1, chance));
+    }
+
+    /** The starting zones: only bots of their race live there (docs/STARTER_ZONES_PLAN.md S5); null = no zones (tests). */
+    private volatile StarterZones starterZones;
+
+    public void setStarterZones(StarterZones z) {
+        starterZones = z;
+    }
+
+    /** A passer-by through a starting zone is of its race; elsewhere any (-1). */
+    int passRace(Pos player, Pos from, Pos to) {
+        final StarterZones z = starterZones;
+        if (z == null) {
+            return -1;
+        }
+        for (Pos p : new Pos[] { player, from, to }) {
+            final int r = z.raceAt(p);
+            if (r >= 0) {
+                return r;
+            }
+        }
+        return -1;
+    }
+
+    /** Town activity bots in a starting village at most (bots-core DirectorStarterTownMax); companions and hunters aside. */
+    private volatile int starterTownMax = 8;
+
+    public void setStarterTownMax(int max) {
+        starterTownMax = Math.max(0, max);
+    }
+
+    public double clanMixedPartyChance() {
+        return clanMixedPartyChance;
     }
 
     public Life life() {
@@ -319,6 +368,16 @@ public final class Director {
                 }
                 continue;
             }
+            if ((a != null) && (a.kind() == Assignment.Kind.NEWBIE)) {
+                // S6: a newbie companion back in its village after its gremlins: town life there, or it vanishes unseen
+                if ((a.exit() != null) && !b.dead() && (b.pos().distance2d(a.exit()) < NEWBIE_HOME) && ((now - t.since) > 60_000)) {
+                    final Command home = newbieHome(c, now, b, live, terrain);
+                    if (home != null) {
+                        out.add(home);
+                    }
+                }
+                continue; // not one of any place's bots: no "away" or linger rules
+            }
             if ((a == null) || leaving || b.dead()) {
                 continue;
             }
@@ -366,12 +425,16 @@ public final class Director {
             }
             demand.keySet().removeAll(claimed);
             claimed.addAll(demand.keySet());
-            // targets
+            // targets (TownWanderersMultiplier scales TOWN + hunt + PASS frequency)
+            final double wander = c.wanderMult();
             final Map<String, Integer> target = new LinkedHashMap<>();
             int townSum = 0;
             for (Demand d : demand.values()) {
                 if (d.town()) {
-                    final int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density);
+                    int t = (int) Math.round(townTarget(c, d.id(), hour, curve) * density * wander);
+                    if (raceOf(d.id()) >= 0) {
+                        t = Math.min(t, starterTownMax);
+                    }
                     target.put(d.id(), t);
                     townSum += t;
                 }
@@ -383,9 +446,11 @@ public final class Director {
                 }
             }
             grounds.sort((a, b) -> Double.compare(a.nearest(), b.nearest()));
-            int huntCap = (int) Math.round(Math.min(c.huntPerCluster() + (c.huntPerExtraPlayer() * (cluster.size() - 1)), Math.max(0, c.maxPerCluster() - townSum)) * density);
+            final int clusterCap = (int) Math.round(c.maxPerCluster() * wander);
+            final int huntBase = (int) Math.round((c.huntPerCluster() + (c.huntPerExtraPlayer() * (cluster.size() - 1))) * wander);
+            int huntCap = (int) Math.round(Math.min(huntBase, Math.max(0, clusterCap - townSum)) * density);
             for (Demand d : grounds) {
-                int t = (int) Math.round(groundTarget(c, d.groundRef(), curve) * density) - d.players();
+                int t = (int) Math.round(groundTarget(c, d.groundRef(), curve) * density * wander) - d.players();
                 t = Math.max(0, Math.min(t, huntCap));
                 huntCap -= t;
                 target.put(d.id(), t);
@@ -404,7 +469,7 @@ public final class Director {
                 if ((have < want) && (now >= nextSpawn.getOrDefault(d.id(), 0L)) && (total < c.maxInWorld())) {
                     spawnRoom = Math.min(want - have, c.maxInWorld() - total);
                     partners.clear();
-                    final Command m = spawn(c, now, d, cluster, live, pool, terrain, createdThisTick);
+                    final Command m = spawn(c, now, d, cluster, live, bots, pool, terrain, createdThisTick);
                     if (m != null) {
                         out.add(m);
                         total++;
@@ -474,9 +539,124 @@ public final class Director {
                 nextLeave.put(place, now + c.leaveIntervalMs());
             }
         }
+        // 5. newbie companions (S6): beginners of a new live character's race come out of sight and run to its gremlins
+        for (java.util.Iterator<Newbie> it = newbies.iterator(); it.hasNext();) {
+            final Newbie n = it.next();
+            if (now < n.due) {
+                continue;
+            }
+            if ((n.left <= 0) || (++n.tries > 30)) {
+                it.remove();
+                continue;
+            }
+            if (total >= c.maxInWorld()) {
+                break;
+            }
+            final Command.Materialize m = newbie(c, now, n, live, pool, terrain, createdThisTick);
+            if (m != null) {
+                out.add(m);
+                total++;
+                createdThisTick |= m.botId() == 0;
+                if (--n.left <= 0) {
+                    it.remove();
+                }
+            }
+        }
         together(out, bots, live);
         places = List.copyOf(states);
         return out;
+    }
+
+    // ------------------------------------------------------------------ newbie companions (docs/STARTER_ZONES_PLAN.md S6)
+
+    /** A companion this close to its village point is back home. */
+    static final int NEWBIE_HOME = 400;
+
+    private static final class Newbie {
+        final int charId;
+        final int race;
+        final Pos gremlins;
+        final String townId;
+        final Pos exit;
+        final long due;
+        int left;
+        int tries;
+
+        Newbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
+            this.charId = charId;
+            this.race = race;
+            this.left = count;
+            this.gremlins = gremlins;
+            this.townId = townId;
+            this.exit = exit;
+            this.due = due;
+        }
+    }
+
+    private final List<Newbie> newbies = new ArrayList<>();
+    private final Set<Integer> newbieServed = new HashSet<>();
+    private long newbieCompanions;
+    private long newbieHomes;
+
+    /**
+     * A new live character entered a starting zone: {@code count} beginners (level 1-3) of {@code race} come at
+     * {@code due} out of its sight and hunt the gremlins at {@code gremlins}, then go to {@code exit} in {@code townId}.
+     * Once per character.
+     * @return false when this character had its companions already
+     */
+    public synchronized boolean requestNewbie(int charId, int race, int count, Pos gremlins, String townId, Pos exit, long due) {
+        if ((count <= 0) || (gremlins == null) || !newbieServed.add(charId)) {
+            return false;
+        }
+        newbies.add(new Newbie(charId, race, count, gremlins, townId, exit, due));
+        note(due, "newbie companions for character " + charId + ": " + count + " of race " + race + " to the gremlins at " + gremlins);
+        return true;
+    }
+
+    public synchronized long newbieCompanions() {
+        return newbieCompanions;
+    }
+
+    private Command.Materialize newbie(DirectorConfig c, long now, Newbie n, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+        final WorldCatalog.Town t = catalog.town(n.townId);
+        if (t == null) {
+            n.left = 0;
+            return null;
+        }
+        final WorldCatalog.Ground g = new WorldCatalog.Ground("newbie:" + n.charId, t.id(), n.gremlins, 600, 1, 3, 10, 0, false, List.of(n.gremlins));
+        final Pos at = hiddenPoint(c, g, live, terrain);
+        if (at == null) {
+            noSpot++;
+            return null;
+        }
+        final int[] who = persona(c, now, pool, 1, 3, n.race, createdThisTick);
+        if (who == null) {
+            return null;
+        }
+        final Pos exit = n.exit != null ? n.exit : t.center();
+        final int radius = (int) Math.max(600, n.gremlins.distance2d(exit) + 600);
+        final Assignment a = new Assignment(++seq, Assignment.Kind.NEWBIE, "newbie:" + t.id() + ":" + n.charId, n.gremlins, radius, 1, 3, List.of(n.gremlins), t.anchors(), exit);
+        pending.put(who[0] == 0 ? --newKey : who[0], new Pending(a.place(), a.seq(), now));
+        newbieCompanions++;
+        materialized++;
+        note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> NEWBIE companion of character " + n.charId + " at " + at + ", gremlins " + n.gremlins);
+        return new Command.Materialize(who[0], Math.max(1, Math.min(3, who[1])), at, a, n.race);
+    }
+
+    /** Back in its village: town life there (counted in the town from now on) or it runs off out of sight. */
+    private Command newbieHome(DirectorConfig c, long now, BotNow b, List<Live> live, Terrain terrain) {
+        final WorldCatalog.Town t = catalog.townAt(b.pos(), c.townMargin());
+        final Pos away = ((t == null) || rnd.nextBoolean()) ? runOutPoint(c, b.pos(), live, terrain) : null;
+        newbieHomes++;
+        if (away != null) {
+            note(now, "newbie companion " + b.botId() + " back in its village: runs off out of sight");
+            return new Command.Assign(b.botId(), b.assignment().leave(++seq, Assignment.Kind.LEAVE_RUN, away));
+        }
+        if (t == null) {
+            return null;
+        }
+        note(now, "newbie companion " + b.botId() + " back in " + t.id() + ": town life");
+        return new Command.Assign(b.botId(), new Assignment(++seq, Assignment.Kind.TOWN, t.id(), t.center(), t.radius(), t.minLevel(), t.maxLevel(), List.of(), t.anchors(), null));
     }
 
     /** A pair or trio leaves together: the order one of them got goes to the others too (phase 4g). */
@@ -571,7 +751,7 @@ public final class Director {
         return new int[] { lo, hi };
     }
 
-    private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, Pool pool, Terrain terrain, boolean createdThisTick) {
+    private Command spawn(DirectorConfig c, long now, Demand d, List<Live> cluster, List<Live> live, List<BotNow> bots, Pool pool, Terrain terrain, boolean createdThisTick) {
         final int lo;
         final int hi;
         if (d.town()) {
@@ -582,20 +762,21 @@ public final class Director {
             lo = band[0];
             hi = band[1];
         }
-        final Pos at = d.town() ? townPoint(d.townRef(), live, terrain) : hiddenPoint(c, d.groundRef(), live, terrain);
+        final Pos at = d.town() ? townPoint(d.townRef(), live, botPositions(bots), terrain) : hiddenPoint(c, d.groundRef(), live, terrain);
         if (at == null) {
             noSpot++;
             return null;
         }
         final List<Candidate> cands = new ArrayList<>(pool.available(lo, hi, now));
-        final int race = d.town() ? raceOf(d.townRef().id()) : -1;
+        // starting village or one of its grounds up to level 20: only its race (S5); elsewhere any
+        final int race = d.town() ? raceOf(d.townRef().id()) : StarterZones.raceOfGround(d.groundRef());
         Candidate back = null;
         if (!d.town()) {
             // back from town (restock): the same persona on the same ground, from its edge, before anybody else
             comebacks.values().removeIf(x -> now > (x.due() + 30 * 60_000L));
             for (Candidate x : cands) {
                 final Comeback cb = comebacks.get(x.botId());
-                if ((cb != null) && cb.place().equals(d.id()) && (now >= cb.due()) && !pending.containsKey(x.botId())) {
+                if ((cb != null) && cb.place().equals(d.id()) && (now >= cb.due()) && !pending.containsKey(x.botId()) && ((race < 0) || (x.race() == race))) {
                     back = x;
                     break;
                 }
@@ -604,6 +785,7 @@ public final class Director {
         cands.removeIf(x -> pending.containsKey(x.botId()) || ((now - x.lastLogout()) < c.returnCooldownMs()) || ((race >= 0) && (x.race() != race)));
         int botId = 0;
         int level;
+        Candidate chosen = back;
         if (back != null) {
             comebacks.remove(back.botId());
             comebacksDone++;
@@ -611,6 +793,7 @@ public final class Director {
             level = back.level();
         } else if (!cands.isEmpty()) {
             final Candidate pick = weighted(cands, now);
+            chosen = pick;
             botId = pick.botId();
             level = pick.level();
         } else {
@@ -638,8 +821,20 @@ public final class Director {
             // a pair or a trio: personas of about the same level come in together from the same edge
             final int lvl = level;
             final int self = botId;
-            final List<Candidate> mates = new ArrayList<>(cands);
+            final int anchorClan = chosen == null ? 0 : chosen.clanId();
+            // phase 7d: clan bots usually party with clanmates; mixed with ClanMixedPartyChance
+            final boolean mixed = (anchorClan != 0) && (rnd.nextDouble() < clanMixedPartyChance);
+            List<Candidate> mates = new ArrayList<>(cands);
             mates.removeIf(x -> (x.botId() == self) || (Math.abs(x.level() - lvl) > 5));
+            if ((anchorClan != 0) && !mixed) {
+                final List<Candidate> same = new ArrayList<>();
+                for (Candidate x : mates) {
+                    if (x.clanId() == anchorClan) {
+                        same.add(x);
+                    }
+                }
+                mates = same;
+            }
             final int want = Math.min(mates.size(), ((spawnRoom >= 3) && (rnd.nextDouble() < 0.35)) ? 2 : 1);
             if (want > 0) {
                 final int group = ++groupSeq;
@@ -654,7 +849,8 @@ public final class Director {
                     partners.add(new Command.Materialize(mate.botId(), mate.level(), mat == null ? at : mat, ma, -1, group));
                     names.append(' ').append(mate.botId());
                 }
-                note(now, "bot " + botId + " comes with" + names + " as a party (" + (want + 1) + ")");
+                note(now, "bot " + botId + " comes with" + names + " as a party (" + (want + 1) + ")"
+                    + (anchorClan != 0 ? (mixed ? " mixed-clan" : " clan") : ""));
                 return new Command.Materialize(botId, level, at, a, race, group);
             }
         }
@@ -671,10 +867,10 @@ public final class Director {
         return (long) (base * k);
     }
 
-    /** Next passer-by: min..max at a usual hour (curve 0.5), twice as often at the evening peak, rarer at night. */
+    /** Next passer-by: min..max at a usual hour (curve 0.5), twice as often at the evening peak, rarer at night; ÷ TownWanderersMultiplier. */
     static long passInterval(DirectorConfig c, double curve, Random rnd) {
         final long base = c.passMinMs() + (long) (rnd.nextDouble() * Math.max(0, c.passMaxMs() - c.passMinMs()));
-        return (long) (base * (0.5 / Math.max(0.25, curve)));
+        return (long) ((base * (0.5 / Math.max(0.25, curve))) / c.wanderMult());
     }
 
     /** A persona for a short appearance (transit, passer-by): one of the pool, else a new one (at most one per tick). */
@@ -751,7 +947,8 @@ public final class Director {
             if ((from == null) || (to == null) || (nearest(live, from) < c.hiddenMin())) {
                 continue;
             }
-            final int[] who = persona(c, now, pool, lo, hi, -1, createdThisTick);
+            final int race = passRace(p0.pos(), from, to);
+            final int[] who = persona(c, now, pool, lo, hi, race, createdThisTick);
             if (who == null) {
                 return null;
             }
@@ -759,7 +956,7 @@ public final class Director {
             pending.put(who[0] == 0 ? --newKey : who[0], new Pending("road", a.seq(), now));
             passers++;
             note(now, (who[0] == 0 ? "new persona" : "bot " + who[0]) + " lv " + who[1] + " -> PASS by player " + p0.id() + " from " + from + " to " + to);
-            return new Command.Materialize(who[0], who[1], from, a, -1);
+            return new Command.Materialize(who[0], who[1], from, a, race);
         }
         noSpot++;
         return null;
@@ -771,6 +968,9 @@ public final class Director {
         for (int i = 0; i < w.length; i++) {
             w[i] = 1 + (Math.min(86_400_000L, Math.max(0, now - cands.get(i).lastLogout())) / 3_600_000.0); // long gone = more likely
             w[i] *= 0.1 + Math.max(0, Math.min(1, cands.get(i).activity())); // their hours (chronotype): far more likely
+            if (cands.get(i).clanStockPending()) {
+                w[i] *= 12; // phase 7e: get provisional leaders in so stock clans become visible
+            }
             sum += w[i];
         }
         double r = rnd.nextDouble() * sum;
@@ -829,23 +1029,33 @@ public final class Director {
         return false;
     }
 
-    /** At the gatekeeper (as after a teleport) or a restart point (as after a scroll of escape), not under a player's nose. */
-    Pos townPoint(WorldCatalog.Town t, List<Live> live, Terrain terrain) {
+    /**
+     * Near the gatekeeper / shops / trainers (or restart in big towns), not under a player's nose or on another bot.
+     * Starting villages never use {@code restart} anchors: those often are the stock create/SOE node piles
+     * (Einhovant four points, Cedric, etc.).
+     */
+    Pos townPoint(WorldCatalog.Town t, List<Live> live, List<Pos> bots, Terrain terrain) {
+        final boolean starter = raceOf(t.id()) >= 0;
         final List<Pos> spots = new ArrayList<>();
         for (Assignment.Anchor a : t.anchors()) {
             if (a.kind().equals("gk")) {
                 spots.add(a.pos());
                 spots.add(a.pos());
-            } else if (a.kind().equals("restart")) {
+            } else if (!starter && a.kind().equals("restart")) {
+                spots.add(a.pos());
+            } else if (a.kind().equals("shop") || a.kind().equals("wh") || a.kind().equals("trainer")) {
                 spots.add(a.pos());
             }
         }
         Collections.shuffle(spots, rnd);
         for (Pos s : spots) {
             final double ang = rnd.nextDouble() * Math.PI * 2;
-            final int r = 80 + rnd.nextInt(171);
+            final int r = 120 + rnd.nextInt(281); // 120..400
             final Pos approx = new Pos(s.x() + (int) (Math.cos(ang) * r), s.y() + (int) (Math.sin(ang) * r), s.z());
             if (nearest(live, approx) < 300) {
+                continue;
+            }
+            if (nearestPos(bots, approx) < 200) {
                 continue;
             }
             final Pos p = terrain.ground(approx);
@@ -854,6 +1064,22 @@ public final class Director {
             }
         }
         return null;
+    }
+
+    static List<Pos> botPositions(List<BotNow> bots) {
+        final List<Pos> out = new ArrayList<>(bots.size());
+        for (BotNow b : bots) {
+            out.add(b.pos());
+        }
+        return out;
+    }
+
+    static double nearestPos(List<Pos> pts, Pos p) {
+        double best = Double.POSITIVE_INFINITY;
+        for (Pos x : pts) {
+            best = Math.min(best, x.distance2d(p));
+        }
+        return best;
     }
 
     // ------------------------------------------------------------------ out
@@ -1050,6 +1276,6 @@ public final class Director {
         }
         return "DIRECTOR players=" + livePlayers + " clusters=" + clusters + " places=" + places.size() + " target=" + target + " pending=" + pending.size()
             + " materialized=" + materialized + " created=" + created + " leaves=" + leaves + " lingerLeaves=" + lingerLeaves + " unseenLogouts=" + unseenLogouts
-            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + (density < 1 ? " density=" + density : "");
+            + " noSpot=" + noSpot + " noPersona=" + noPersona + " transits=" + transits + " passers=" + passers + " restocks=" + restocks + " comebacks=" + comebacksDone + " parties=" + parties + " partyLeaves=" + partyLeaves + " newbies=" + newbieCompanions + "/" + newbieHomes + (density < 1 ? " density=" + density : "");
     }
 }

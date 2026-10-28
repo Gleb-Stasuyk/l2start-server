@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Phase 7f: bot clan templates. Two large (lvl 8); others 3–7 (crest needs clan lvl ≥3). crestSeed = 1-based index into data/clans/crests/*.bmp -->
+<list>
+  <clan id="night_hawk" name="NightHawk" level="8" crestSeed="1" large="true"/>
+  <clan id="crimson_order" name="CrimsonOrder" level="6" crestSeed="2"/>
+  <clan id="silver_moon" name="SilverMoon" level="5" crestSeed="3"/>
+  <clan id="dark_wing" name="DarkWing" level="8" crestSeed="4" large="true"/>
+  <clan id="iron_fist" name="IronFist" level="4" crestSeed="5"/>
+  <clan id="elven_song" name="ElvenSong" level="3" crestSeed="6"/>
+  <clan id="orcs_blood" name="OrcsBlood" level="5" crestSeed="7"/>
+  <clan id="dwarf_forge" name="DwarfForge" level="4" crestSeed="8"/>
+  <clan id="golden_lion" name="GoldenLion" level="6" crestSeed="9"/>
+  <clan id="storm_guard" name="StormGuard" level="3" crestSeed="10"/>
+  <clan id="silent_blade" name="SilentBlade" level="3" crestSeed="11"/>
+  <clan id="royal_shield" name="RoyalShield" level="7" crestSeed="12"/>
+  <clan id="frost_wolf" name="FrostWolf" level="5" crestSeed="13"/>
+  <clan id="ember_crown" name="EmberCrown" level="4" crestSeed="14"/>
+  <clan id="azure_path" name="AzurePath" level="3" crestSeed="15"/>
+  <clan id="wild_horn" name="WildHorn" level="3" crestSeed="16"/>
+  <clan id="star_legion" name="StarLegion" level="6" crestSeed="17"/>
+  <clan id="dawn_blade" name="DawnBlade" level="4" crestSeed="18"/>
+</list>

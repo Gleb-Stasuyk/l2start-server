@@ -82,9 +82,20 @@ public final class ClassPicker {
         return new Look(classId, female, face.pick(rnd).byteValue(), (female ? hairFemale : hairMale).pick(rnd).byteValue(), hairColor.pick(rnd).byteValue());
     }
 
+    /**
+     * Planned 2nd profession. KT12 F2: when the starting class can become BD/SWS/PP/SE/BP, prefer those
+     * ({@link SupportRoles#FUTURE_BIAS}) so a solo player can invite a buffer of his level.
+     */
     public static int futureClass(int classId, Random rnd) {
         final List<Integer> l = FUTURE.get(classId);
-        return l == null ? classId : l.get(rnd.nextInt(l.size()));
+        if (l == null) {
+            return classId;
+        }
+        final List<Integer> buffers = l.stream().filter(SupportRoles.PARTY_BUFFER_2ND::contains).toList();
+        if (!buffers.isEmpty() && (rnd.nextDouble() < SupportRoles.FUTURE_BIAS)) {
+            return buffers.get(rnd.nextInt(buffers.size()));
+        }
+        return l.get(rnd.nextInt(l.size()));
     }
 
     public static boolean isStartingClass(int classId) {

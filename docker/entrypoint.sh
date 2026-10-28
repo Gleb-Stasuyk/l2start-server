@@ -62,16 +62,17 @@ set_ini() {
 apply_overrides() {
   dir="$OVERRIDES/$1/config"
   [ -d "$dir" ] || return 0
-  for of in "$dir"/*.ini; do
+  for of in "$dir"/*.ini "$dir"/Custom/*.ini; do  # Custom/<File>.ini -> stock config/Custom/<File>.ini
     [ -f "$of" ] || continue
     case "$(basename "$of")" in platform.local.ini|modules.local.ini) continue ;; esac  # see apply_platform_overrides
-    target="$L2/$1/config/$(basename "$of")"
-    [ -f "$target" ] || { log "override $(basename "$of"): no such stock file, skipped"; continue; }
+    sub=""; case "$of" in "$dir"/Custom/*) sub="Custom/" ;; esac
+    target="$L2/$1/config/$sub$(basename "$of")"
+    [ -f "$target" ] || { log "override $sub$(basename "$of"): no such stock file, skipped"; continue; }
     tr -d '\r' < "$of" | grep -E '^[[:space:]]*[A-Za-z0-9_.]+[[:space:]]*=' | while IFS= read -r line; do
       key=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*([A-Za-z0-9_.]+)[[:space:]]*=.*/\1/')
       val=$(printf '%s' "$line" | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//')
       set_ini "$target" "$key" "$val"
-      log "override $1/$(basename "$of"): $key = $val"
+      log "override $1/$sub$(basename "$of"): $key = $val"
     done
   done
 }

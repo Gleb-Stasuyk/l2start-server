@@ -53,4 +53,60 @@ public interface ModuleContext {
     default void onBotTradeRequest(BotTradeListener listener) {
         throw new UnsupportedOperationException("onBotTradeRequest needs platform API 1.4");
     }
+
+    /**
+     * Since API 1.5. A real player invited a bot to a party (hook P6-BOT-PARTY): the listener answers for the bot.
+     * Guarded like every listener; removed when the module is disabled.
+     */
+    default void onBotPartyRequest(BotPartyListener listener) {
+        throw new UnsupportedOperationException("onBotPartyRequest needs platform API 1.5");
+    }
+
+    /**
+     * Since API 1.9. A real player challenged a bot to a duel (hook P7-BOT-DUEL): the listener answers for the bot.
+     * Guarded like every listener; removed when the module is disabled.
+     */
+    default void onBotDuelRequest(BotDuelListener listener) {
+        throw new UnsupportedOperationException("onBotDuelRequest needs platform API 1.9");
+    }
+
+    /**
+     * Since API 1.10. Stock {@code isAutoAttackable} was false; the listener may still allow the attack (hook
+     * {@code P7-ATTACKABLE}, PK bots). Guarded; removed when the module is disabled.
+     */
+    default void onBotAttackable(BotAttackableListener listener) {
+        throw new UnsupportedOperationException("onBotAttackable needs platform API 1.10");
+    }
+
+    /**
+     * Since API 1.11. A real player invited a bot into a clan / academy (hook P7-BOT-PLEDGE): the listener answers for
+     * the bot. Guarded; removed when the module is disabled.
+     */
+    default void onBotPledgeRequest(BotPledgeListener listener) {
+        throw new UnsupportedOperationException("onBotPledgeRequest needs platform API 1.11");
+    }
+
+    /**
+     * Since API 1.6. The drop and spoil of dead monsters (hook P7-DROP-FLOAT): the listener may calculate them out of
+     * stock rolls. Guarded like every listener; removed when the module is disabled.
+     */
+    default void onDrops(DropListener listener) {
+        throw new UnsupportedOperationException("onDrops needs platform API 1.6");
+    }
+
+    /**
+     * Since API 1.6. Quest reward items after the stock rates (hook P7-QUEST-REWARD). Guarded; removed when the module is
+     * disabled.
+     */
+    default void onQuestReward(QuestRewardListener listener) {
+        throw new UnsupportedOperationException("onQuestReward needs platform API 1.6");
+    }
+
+    /**
+     * Since API 1.7. Names of destinations in gatekeeper teleport lists (hook P8-TELEPORT-NAME). Guarded; removed when the
+     * module is disabled.
+     */
+    default void onTeleportName(TeleportNameListener listener) {
+        throw new UnsupportedOperationException("onTeleportName needs platform API 1.7");
+    }
 }
