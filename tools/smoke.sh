@@ -9,8 +9,9 @@
 # containers, l2s-db-data) is never touched and may keep running.
 #
 # Scenarios:
-# The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market: on in both profiles; bots-core,
-# bots-brain-basic: solo only);
+# The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market, bots-olympiad: on in both
+# profiles; bots-core, bots-brain-basic: solo only). bots-olympiad without bots-core (online) stays idle; smoke keeps
+# Enabled=false so the 40-noble roster does not change hunter identity counts.
 # the smoke image adds 9 test modules (platform/test/fixtures), switched by SMOKE_FIXTURES.
 #   1 stock     DisableAll=true                     -> healthy, startup counts == tools/smoke/baseline.txt, no module data
 #   2 fixtures  profile solo + 9 fixtures           -> healthy, each module in its expected state, counts = baseline + module data,
@@ -19,9 +20,9 @@
 #                                                      breaker degrades fx-flaky, DB tables/migrations written
 #   3 restart   same as 2, game restarted           -> healthy, no migration applied again, shutdown hook ran, module data kept
 #   4 abort     profile online + fixtures            -> game exits with code 1, "FailurePolicy=abort"
-#   5 online    profile online, fixtures off        -> healthy, all 9 fixtures + bots-* DISABLED, starter-kit + lw-fixes RUNNING, counts == stock
-#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes + bots-core + bots-brain-basic RUNNING, counts == stock,
-#                                                      bots-core tables created, no bot enters the world without geodata
+#   5 online    profile online, fixtures off        -> healthy, 9 fixtures + bots-core/brain DISABLED, bots-olympiad RUNNING idle, starter-kit + lw-fixes RUNNING, counts == stock
+#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes + bots-core + bots-brain-basic + bots-olympiad RUNNING, counts == stock,
+#                                                      bots-core tables created, no bot enters the world without geodata, olympiad roster off
 #   7 bots      solo, AutoCreate=20 AutoSpawn=10, RequireGeodata=false -> 20 bot characters (banned accounts, online=0,
 #                                                      starting gear, personas, state), 10 in the world, logged out on shutdown;
 #                                                      brain 'basic' runs: the bots walk, attack and kill monsters, 0 brain errors;
@@ -122,7 +123,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 18 discovered: 12 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 19 discovered: 13 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -138,6 +139,7 @@ check "starter-kit RUNNING" state_is starter-kit RUNNING "$L"
 check "lw-fixes RUNNING" state_is lw-fixes RUNNING "$L"
 check "bots-core RUNNING" state_is bots-core RUNNING "$L"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$L"
+check "bots-olympiad RUNNING" state_is bots-olympiad RUNNING "$L"
 check "starter-kit: module starting gear folder read (hook P2-DATA-INITEQUIP)" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$L"
 check "starter-kit: classes 0/10/53 start with Long Sword/Mage Staff/Ubiquitous Axe" has "FIXTURE fx-core initial equipment first items 0=2,10=177,53=4221" "$L"
 check "fx-missing-dep REFUSED" state_is fx-missing-dep REFUSED "$L"
@@ -189,11 +191,13 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots disabled (+ world-info, town-buffer, return-skill)" grep -qE 'Platform: profile=online, 18 discovered: 7 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots-core/brain disabled, bots-olympiad idle" grep -qE 'Platform: profile=online, 19 discovered: 8 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
 check "online: stock no-store zones kept" hasnt "stores anywhere:" "$OUT/5-online.log"
 check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
 check "bots-brain-basic DISABLED in online" state_is bots-brain-basic DISABLED "$OUT/5-online.log"
+check "bots-olympiad RUNNING in online (idle without bots-core)" state_is bots-olympiad RUNNING "$OUT/5-online.log"
+check "bots-olympiad idle without bots-core" has "bots-core is off: idle (stock olympiad only)" "$OUT/5-online.log"
 real_modules() { # real_modules LOG N
   check "$2: starter-kit RUNNING" state_is starter-kit RUNNING "$1"
   check "$2: lw-fixes RUNNING" state_is lw-fixes RUNNING "$1"
@@ -207,7 +211,7 @@ real_modules() { # real_modules LOG N
   check "$2: rates override QuestItemDropAmountMultiplier = 1" has "override game/Rates.ini: QuestItemDropAmountMultiplier = 1" "$1"
   check "$2: rates override RateDropManor = 3" has "override game/Rates.ini: RateDropManor = 3" "$1"
   check "$2: starting gear from starter-kit" grep -qE 'Platform: initialEquipment from modules: 1 folder' "$1"
-  check "$2: no platform error for starter-kit / lw-fixes / economy-market" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes|economy-market) ' \"\$0\"" "$1"
+  check "$2: no platform error for starter-kit / lw-fixes / economy-market / bots-olympiad" bash -c "! grep -qE 'Platform: module (starter-kit|lw-fixes|economy-market|bots-olympiad) ' \"\$0\"" "$1"
   check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
   check "$2: rates-floating RUNNING (hooks P7-DROP-FLOAT, P7-QUEST-REWARD)" state_is rates-floating RUNNING "$1"
   check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, champion x2.0 \(adena x3.0\), adena x5.0' "$1"
@@ -215,6 +219,7 @@ real_modules() { # real_modules LOG N
   check "$2: world-info RUNNING (hook P8-TELEPORT-NAME)" state_is world-info RUNNING "$1"
   check "$2: return-skill RUNNING (hook P9-DATA-SKILLS)" state_is return-skill RUNNING "$1"
   check "$2: town-buffer RUNNING (buffers)" state_is town-buffer RUNNING "$1"
+  check "$2: bots-olympiad RUNNING" state_is bots-olympiad RUNNING "$1"
   check "$2: rates override XP x10 applied" has "override game/Rates.ini: RateXp = 10" "$1"
   check "$2: extras: champions on (Custom override)" has "override game/Custom/ChampionMonsters.ini: ChampionEnable = True" "$1"
   check "$2: extras: shift+click view for players" has "override game/NPC.ini: AltGameViewNpc = True" "$1"
@@ -234,9 +239,11 @@ say "   rates selftest:"; rates_lines "$OUT/6-solo.log" | sed -E 's/.*SELFTEST /
 check "rates SELFTEST finished" grep -qE 'Module\[rates-floating\]: SELFTEST done' "$OUT/6-solo.log"
 check "rates SELFTEST: adena exactly x5 at levels 20/40/60" rates_adena "$OUT/6-solo.log"
 check "rates SELFTEST: spoil x1.5..x9 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
-check "summary: 8 running, fixtures disabled" grep -qE 'Platform: profile=solo, 18 discovered: 9 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "summary: 10 running, fixtures disabled" grep -qE 'Platform: profile=solo, 19 discovered: 10 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
+check "bots-olympiad RUNNING" state_is bots-olympiad RUNNING "$OUT/6-solo.log"
+check "bots-olympiad roster off in smoke" grep -qE 'Module\[bots-olympiad\]: olympiad bots: roster .* Enabled=false' "$OUT/6-solo.log"
 check "brain 'basic' registered with bots-core and in use" grep -qE "Module\[bots-core\]: brain 'basic' registered \(in use\)" "$OUT/6-solo.log"
 check "bots-brain-basic: hunting grounds loaded" grep -qE "Module\[bots-brain-basic\]: brain 'basic' registered: [0-9]+ hunting grounds around 5 starting villages" "$OUT/6-solo.log"
 check "runtime started" grep -qE 'Module\[bots-core\]: runtime: [0-9]+ shards, wave 100 ms, budget 25 ms' "$OUT/6-solo.log"
@@ -245,7 +252,7 @@ check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%
 # phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
 check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify + busy)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" -ge 3
 check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
-check "platform API 1.11.0 (phase 7e pledge hook)" grep -qE 'Platform: API 1\.11\.0' "$OUT/6-solo.log"
+check "platform API 1.12.0 (phase 7e pledge hook / P9-DATA-SKILLS)" grep -qE 'Platform: API 1\.12\.0' "$OUT/6-solo.log"
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"
@@ -279,6 +286,7 @@ check "bots run, not walk (walking=0)" bash -c "grep -E 'BOTS world=' \"\$0\" | 
 check "brain: 0 brain errors, 0 safe-idle" bash -c "grep -E 'BOTS world=' \"\$0\" | tail -1 | grep -qE ' errors=0 safeIdle=0 '" "$OUT/7-bots.log"
 check "brain: no brain failure logged" hasnt "brain of " "$OUT/7-bots.log"
 check "20 bot identities" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE status='ACTIVE'")" = 20
+check "no olympiad nobles in hunter smoke (Enabled=false)" test "$(sql "SELECT COUNT(*) FROM mod_bots_core_identity WHERE status='OLYMPIAD'")" = 0
 check "20 bot characters in characters, one per account" test "$(sql "SELECT COUNT(DISTINCT account_name) FROM characters WHERE charId IN ($BOTCHARS)")" = 20
 check "all bot accounts banned (accessLevel=-1)" test "$(sql "SELECT COUNT(*) FROM accounts a JOIN mod_bots_core_account m ON m.account_name=a.login WHERE a.accessLevel=-1")" = 20
 check "bots hidden: characters.online=0" test "$(sql "SELECT COUNT(*) FROM characters WHERE online<>0 AND charId IN ($BOTCHARS)")" = 0

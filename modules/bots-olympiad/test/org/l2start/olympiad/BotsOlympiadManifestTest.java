@@ -1,6 +1,7 @@
 package org.l2start.olympiad;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
@@ -25,5 +26,8 @@ class BotsOlympiadManifestTest {
         assertTrue(json.contains("GatherNpcId"));
         assertTrue(Files.exists(dir.resolve("config/defaults.ini")));
         assertTrue(Files.readString(dir.resolve("config/defaults.ini")).contains("RosterSize = 40"));
+        final String entry = Files.readString(dir.resolve("src/org/l2start/olympiad/BotsOlympiadModule.java"));
+        assertTrue(entry.contains("NoClassDefFoundError"), "online without bots-core must idle, not fail enable");
+        assertFalse(entry.contains("import org.l2start.bots.olympiad."), "entrypoint must not classload bots-core types");
     }
 }

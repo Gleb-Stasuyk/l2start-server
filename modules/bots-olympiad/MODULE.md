@@ -115,3 +115,7 @@ Allowlist 3-х: **88,89,90,91,92,93,94,95,99,100,101,102,103,106,107,108,109,110
 | `modules/bots-brain-basic/.../BasicBrain.java` | гейт тика на матч, бой плейстайлом |
 
 Выключить: `L2_MODULE_BOTS_OLYMPIAD=off` или `Enabled=false`.
+
+## Smoke
+
+`tools/smoke.sh` держит `L2_MOD_BOTS_OLYMPIAD__ENABLED=false` (как `StoresPerTown Giran:0` у рынка): модуль **RUNNING** в solo и online, но ростер не создаёт 40 дворян и не ломает счётчики охотников 20/10. Online без bots-core — idle (`bots-core is off: idle`), сток олимпиады, FailurePolicy=abort не срабатывает. CT-D — в игре.

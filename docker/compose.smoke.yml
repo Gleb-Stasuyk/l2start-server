@@ -51,6 +51,8 @@ services:
       L2_MOD_RATES_FLOATING__SELFTEST: "${SMOKE_RATES_SELFTEST:-true}"
       # static bot traders only in scenario 8 (60 of them would change the bot counts of scenarios 6-7)
       L2_MOD_ECONOMY_MARKET__STORESPERTOWN: "${SMOKE_MARKET_STORES:-Giran:0}"
+      # bots-olympiad stays on (solo + online) but smoke does not spawn 40 nobles (would break hunter 20/10 counts)
+      L2_MOD_BOTS_OLYMPIAD__ENABLED: "${SMOKE_OLYMPIAD:-false}"
       L2_MODULE_FX_CORE: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_OK_DEP: "${SMOKE_FIXTURES:-on}"
       L2_MODULE_FX_MISSING_DEP: "${SMOKE_FIXTURES:-on}"

@@ -48,6 +48,28 @@ final class OlympiadBots {
         this.cfg = cfg;
     }
 
+    /**
+     * @return the roster, or {@code null} when bots-core did not provide {@link OlympiadPool}. Loading this class
+     *         without bots-core throws {@link NoClassDefFoundError} — the module entrypoint catches it.
+     */
+    static OlympiadBots start(ModuleContext ctx) {
+        final OlympiadPool pool = ctx.services().find(OlympiadPool.class).orElse(null);
+        if (pool == null) {
+            return null;
+        }
+        return new OlympiadBots(ctx, pool, readCfg(ctx));
+    }
+
+    static Cfg readCfg(ModuleContext ctx) {
+        int min = ctx.config().getInt("MinLevel");
+        int max = ctx.config().getInt("MaxLevel");
+        if (max < min) {
+            max = min;
+        }
+        return new Cfg(ctx.config().getBoolean("Enabled"), ctx.config().getInt("RosterSize"), min, max, ctx.config().getInt("RivalsPerClass"),
+            ctx.config().getInt("SignUpChancePercent"), ctx.config().getInt("RestSeconds"), ctx.config().getInt("GatherNpcId"));
+    }
+
     void setCfg(Cfg cfg) {
         this.cfg = cfg;
     }
