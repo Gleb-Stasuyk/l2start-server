@@ -277,17 +277,30 @@ final class MobiusWorldView implements WorldView {
 
     @Override
     public int buffState(int objectId, int skillId) {
-        if (!(World.findObject(objectId) instanceof Creature c)) {
+        if (!(World.findObject(objectId) instanceof Creature)) {
             return BUFF_UNKNOWN;
         }
-        final Skill s = org.l2jmobius.gameserver.data.xml.SkillData.getInstance().getSkill(skillId, 1);
+        return buffInfo(objectId, skillId) == null ? BUFF_OFF : BUFF_ON;
+    }
+
+    @Override
+    public int buffSecondsLeft(int objectId, int skillId) {
+        final BuffInfo info = buffInfo(objectId, skillId);
+        return info == null ? 0 : Math.max(0, info.getTime());
+    }
+
+    private static BuffInfo buffInfo(int objectId, int skillId) {
+        if (!(World.findObject(objectId) instanceof Creature c)) {
+            return null;
+        }
         if (c.getEffectList().isAffectedBySkill(skillId)) {
-            return BUFF_ON;
+            return c.getEffectList().getBuffInfoBySkillId(skillId);
         }
-        if ((s != null) && (s.getAbnormalType() != null) && (s.getAbnormalType() != AbnormalType.NONE) && (c.getEffectList().getBuffInfoByAbnormalType(s.getAbnormalType()) != null)) {
-            return BUFF_ON;
+        final Skill s = org.l2jmobius.gameserver.data.xml.SkillData.getInstance().getSkill(skillId, 1);
+        if ((s != null) && (s.getAbnormalType() != null) && (s.getAbnormalType() != AbnormalType.NONE)) {
+            return c.getEffectList().getBuffInfoByAbnormalType(s.getAbnormalType());
         }
-        return BUFF_OFF;
+        return null;
     }
 
     /** Aggro range of an aggressive monster (NPC data; the usual 300 when the data has none), else 0. */

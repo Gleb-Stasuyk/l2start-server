@@ -86,4 +86,44 @@ class PartyBuffsTest {
         assertTrue(mid.indexOf(PartyBuffs.WIND_WALK) < mid.indexOf(PartyBuffs.BERSERKER));
         assertTrue(mid.size() > low.size());
     }
+
+    @Test
+    void raidTankOnlyDefensiveAndSpeed() {
+        final List<Integer> w = PartyBuffs.wantedRaid(PROPHET, PALADIN);
+        assertTrue(w.contains(PartyBuffs.WIND_WALK));
+        assertTrue(w.contains(PartyBuffs.SHIELD));
+        assertTrue(w.contains(PartyBuffs.BLESSED_BODY));
+        assertTrue(w.contains(PartyBuffs.BLESS_SHIELD));
+        assertTrue(w.contains(PartyBuffs.GREATER_SHIELD));
+        assertFalse(w.contains(PartyBuffs.BERSERKER));
+        assertFalse(w.contains(PartyBuffs.MIGHT));
+        assertFalse(w.contains(PartyBuffs.HASTE));
+        assertFalse(w.contains(PartyBuffs.FOCUS));
+        assertTrue(w.size() < PartyBuffs.wanted(PROPHET, PALADIN).size());
+    }
+
+    @Test
+    void raidMageOmitsRegenMagicBarrierMentalShield() {
+        final List<Integer> w = PartyBuffs.wantedRaid(PROPHET, SORCERER);
+        assertTrue(w.contains(PartyBuffs.WIND_WALK));
+        assertTrue(w.contains(PartyBuffs.ACUMEN));
+        assertTrue(w.contains(PartyBuffs.BERSERKER));
+        assertFalse(w.contains(PartyBuffs.REGENERATION));
+        assertFalse(w.contains(PartyBuffs.MAGIC_BARRIER));
+        assertFalse(w.contains(PartyBuffs.MENTAL_SHIELD));
+        assertFalse(w.contains(PartyBuffs.MIGHT));
+        assertTrue(w.size() < PartyBuffs.wanted(PROPHET, SORCERER).size());
+    }
+
+    @Test
+    void raidSetIsShorterSoManaLasts() {
+        int raid = 0;
+        int hunt = 0;
+        for (int t : new int[] { SORCERER, GLADIATOR, HAWKEYE, PALADIN, TREASURE_HUNTER }) {
+            raid += PartyBuffs.wantedRaid(PROPHET, t).size();
+            hunt += PartyBuffs.wanted(PROPHET, t).size();
+        }
+        assertTrue(raid < hunt, "raid " + raid + " hunt " + hunt);
+        assertTrue(raid <= 40, "still too many: " + raid);
+    }
 }

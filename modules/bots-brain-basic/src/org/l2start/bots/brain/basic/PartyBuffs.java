@@ -6,7 +6,8 @@ import java.util.Set;
 
 /**
  * KT12 F3/F4: party buff sets by the target's combat role; Berserker Spirit for everyone; BD/SWS dances and songs
- * by role. In town / peace only Wind Walk (F4).
+ * by role. In town / peace only Wind Walk (F4). RB party uses {@link #wantedRaid}: a shorter set so the prophet's
+ * mana lasts, tank only defensive+speed, mages without Regeneration / Magic Barrier / Mental Shield.
  */
 public final class PartyBuffs {
     public enum Role {
@@ -15,16 +16,40 @@ public final class PartyBuffs {
 
     /** Wind Walk — the only buff in a peace zone (F4). */
     public static final int WIND_WALK = 1204;
-    /** Berserker Spirit — every role (F3). */
+    public static final int SHIELD = 1040;
+    public static final int MENTAL_SHIELD = 1035;
+    public static final int MAGIC_BARRIER = 1036;
+    public static final int REGENERATION = 1044;
+    public static final int BLESSED_BODY = 1045;
+    public static final int BLESSED_SOUL = 1048;
+    /** Berserker Spirit — every hunt role (F3); not the RB tank. */
     public static final int BERSERKER = 1062;
+    public static final int MIGHT = 1068;
+    public static final int HASTE = 1086;
+    public static final int FOCUS = 1077;
+    public static final int ACUMEN = 1085;
+    public static final int EMPOWER = 1059;
+    public static final int CONCENTRATION = 1078;
+    public static final int BLESS_SHIELD = 1243;
+    public static final int GREATER_SHIELD = 1389;
+    /** Do not recast Wind Walk while more than this many seconds remain. */
+    public static final int WW_KEEP_SEC = 10 * 60;
 
     /** Shared prophet/elder buffs for every role. */
-    static final int[] SHARED = { WIND_WALK, 1040, 1035, 1045, 1048, 1036, BERSERKER, 1044 };
-    static final int[] MAGE = { 1085, 1059, 1078, 1389 };
-    static final int[] MELEE = { 1068, 1086, 1077, 1242, 1240, 1268, 1388 };
-    static final int[] ARCHER = { 1068, 1086, 1077, 1242, 1240 };
-    static final int[] TANK = { 1068, 1243, 1389 };
-    static final int[] DAGGER = { 1068, 1086, 1077, 1242, 1268, 1240 };
+    static final int[] SHARED = { WIND_WALK, SHIELD, MENTAL_SHIELD, BLESSED_BODY, BLESSED_SOUL, MAGIC_BARRIER, BERSERKER, REGENERATION };
+    static final int[] MAGE = { ACUMEN, EMPOWER, CONCENTRATION, GREATER_SHIELD };
+    static final int[] MELEE = { MIGHT, HASTE, FOCUS, 1242, 1240, 1268, 1388 };
+    static final int[] ARCHER = { MIGHT, HASTE, FOCUS, 1242, 1240 };
+    static final int[] TANK = { MIGHT, BLESS_SHIELD, GREATER_SHIELD };
+    static final int[] DAGGER = { MIGHT, HASTE, FOCUS, 1242, 1268, 1240 };
+
+    /** RB: speed + a cheap shield for everyone. */
+    static final int[] RAID_BASE = { WIND_WALK, SHIELD };
+    /** RB tank: defensive + speed only (no Might / Berserker / Haste). */
+    static final int[] RAID_TANK = { BLESSED_BODY, BLESS_SHIELD, GREATER_SHIELD };
+    /** RB mages: no Regeneration, Magic Barrier or Mental Shield. */
+    static final int[] RAID_MAGE = { BLESSED_SOUL, BERSERKER, ACUMEN, EMPOWER, CONCENTRATION };
+    static final int[] RAID_FIGHTER = { BLESSED_BODY, BERSERKER, MIGHT, HASTE, FOCUS };
 
     /** Bladedancer dances by target role (Interlude). */
     static final int[] DANCE_MELEE = { 271, 274, 275, 272 }; // Warrior, Fire, Fury, Inspiration
@@ -118,6 +143,22 @@ public final class PartyBuffs {
     /** Full set (hunt); same as {@link #wanted(int, int, boolean)} with inPeace false. */
     public static List<Integer> wanted(int casterClassId, int targetClassId) {
         return wanted(casterClassId, targetClassId, false);
+    }
+
+    /**
+     * RB party on "баф": a short set so the prophet's mana covers the whole party. Tank: defensive + speed only.
+     * Mages: no Regeneration, Magic Barrier or Mental Shield.
+     */
+    public static List<Integer> wantedRaid(int casterClassId, int targetClassId) {
+        final Role role = roleOf(targetClassId);
+        final List<Integer> out = new ArrayList<>();
+        add(out, RAID_BASE);
+        add(out, switch (role) {
+            case TANK -> RAID_TANK;
+            case MAGE -> RAID_MAGE;
+            case MELEE, ARCHER, DAGGER -> RAID_FIGHTER;
+        });
+        return out;
     }
 
     /**

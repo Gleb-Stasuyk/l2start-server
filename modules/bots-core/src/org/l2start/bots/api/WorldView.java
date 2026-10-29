@@ -72,4 +72,12 @@ public interface WorldView {
     default int buffState(int objectId, int skillId) {
         return BUFF_UNKNOWN;
     }
+
+    /**
+     * Seconds left of this buff on the creature (this skill or the same abnormal type). 0 = not on; negative = on, but
+     * the remaining time is unknown. Used so Wind Walk is not recast while more than 10 minutes remain.
+     */
+    default int buffSecondsLeft(int objectId, int skillId) {
+        return buffState(objectId, skillId) == BUFF_ON ? -1 : 0;
+    }
 }

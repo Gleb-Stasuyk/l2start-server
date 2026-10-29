@@ -1,7 +1,10 @@
 package org.l2start.bots.brain.basic;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.l2start.bots.api.PartyMember;
@@ -59,12 +62,16 @@ public final class RaidPlay {
         return 2000 + rnd.nextInt(8001);
     }
 
-    /** Centre of the other party members (and the leader) that are alive and near. Null = nobody. */
     /** The circle the one with the boss on it runs round the party: its radius stays within these. */
     public static final int KITE_MIN = 250;
     public static final int KITE_MAX = 500;
     /** One step round the circle. */
     public static final double KITE_STEP_DEG = 40;
+    /**
+     * Extra kite angles (degrees) tried after the preferred ±{@link #KITE_STEP_DEG} step fails on geodata: walk around
+     * the wall instead of standing in melee.
+     */
+    public static final double[] KITE_TRY_DEG = { 40, -40, 80, -80, 120, -120, 160, -160 };
 
     /** The next point on the circle round {@code center} through (about) {@code at}, {@code dir} 1 or -1. */
     public static Pos circleStep(Pos center, Pos at, int radius, double stepDeg, int dir) {
@@ -77,6 +84,39 @@ public final class RaidPlay {
         return (int) Math.max(KITE_MIN, Math.min(KITE_MAX, center.distance2d(at)));
     }
 
+    /**
+     * Places to step to while kiting: preferred direction first, then the other way, several radii. Geodata is not
+     * applied here — the caller walks the first point {@code Geo.canMoveTo} allows.
+     */
+    public static List<Pos> kiteCandidates(Pos center, Pos at, int dir) {
+        final int d = dir >= 0 ? 1 : -1;
+        final int radius = kiteRadius(center, at);
+        final int[] radii = { radius, KITE_MIN, (KITE_MIN + KITE_MAX) / 2, KITE_MAX };
+        final List<Pos> out = new ArrayList<>();
+        final Set<String> seen = new LinkedHashSet<>();
+        for (int r : radii) {
+            final int rr = Math.max(KITE_MIN, Math.min(KITE_MAX, r));
+            for (double deg : KITE_TRY_DEG) {
+                final int stepDir = deg >= 0 ? d : -d;
+                final Pos p = circleStep(center, at, rr, Math.abs(deg), stepDir);
+                if (seen.add(p.x() + "," + p.y())) {
+                    out.add(p);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** 1 if {@code to} is counter-clockwise of {@code from} around {@code center}, else -1. */
+    public static int stepDir(Pos center, Pos from, Pos to) {
+        final double ax = from.x() - center.x();
+        final double ay = from.y() - center.y();
+        final double bx = to.x() - center.x();
+        final double by = to.y() - center.y();
+        return ((ax * by) - (ay * bx)) >= 0 ? 1 : -1;
+    }
+
+    /** Centre of the other party members (and the leader) that are alive and near. Null = nobody. */
     public static Pos center(List<PartyMember> party, int range) {
         long x = 0;
         long y = 0;
