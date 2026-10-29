@@ -2229,14 +2229,22 @@ public final class BasicBrain implements Brain {
         }
         final boolean petTanks = me.hasPet() && (mob.targetId() == me.petId());
         final boolean raidFight = rbEngaged && (w.bossKind(mob.objectId()) != WorldView.BOSS_NONE);
+        final boolean raidBow = raidFight && me.bow();
+        final long now = ctx.now();
         // hunt kite / backstab walk would cancel RB auto-attack and leave a DD standing
-        if (!raidFight && !petTanks && kite(ctx, w, me, mob, ctx.now())) {
+        if (!raidFight && !petTanks && kite(ctx, w, me, mob, now)) {
             return;
         }
-        if (stance(ctx, me, me.mpPct() >= 15, ctx.now())) {
+        // raid bow: auto-attack first, then at most one skill/stance per RB_BOW_SKILL_MS (Double Shot ALWAYS
+        // would otherwise return every tick and never call attack())
+        final boolean allowStyle = !raidBow || (rbBowHasShot && (now >= rbBowSkillAt));
+        if (allowStyle && stance(ctx, me, me.mpPct() >= 15, now)) {
+            if (raidBow) {
+                rbBowSkillAt = now + RB_BOW_SKILL_MS;
+            }
             return; // the stance is switched (it targets the bot itself): the next tick attacks again
         }
-        if (!raidFight && sneak(ctx, w, me, mob, ctx.now())) {
+        if (!raidFight && sneak(ctx, w, me, mob, now)) {
             return;
         }
         if (petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
@@ -2247,11 +2255,14 @@ public final class BasicBrain implements Brain {
             detail = "fight " + fightName + ": servitor tanks";
             return;
         }
-        if (playstyle(ctx, w, me, mob, ctx.now())) {
+        if (allowStyle && playstyle(ctx, w, me, mob, now)) {
+            if (raidBow) {
+                rbBowSkillAt = now + RB_BOW_SKILL_MS;
+            }
             return;
         }
         if (me.mage() && (me.mpPct() >= 20)) {
-            final SkillView nuke = nuke(me, mob.npcId(), badSkills, ctx.now());
+            final SkillView nuke = nuke(me, mob.npcId(), badSkills, now);
             if (nuke != null) {
                 if (me.casting()) {
                     return;
@@ -2262,7 +2273,7 @@ public final class BasicBrain implements Brain {
                         return;
                     }
                     if (r == ActionResult.INVALID) {
-                        badSkills.put(badKey(nuke.id(), mob.npcId()), ctx.now() + BAD_SKILL_MS); // next decision tries the next nuke
+                        badSkills.put(badKey(nuke.id(), mob.npcId()), now + BAD_SKILL_MS); // next decision tries the next nuke
                         return;
                     }
                 } else {
@@ -2270,17 +2281,33 @@ public final class BasicBrain implements Brain {
                 }
             }
         }
-        if (!"ATTACK".equals(me.intention()) || (me.targetId() != mob.objectId())) { // the stock AI keeps hitting by itself
+        // raid bow: re-issue even when already ATTACK so a skill/kite cannot leave the archer idle, and the
+        // action log shows shots (stock AI would keep swinging, but playstyle CAST / close-in MOVE_TO cancel it)
+        if (raidBow || !"ATTACK".equals(me.intention()) || (me.targetId() != mob.objectId())) {
             final ActionResult r = ctx.act().attack(mob.objectId());
-            if (r == ActionResult.NOT_REACHABLE) {
-                blacklist.put(mob.objectId(), ctx.now() + BLACKLIST_MS);
-                claims.release(mob.objectId(), botId);
-                fightId = 0;
-            } else if (r == ActionResult.INVALID && !"ATTACK".equals(me.intention())) {
-                blacklist.put(mob.objectId(), ctx.now() + 30_000);
-                claims.release(mob.objectId(), botId);
-                fightId = 0;
+            if (r.ok() && raidBow) {
+                rbBowHasShot = true;
             }
+            if ((r == ActionResult.NOT_REACHABLE) || ((r == ActionResult.INVALID) && !"ATTACK".equals(me.intention()))) {
+                if (raidFight) {
+                    // keep fightId: dropping it re-startFight without walking into bow range / LoS
+                    if (me.bow() && ((r == ActionResult.NOT_REACHABLE) || (mob.distance() > rbBowWant(me)))) {
+                        rbCloseIn(ctx, me, mob);
+                    }
+                    return;
+                }
+                if (r == ActionResult.NOT_REACHABLE) {
+                    blacklist.put(mob.objectId(), now + BLACKLIST_MS);
+                    claims.release(mob.objectId(), botId);
+                    fightId = 0;
+                } else {
+                    blacklist.put(mob.objectId(), now + 30_000);
+                    claims.release(mob.objectId(), botId);
+                    fightId = 0;
+                }
+            }
+        } else if (raidBow) {
+            rbBowHasShot = true;
         }
     }
 
@@ -4125,6 +4152,11 @@ public final class BasicBrain implements Brain {
     static final long RB_TURN_MS = 2500;
     /** Supports keep this far from the boss (heals reach, cleaves do not). */
     static final int RB_SUPPORT_BACK = 550;
+    /**
+     * Raid bow DD: at most one playstyle/stance tick in this window. Auto-attack is the damage; skills must not
+     * starve {@code attack()} every tick (Hawkeye Double Shot ALWAYS, Accuracy toggle).
+     */
+    static final long RB_BOW_SKILL_MS = 2000;
 
     private int rbCallerId;
     private String rbCaller = "";
@@ -4175,6 +4207,10 @@ public final class BasicBrain implements Brain {
     private long rbLeaveStep;
     private Pos rbLeaveFrom;
     private long rbTurnAt;
+    /** Raid bow: last playstyle/stance tick; next ticks until this must auto-attack. */
+    private long rbBowSkillAt;
+    /** Raid bow: a successful {@code attack()} (or ATTACK intention) has been issued this fight. */
+    private boolean rbBowHasShot;
     private boolean rbEpicSaid;
     private int rbCalls;
     private int rbTurns;
@@ -4599,6 +4635,8 @@ public final class BasicBrain implements Brain {
         rbTurnAt = now + RB_TURN_MS;
         rbDdKiteSteps = 0;
         rbDdKiteBurstUntil = 0;
+        rbBowSkillAt = 0;
+        rbBowHasShot = false;
         ptMode = PartyMode.ASSIST;
         ctx.note("rb party: the fight starts on " + boss.name() + " lv " + boss.level() + " (" + rbRole + ")");
     }
@@ -4611,6 +4649,8 @@ public final class BasicBrain implements Brain {
         rbBossId = 0;
         rbDdKiteSteps = 0;
         rbDdKiteBurstUntil = 0;
+        rbBowSkillAt = 0;
+        rbBowHasShot = false;
         endFight();
         ctx.note("rb party: the fight is over (" + why + ")");
     }
@@ -4682,6 +4722,30 @@ public final class BasicBrain implements Brain {
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != target.objectId())) {
             ctx.act().attack(target.objectId());
         }
+    }
+
+    /** Distance a raid bow DD wants from the boss (weapon range minus a short buffer). */
+    static int rbBowWant(SelfView me) {
+        final int range = (me == null) || (me.attackRange() <= 0) ? 500 : me.attackRange();
+        return Math.max(80, range - 50);
+    }
+
+    /** Walk toward the boss to {@link #rbBowWant} instead of standing idle after attack() was refused. */
+    private void rbCloseIn(BrainContext ctx, SelfView me, NpcView mob) {
+        if ((mob == null) || mob.dead()) {
+            return;
+        }
+        final int want = rbBowWant(me);
+        final Pos dest;
+        if (mob.distance() > want) {
+            dest = mob.pos().toward(me.pos(), want);
+        } else {
+            final double step = Math.min(120, Math.max(40, mob.distance() - 40));
+            dest = me.pos().toward(mob.pos(), step);
+        }
+        detail = "closes on " + (fightName.isEmpty() ? mob.name() : fightName);
+        ctx.act().setWalking(false);
+        ctx.act().moveTo(dest);
     }
 
     /** The boss has helpers not on the tank: it runs up to them and pulls them all with Aura of Hate. */
@@ -5085,6 +5149,20 @@ public final class BasicBrain implements Brain {
                 } else {
                     rbDdKiteBurstUntil = 0;
                     rbDdKiteSteps = 0;
+                }
+                if (me.bow() && bossy && (target.distance() > (rbBowWant(me) + 40))) {
+                    standIfSitting(ctx, me);
+                    if (fightId != target.objectId()) {
+                        fightId = target.objectId();
+                        fightName = target.name();
+                        fightSince = now;
+                        fightHp = target.hpPct();
+                        fightHpAt = now;
+                        ctx.note("fight " + target.name() + " lv " + target.level());
+                    }
+                    detail = "closes on " + target.name();
+                    rbCloseIn(ctx, me, target);
+                    return 400;
                 }
                 if (fightId != target.objectId()) {
                     detail = "assists " + lead.name();

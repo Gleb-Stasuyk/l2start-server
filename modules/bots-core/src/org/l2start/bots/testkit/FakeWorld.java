@@ -337,6 +337,12 @@ public final class FakeWorld {
         players.clear();
     }
 
+    /**
+     * When &gt; 0, {@code attack()} is {@link ActionResult#NOT_REACHABLE} until the target is this close
+     * (RB bow tests: the real game refuses a shot with no LoS / out of range).
+     */
+    public int attackMaxRange;
+
     /** A bow in the hands: shoots from {@link #BOW_RANGE}. */
     public void setArcher(boolean a) {
         archer = a;
@@ -966,6 +972,9 @@ public final class FakeWorld {
                 return ActionResult.INVALID;
             }
             if (blocked(pos, m.pos)) {
+                return ActionResult.NOT_REACHABLE;
+            }
+            if ((attackMaxRange > 0) && (m.pos.distance2d(pos) > attackMaxRange)) {
                 return ActionResult.NOT_REACHABLE;
             }
             targetId = objectId;
