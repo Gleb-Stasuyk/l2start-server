@@ -4066,6 +4066,8 @@ public final class BasicBrain implements Brain {
     static final long RB_BUFF_SESSION_MS = 4 * 60_000L;
     /** A buff that fails this often (refused, broken, never on the target) is left out. */
     static final int RB_BUFF_TRIES = 3;
+    /** After the queue looks empty, re-check missing buffs this many times (mana came back, someone was skipped). */
+    static final int RB_BUFF_RESCANS = 3;
     /** Buff range when the skill tells none. */
     static final int RB_BUFF_RANGE = 600;
     /** Summons get the buffs of a fighter (class 0). */
@@ -4105,6 +4107,9 @@ public final class BasicBrain implements Brain {
     private boolean rbManaSaid;
     private boolean rbBuffResting;
     private int rbBuffsLanded;
+    private int rbBuffRescans;
+    /** Buffs given up this session (too many failures): not re-queued on a completeness rescan. */
+    private final java.util.Set<String> rbBuffGaveUp = new java.util.HashSet<>();
     private int rbKites;
     private int rbKiteDir = 1;
     private long rbKiteAt;
@@ -4241,6 +4246,8 @@ public final class BasicBrain implements Brain {
                 rbBuffCasting = null;
                 rbManaSaid = false;
                 rbBuffResting = false;
+                rbBuffRescans = 0;
+                rbBuffGaveUp.clear();
                 partyBuffed.clear();
                 partyTried = 0;
                 ctx.note("rb party: " + c.from() + " asks for buffs");
@@ -4711,7 +4718,7 @@ public final class BasicBrain implements Brain {
         return null;
     }
 
-    /** "баф": the full set (town or not) for every member, every summon of the party and the prophet itself. */
+    /** "баф": the short raid set for every member, every summon of the party and the prophet itself. */
     private List<int[]> rbBuffPlan(WorldView w, SelfView me) {
         final java.util.Set<Integer> known = new java.util.LinkedHashSet<>();
         for (SkillView s : me.skills()) {
@@ -4724,25 +4731,40 @@ public final class BasicBrain implements Brain {
         pm.sort(java.util.Comparator.comparing((PartyMember m) -> !m.leader())); // the leader first
         for (PartyMember m : pm) {
             if (!m.dead()) {
-                rbBuffFor(out, me, m.objectId(), m.classId(), known);
+                rbBuffFor(out, w, me, m.objectId(), m.classId(), known);
             }
         }
         for (WorldView.PartyPet pet : w.partyPets()) {
             if (!pet.dead()) {
-                rbBuffFor(out, me, pet.objectId(), RB_PET_CLASS, known);
+                rbBuffFor(out, w, me, pet.objectId(), RB_PET_CLASS, known);
             }
         }
-        rbBuffFor(out, me, me.objectId(), me.classId(), known);
+        rbBuffFor(out, w, me, me.objectId(), me.classId(), known);
         return out;
     }
 
-    private static void rbBuffFor(List<int[]> out, SelfView me, int objectId, int classId, java.util.Set<Integer> known) {
-        final List<Integer> ids = known.isEmpty() ? PartyBuffs.wanted(me.classId(), classId, false)
-            : PartyBuffs.filterLearnable(PartyBuffs.wanted(me.classId(), classId, false), known);
+    private void rbBuffFor(List<int[]> out, WorldView w, SelfView me, int objectId, int classId, java.util.Set<Integer> known) {
+        final List<Integer> wanted = PartyBuffs.wantedRaid(me.classId(), classId);
+        final List<Integer> ids = known.isEmpty() ? wanted : PartyBuffs.filterLearnable(wanted, known);
         for (int id : ids) {
-            if (skill(me, id) != null) {
-                out.add(new int[] { id, objectId, 0 });
+            if (skill(me, id) == null) {
+                continue;
             }
+            if (rbBuffGaveUp.contains(id + ">" + objectId)) {
+                continue;
+            }
+            if (id == PartyBuffs.WIND_WALK) {
+                final int left = w.buffSecondsLeft(objectId, id);
+                if (left > PartyBuffs.WW_KEEP_SEC) {
+                    continue; // still more than 10 minutes: do not recast
+                }
+                if (left < 0) {
+                    continue; // on, duration unknown: keep it, save mana
+                }
+            } else if (w.buffState(objectId, id) == WorldView.BUFF_ON) {
+                continue;
+            }
+            out.add(new int[] { id, objectId, 0 });
         }
     }
 
@@ -4757,6 +4779,8 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         if (rbBuffQueue == null) {
+            rbBuffGaveUp.clear();
+            rbBuffRescans = 0;
             rbBuffQueue = rbBuffPlan(w, me);
             rbBuffUntil = now + RB_BUFF_SESSION_MS;
             rbBuffCasting = null;
@@ -4777,21 +4801,33 @@ public final class BasicBrain implements Brain {
                 partyBuffs++;
                 rbBuffsLanded++;
             } else if ((q != null) && (++q[2] >= RB_BUFF_TRIES)) {
+                rbBuffGaveUp.add(done[0] + ">" + done[1]);
                 rbBuffQueue.remove(q);
                 ctx.note("rb party: buff " + done[0] + " never went on " + done[1]);
             }
         }
-        if (rbBuffQueue.isEmpty() || (now > rbBuffUntil)) {
-            final boolean all = rbBuffQueue.isEmpty();
-            rbBuffAsked = false;
-            rbBuffQueue = null;
-            rbBuffResting = false;
-            if (all) {
-                speak(ctx, "PARTY", null, "BUFFED", Map.of("player", lead.name()), now + ctx.reactionDelay());
+        if (rbBuffResting) {
+            rbBuffUntil = Math.max(rbBuffUntil, now + 30_000); // sitting for mana does not abort the session
+        }
+        if (rbBuffQueue.isEmpty() || ((now > rbBuffUntil) && !rbBuffResting)) {
+            final List<int[]> missing = rbBuffPlan(w, me);
+            if (!missing.isEmpty() && (rbBuffRescans < RB_BUFF_RESCANS)) {
+                rbBuffRescans++;
+                rbBuffQueue = missing;
+                rbBuffUntil = Math.max(rbBuffUntil, now + 90_000);
+                ctx.note("rb party: " + missing.size() + " buff(s) still missing, continues");
             } else {
-                ctx.note("rb party: buff session ran out of time");
+                final boolean all = missing.isEmpty();
+                rbBuffAsked = false;
+                rbBuffQueue = null;
+                rbBuffResting = false;
+                if (all) {
+                    speak(ctx, "PARTY", null, "BUFFED", Map.of("player", lead.name()), now + ctx.reactionDelay());
+                } else {
+                    ctx.note("rb party: buff session ran out of time");
+                }
+                return 800;
             }
-            return 800;
         }
         final int[] q = rbBuffQueue.get(0);
         final SkillView s = skill(me, q[0]);
@@ -4844,6 +4880,7 @@ public final class BasicBrain implements Brain {
         if ((q[1] != me.objectId()) && (d > (range - 50))) {
             if (d > 2500) {
                 if (++q[2] >= RB_BUFF_TRIES) {
+                    rbBuffGaveUp.add(q[0] + ">" + q[1]);
                     rbBuffQueue.remove(0);
                 } else {
                     rbBuffQueue.add(rbBuffQueue.remove(0));
@@ -4866,6 +4903,7 @@ public final class BasicBrain implements Brain {
             return 400;
         }
         if (++q[2] >= RB_BUFF_TRIES) {
+            rbBuffGaveUp.add(q[0] + ">" + q[1]);
             rbBuffQueue.remove(0);
         } else {
             rbBuffQueue.add(rbBuffQueue.remove(0));

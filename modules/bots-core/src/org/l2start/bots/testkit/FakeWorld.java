@@ -227,6 +227,10 @@ public final class FakeWorld {
     public int auraPulls;
     /** RB party (iteration 2): buff effects on creatures, object id -> skill ids (the bot is {@link #SELF_ID}). */
     public final Map<Integer, java.util.Set<Integer>> effects = new HashMap<>();
+    /** When the effect expires (game ms); missing = on, duration unknown. */
+    public final Map<Integer, Map<Integer, Long>> effectUntil = new HashMap<>();
+    /** Default remaining time of a newly applied party buff (Wind Walk and the rest last 20 min in Interlude). */
+    public static final long BUFF_LASTS_MS = 20 * 60_000L;
     /** RB party (iteration 2): a buff on a friend takes this long to go off (0 = at once); moving or stopping breaks it. */
     public long buffCastMs;
     /** Buff casts broken before they went off. */
@@ -438,7 +442,7 @@ public final class FakeWorld {
                 buffsInterrupted++;
                 pendingBuff = 0;
             } else if (now >= pendingAt) {
-                effects.computeIfAbsent(pendingTarget, k -> new java.util.HashSet<>()).add(pendingBuff);
+                putEffect(pendingTarget, pendingBuff, (int) (BUFF_LASTS_MS / 1000));
                 pendingBuff = 0;
                 intention = "ACTIVE";
             }
@@ -892,7 +896,16 @@ public final class FakeWorld {
 
             @Override
             public int buffState(int objectId, int skillId) {
-                return effects.getOrDefault(objectId, java.util.Set.of()).contains(skillId) ? BUFF_ON : BUFF_OFF;
+                return effectOn(objectId, skillId) ? BUFF_ON : BUFF_OFF;
+            }
+
+            @Override
+            public int buffSecondsLeft(int objectId, int skillId) {
+                if (!effectOn(objectId, skillId)) {
+                    return 0;
+                }
+                final Long until = effectUntil.getOrDefault(objectId, Map.of()).get(skillId);
+                return until == null ? -1 : (int) Math.max(0, (until - now) / 1000);
             }
         };
     }
@@ -1506,10 +1519,30 @@ public final class FakeWorld {
         return ActionResult.OK;
     }
 
+    /** Put a buff on a creature with this many seconds left (tests: Wind Walk already up). */
+    public void putEffect(int objectId, int skillId, int secondsLeft) {
+        effects.computeIfAbsent(objectId, k -> new java.util.HashSet<>()).add(skillId);
+        if (secondsLeft >= 0) {
+            effectUntil.computeIfAbsent(objectId, k -> new HashMap<>()).put(skillId, now + (secondsLeft * 1000L));
+        }
+    }
+
+    boolean effectOn(int objectId, int skillId) {
+        final Long until = effectUntil.getOrDefault(objectId, Map.of()).get(skillId);
+        if ((until != null) && (until <= now)) {
+            final java.util.Set<Integer> set = effects.get(objectId);
+            if (set != null) {
+                set.remove(skillId);
+            }
+            return false;
+        }
+        return effects.getOrDefault(objectId, java.util.Set.of()).contains(skillId);
+    }
+
     /** A buff on a friend: on it at once, or after {@link #buffCastMs} of standing still (the bot casts meanwhile). */
     private void friendBuff(int skillId, int objectId) {
         if (buffCastMs <= 0) {
-            effects.computeIfAbsent(objectId, k -> new java.util.HashSet<>()).add(skillId);
+            putEffect(objectId, skillId, (int) (BUFF_LASTS_MS / 1000));
             return;
         }
         pendingBuff = skillId;

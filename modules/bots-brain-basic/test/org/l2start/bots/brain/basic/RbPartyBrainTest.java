@@ -264,7 +264,9 @@ class RbPartyBrainTest {
         h.run(110_000);
         final java.util.Set<Integer> none = java.util.Set.of();
         assertTrue(w.effects.getOrDefault(GLEB, none).containsAll(java.util.List.of(1204, 1040, 1085, 1062)), "leader (a mystic): " + w.effects + " " + h.notes());
-        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(1204, 1040, 1068, 1062)), "far tank: " + w.effects);
+        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(1204, 1040)), "far tank: " + w.effects);
+        assertFalse(w.effects.getOrDefault(901, none).contains(1068), "tank got Might: " + w.effects);
+        assertFalse(w.effects.getOrDefault(901, none).contains(1062), "tank got Berserker: " + w.effects);
         assertTrue(w.effects.getOrDefault(950, none).containsAll(java.util.List.of(1204, 1040)), "his summon: " + w.effects);
         assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, none).containsAll(java.util.List.of(1204, 1040, 1085, 1062)), "itself: " + w.effects);
         assertEquals(-1, brain(h).rbBuffsLeft(), "the session is over");
@@ -287,10 +289,57 @@ class RbPartyBrainTest {
         h.run(4 * 60_000);
         assertTrue(saidInParty(w, "мана", "мп", "mana", "mp", "oom"), "no 'mana': " + w.chat + " " + h.notes());
         final int mana = indexOfParty(w, "мана", "мп", "mana", "mp", "oom");
-        assertTrue(w.effects.getOrDefault(GLEB, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040, 1035, 1045)), "not all on him: " + w.effects + " " + h.notes());
-        assertTrue(w.effects.getOrDefault(901, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040, 1068, 1035, 1045)), "not all on the tank: " + w.effects);
-        assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040, 1035, 1045)), "not all on itself: " + w.effects);
+        assertTrue(w.effects.getOrDefault(GLEB, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040)), "not all on him: " + w.effects + " " + h.notes());
+        assertFalse(w.effects.getOrDefault(GLEB, java.util.Set.of()).contains(1035), "mage got Mental Shield: " + w.effects);
+        assertFalse(w.effects.getOrDefault(GLEB, java.util.Set.of()).contains(1045), "mage got Blessed Body: " + w.effects);
+        assertTrue(w.effects.getOrDefault(901, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040, 1045)), "not all on the tank: " + w.effects);
+        assertFalse(w.effects.getOrDefault(901, java.util.Set.of()).contains(1068), "tank got Might: " + w.effects);
+        assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040)), "not all on itself: " + w.effects);
+        assertFalse(w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).contains(1035), "prophet mage got Mental Shield");
         assertTrue(indexOfParty(w, "баф", "готово", "buffed", "done", "buffs up", "there you go") > mana, "'buffed' before the end: " + w.chat.subList(before, w.chat.size()));
+    }
+
+    @Test
+    void windWalkIsNotRecastWhileMoreThanTenMinutesRemain() {
+        final FakeWorld w = BasicBrainTest.world(532, true);
+        w.addSkill(PartyBuffs.WIND_WALK, SkillView.Kind.OTHER, 20, 0);
+        w.addSkill(PartyBuffs.SHIELD, SkillView.Kind.OTHER, 20, 0);
+        final BrainHarness h = joined(w, 532, 17, true, "PROPHET");
+        w.setMp(w.maxMp());
+        moveGleb(w, beside(w, 150), 0);
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        w.putEffect(GLEB, PartyBuffs.WIND_WALK, 15 * 60);
+        w.putEffect(901, PartyBuffs.WIND_WALK, 15 * 60);
+        w.putEffect(FakeWorld.SELF_ID, PartyBuffs.WIND_WALK, 15 * 60);
+        w.chatFrom("PARTY", GLEB, "Gleb", "баф");
+        h.run(40_000);
+        assertTrue(w.partyCasts.stream().noneMatch(c -> c.startsWith(PartyBuffs.WIND_WALK + ">")), "recast Wind Walk: " + w.partyCasts + " " + h.notes());
+        assertTrue(w.partyCasts.contains(PartyBuffs.SHIELD + ">" + GLEB) && w.partyCasts.contains(PartyBuffs.SHIELD + ">901"), "skipped the rest: " + w.partyCasts);
+        assertEquals(-1, brain(h).rbBuffsLeft(), h.notes().toString());
+    }
+
+    @Test
+    void afterManaRecoversEveryoneIsBuffed() {
+        final FakeWorld w = BasicBrainTest.world(533, true);
+        for (int id : new int[] { PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.MIGHT, PartyBuffs.ACUMEN, PartyBuffs.BLESSED_BODY }) {
+            w.addSkill(id, SkillView.Kind.OTHER, 80, 0);
+        }
+        final BrainHarness h = joined(w, 533, 17, true, "PROPHET");
+        moveGleb(w, beside(w, 120), 0);
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 180), 0, 100, 100, false, 0, false));
+        w.party.add(new PartyMember(902, "Glad", 2, 40, beside(w, 220), 0, 100, 100, false, 0, false));
+        w.setMp(100); // one buff, then sit
+        w.chatFrom("PARTY", GLEB, "Gleb", "баф");
+        h.run(5 * 60_000);
+        assertTrue(saidInParty(w, "мана", "мп", "mana", "mp", "oom"), "no 'mana': " + w.chat);
+        final java.util.Set<Integer> none = java.util.Set.of();
+        assertTrue(w.effects.getOrDefault(GLEB, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.ACUMEN)), "leader skipped: " + w.effects + " " + h.notes());
+        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.BLESSED_BODY)), "tank skipped: " + w.effects);
+        assertFalse(w.effects.getOrDefault(901, none).contains(PartyBuffs.MIGHT), "tank got Might");
+        assertTrue(w.effects.getOrDefault(902, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.MIGHT)), "dd skipped: " + w.effects);
+        assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.ACUMEN)), "prophet skipped: " + w.effects);
+        assertEquals(-1, brain(h).rbBuffsLeft(), h.notes().toString());
+        assertTrue(saidInParty(w, "баф", "buff", "готово", "done", "all"), "no 'buffed': " + w.chat);
     }
 
     private static int indexOfParty(FakeWorld w, String... words) {
