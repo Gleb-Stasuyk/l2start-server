@@ -342,7 +342,7 @@ public final class FakeWorld {
 
     /**
      * When &gt; 0, {@code attack()} is {@link ActionResult#NOT_REACHABLE} until the target is this close
-     * (RB mage tests: the real game refuses a staff swing with no LoS / out of range).
+     * (RB bow / mage tests: the real game refuses a shot or staff swing with no LoS / out of range).
      */
     public int attackMaxRange;
 

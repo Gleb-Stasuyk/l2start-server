@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+import java.util.Set;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.l2start.bots.api.BotEvent;
@@ -759,5 +762,100 @@ class RbPartyBrainTest {
         assertTrue(w.partyCasts.stream().noneMatch(c -> c.startsWith("1401>")), "Major Heal without ore: " + w.partyCasts);
         assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1217>902")),
             "stuck on boneless Major Heal, never Greater Heal: " + w.partyCasts + " " + h.notes());
+    }
+
+    // ------------------------------------------------------------------ bow DD (Hawkeye / Silver Ranger / Phantom Ranger): shoot the RB
+
+    /**
+     * paceMs=0 + ALWAYS: without a cap, playstyle() returns every tick and attack() never runs.
+     * Accuracy as a TOGGLE that never stays on: stance() would also steal ticks.
+     */
+    private static Playstyles archerStarveStyle() {
+        final Playstyles.Entry shot = new Playstyles.Entry(19, "Double Shot", Playstyles.Use.ROTATION, Set.of(Playstyles.Cond.ALWAYS), 0, 0, 0, 0, 0, 0, 999, 0, 0);
+        return new Playstyles(List.of(new Playstyles.Playstyle("Archer starve", Set.of(9, 24, 37), "ARCHER", List.of(shot))));
+    }
+
+    private static BrainHarness archerDd(FakeWorld w, long seed, int classId) {
+        w.setArcher(true);
+        w.addSkill(19, SkillView.Kind.STRIKE, 20, 0);
+        w.addSkill(256, SkillView.Kind.TOGGLE, 5, 0); // Accuracy: Extra.buffLeft stays 0, so stance retries
+        return joined(w, seed, classId, false, "DD");
+    }
+
+    @Test
+    void aBowDdKeepsShootingTheBossThroughPlaystyleAndStance() {
+        BasicBrain.playstyles = archerStarveStyle();
+        final FakeWorld w = BasicBrainTest.world(550, false);
+        final BrainHarness h = archerDd(w, 550, 9); // Hawkeye, rbRole=DD
+        w.teleport(new Pos(40_000, 40_000, 0));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(3000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        h.act().clear();
+        for (int i = 0; i < 6; i++) {
+            w.setHp(w.maxHp());
+            final double hp = boss.hp;
+            final long before = h.act().countOk("attack");
+            h.run(2500);
+            final long shots = h.act().countOk("attack") - before;
+            assertTrue((shots >= 1) || (boss.hp < hp), "bow idle slice " + i + " shots " + shots + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
+        }
+        assertTrue(h.act().countOk("attack") >= 8, "attack(boss) was not issued repeatedly: " + h.act().countOk("attack") + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists")), "never fought: " + h.notes());
+        assertTrue(brain(h).details().contains("fight") || brain(h).details().contains("assists") || brain(h).details().contains("closes"),
+            "detail is not combat: " + brain(h).details());
+        assertFalse(brain(h).details().contains("follows") && !brain(h).details().contains("fight"), "only follows: " + brain(h).details());
+    }
+
+    @Test
+    void aBowDdWalksIntoBowRangeWhenAttackIsUnreachable() {
+        BasicBrain.playstyles = archerStarveStyle();
+        final FakeWorld w = BasicBrainTest.world(551, false);
+        w.attackMaxRange = FakeWorld.BOW_RANGE;
+        final BrainHarness h = archerDd(w, 551, 24); // Silver Ranger
+        w.teleport(new Pos(40_000, 40_000, 0));
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(12_000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(w.pos().distance2d(boss.pos) <= (FakeWorld.BOW_RANGE + 20),
+            "did not walk into bow range: dist " + w.pos().distance2d(boss.pos) + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.act().countOk("attack") >= 3, "no shots after closing in: " + h.act().countOk("attack") + " " + h.notes() + " " + h.act().calls());
+        assertTrue(boss.hp < 8000, "nobody hit it: hp " + boss.hp + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists")), "never fought: " + h.notes());
+    }
+
+    @Test
+    void aBowDdStaysOnTheRaidBossLikeOtherDd() {
+        BasicBrain.playstyles = archerStarveStyle();
+        final FakeWorld w = BasicBrainTest.world(552, false);
+        final BrainHarness h = archerDd(w, 552, 37); // Phantom Ranger
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 5000;
+        boss.targetId = 901;
+        final FakeWorld.Mob add = w.addMob(10, 40, beside(w, 520));
+        add.bossKind = WorldView.BOSS_MINION;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(5000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        final double bossHp = boss.hp;
+        final double addHp = add.hp;
+        moveGleb(w, beside(w, 100), add.objectId);
+        boss.targetId = 901;
+        h.run(8000);
+        assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
+        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+        assertTrue(h.act().countOk("attack") >= 3, "no attack(boss): " + h.act().countOk("attack") + " " + h.act().calls());
     }
 }
