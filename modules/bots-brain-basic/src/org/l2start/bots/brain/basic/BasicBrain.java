@@ -2202,13 +2202,15 @@ public final class BasicBrain implements Brain {
             return;
         }
         final boolean petTanks = me.hasPet() && (mob.targetId() == me.petId());
-        if (!petTanks && kite(ctx, w, me, mob, ctx.now())) {
+        final boolean raidFight = rbEngaged && (w.bossKind(mob.objectId()) != WorldView.BOSS_NONE);
+        // hunt kite / backstab walk would cancel RB auto-attack and leave a DD standing
+        if (!raidFight && !petTanks && kite(ctx, w, me, mob, ctx.now())) {
             return;
         }
         if (stance(ctx, me, me.mpPct() >= 15, ctx.now())) {
             return; // the stance is switched (it targets the bot itself): the next tick attacks again
         }
-        if (sneak(ctx, w, me, mob, ctx.now())) {
+        if (!raidFight && sneak(ctx, w, me, mob, ctx.now())) {
             return;
         }
         if (petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
@@ -2647,18 +2649,24 @@ public final class BasicBrain implements Brain {
     }
 
     /** Pull the monster's aggro onto itself when the class can (Aggression, else Aura of Hate). */
-    private void taunt(BrainContext ctx, SelfView me, NpcView mob, long now) {
+    private boolean taunt(BrainContext ctx, SelfView me, NpcView mob, long now) {
         if ((now < tauntNext) || me.mage()) {
-            return;
+            return false;
         }
         for (int id : new int[] { AGGRESSION, HATE_AURA }) {
             final SkillView s = skill(me, id);
             if (usable(me, s) && ctx.act().cast(id, mob.objectId()).ok()) {
-                ctx.note("pulls " + mob.name() + " off its partner");
+                if (rbEngaged) {
+                    rbTurns++;
+                    ctx.note("rb party: " + (id == AGGRESSION ? "taunts " : "hates ") + mob.name());
+                } else {
+                    ctx.note("pulls " + mob.name() + " off its partner");
+                }
                 tauntNext = now + 4000;
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     /** While leaving or in a fight of its own: monsters on itself or a partner are fought first. */
@@ -4064,11 +4072,15 @@ public final class BasicBrain implements Brain {
     static final int RB_PET_CLASS = 0;
     /** The tank / a DD with the boss on it takes a step round the party this often. */
     static final long RB_KITE_MS = 1500;
+    /** A DD with the boss on it kites at most this many steps, then fights even if still targeted. */
+    static final int RB_DD_KITE_STEPS = 2;
+    /** …or this long, whichever comes first. */
+    static final long RB_DD_KITE_BURST_MS = 3000;
     /** Aura of Hate: the tank comes this close to the helpers first. */
     static final int RB_AURA_REACH = 180;
     static final long RB_AURA_MS = 8000;
-    /** A tank turns the boss away from the party at most this often. */
-    static final long RB_TURN_MS = 5000;
+    /** A tank holding the boss taunts / hates it this often (alternates with kite). */
+    static final long RB_TURN_MS = 2500;
     /** Supports keep this far from the boss (heals reach, cleaves do not). */
     static final int RB_SUPPORT_BACK = 550;
 
@@ -4096,6 +4108,9 @@ public final class BasicBrain implements Brain {
     private int rbKites;
     private int rbKiteDir = 1;
     private long rbKiteAt;
+    /** DD kite burst while the boss is on it: steps used and when the burst ends. */
+    private int rbDdKiteSteps;
+    private long rbDdKiteBurstUntil;
     private int rbAuras;
     private long rbAuraNext;
     private boolean rbGoAsked;
@@ -4189,6 +4204,8 @@ public final class BasicBrain implements Brain {
         rbInParty = false;
         rbEngaged = false;
         rbBossId = 0;
+        rbDdKiteSteps = 0;
+        rbDdKiteBurstUntil = 0;
         rbBuffAsked = false;
         rbGoAsked = false;
         rbLeaderLast = null;
@@ -4532,6 +4549,9 @@ public final class BasicBrain implements Brain {
         rbEngagedAt = now;
         rbQuietSince = now;
         rbGoAsked = false;
+        rbTurnAt = now + RB_TURN_MS;
+        rbDdKiteSteps = 0;
+        rbDdKiteBurstUntil = 0;
         ptMode = PartyMode.ASSIST;
         ctx.note("rb party: the fight starts on " + boss.name() + " lv " + boss.level() + " (" + rbRole + ")");
     }
@@ -4542,6 +4562,8 @@ public final class BasicBrain implements Brain {
         }
         rbEngaged = false;
         rbBossId = 0;
+        rbDdKiteSteps = 0;
+        rbDdKiteBurstUntil = 0;
         endFight();
         ctx.note("rb party: the fight is over (" + why + ")");
     }
@@ -4573,7 +4595,9 @@ public final class BasicBrain implements Brain {
 
     /**
      * The one the boss is on runs a circle round the party (a step every {@link #RB_KITE_MS}): the boss chases instead
-     * of standing and hitting. A step the geodata does not allow goes the other way round; neither = 0 (fight on).
+     * of standing and hitting. Several angles and radii are tried when geodata blocks the first step; none = 0
+     * (caller may melee). {@code moveTo} cancels auto-attack — the caller must re-issue attack after the step or pause,
+     * and must not attack while this move is still running (that would cancel the kite).
      */
     private long rbKite(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now, String what) {
         if (now < rbKiteAt) {
@@ -4583,20 +4607,34 @@ public final class BasicBrain implements Brain {
         if (center == null) {
             center = lead.pos();
         }
-        final int radius = RaidPlay.kiteRadius(center, me.pos());
-        for (int turn = 0; turn < 2; turn++) {
-            final Pos step = RaidPlay.circleStep(center, me.pos(), radius, RaidPlay.KITE_STEP_DEG, rbKiteDir);
+        for (Pos step : RaidPlay.kiteCandidates(center, me.pos(), rbKiteDir)) {
             final Pos to = new Pos(step.x(), step.y(), w.geo().height(step));
             if (w.geo().canMoveTo(me.pos(), to) && ctx.act().moveTo(to).ok()) {
                 rbKiteAt = now + RB_KITE_MS;
                 rbKites++;
+                rbKiteDir = RaidPlay.stepDir(center, me.pos(), to);
                 detail = what;
                 return 900;
             }
-            rbKiteDir = -rbKiteDir; // a wall: the other way round
         }
         rbKiteAt = now + 2000;
+        rbKiteDir = -rbKiteDir;
         return 0;
+    }
+
+    /** Still walking a kite step: attacking now would setIntentionAttack and cancel the move. */
+    private boolean rbKiteMoving(SelfView me, long now) {
+        return (now < rbKiteAt) && me.moving();
+    }
+
+    /** Re-issue auto-attack: {@code moveTo} / a kite pause leaves the stock AI on ACTIVE. */
+    private void rbKeepHitting(BrainContext ctx, SelfView me, NpcView target) {
+        if ((target == null) || target.dead()) {
+            return;
+        }
+        if (!"ATTACK".equals(me.intention()) || (me.targetId() != target.objectId())) {
+            ctx.act().attack(target.objectId());
+        }
     }
 
     /** The boss has helpers not on the tank: it runs up to them and pulls them all with Aura of Hate. */
@@ -4836,21 +4874,23 @@ public final class BasicBrain implements Brain {
     }
 
     private long rbFight(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now) {
-        final NpcView boss = rbBossId == 0 ? null : w.npc(rbBossId);
+        NpcView boss = rbBossId == 0 ? null : w.npc(rbBossId);
         if ((boss != null) && boss.dead()) {
             ctx.note("rb party: " + boss.name() + " is dead");
             rbBossId = 0;
+            boss = null;
         }
-        NpcView target = null;
-        final NpcView lt = lead.targetId() == 0 ? null : w.npc(lead.targetId());
-        if ((lt != null) && !lt.dead() && lt.monster() && lt.attackable() && (lt.distance() < 2000) && (w.bossKind(lt.objectId()) != WorldView.BOSS_EPIC)) {
-            target = lt;
-        } else if ((boss != null) && !boss.dead() && (boss.distance() < 2400)) {
-            target = boss;
-        } else {
-            target = onPartner(w);
-            if (target == null) {
-                target = attacker(w, me);
+        // lock on the raid boss while it lives in range: the leader clicking a minion must not pull DDs off it
+        NpcView target = ((boss != null) && !boss.dead() && (boss.distance() < 2400)) ? boss : null;
+        if (target == null) {
+            final NpcView lt = lead.targetId() == 0 ? null : w.npc(lead.targetId());
+            if ((lt != null) && !lt.dead() && lt.monster() && lt.attackable() && (lt.distance() < 2000) && (w.bossKind(lt.objectId()) != WorldView.BOSS_EPIC)) {
+                target = lt;
+            } else {
+                target = onPartner(w);
+                if (target == null) {
+                    target = attacker(w, me);
+                }
             }
         }
         if (target == null) {
@@ -4866,6 +4906,10 @@ public final class BasicBrain implements Brain {
                 // supports keep back from the boss and near the party: heals and buffs come from partyCare
                 standIfSitting(ctx, me);
                 if (bossy && (target.targetId() == me.objectId()) && (tankOf(w) != null)) {
+                    if (rbKiteMoving(me, now)) {
+                        detail = "runs from " + target.name() + " till the tank takes it";
+                        return 400;
+                    }
                     final long k = rbKite(ctx, w, me, lead, now, "runs from " + target.name() + " till the tank takes it");
                     if (k > 0) {
                         return k;
@@ -4890,40 +4934,79 @@ public final class BasicBrain implements Brain {
             }
             case "TANK" -> {
                 standIfSitting(ctx, me);
+                if (me.casting()) {
+                    return 400;
+                }
                 if (bossy) {
                     final long aura = rbAura(ctx, w, me, target, now);
                     if (aura > 0) {
                         return aura;
                     }
                 }
-                if (target.targetId() != me.objectId()) {
+                final boolean onMe = target.targetId() == me.objectId();
+                if (!onMe) {
                     taunt(ctx, me, target, now); // first, and again whenever the boss turns to somebody else
                 }
                 if (fightId != target.objectId()) {
                     return startFight(ctx, me, target, now, true);
                 }
-                if (bossy && (target.targetId() == me.objectId())) {
+                if (bossy && onMe) {
+                    // finish the kite step: attack() here would cancel moveTo and look like melee trading
+                    if (rbKiteMoving(me, now)) {
+                        detail = "kites " + target.name() + " round the party";
+                        return 400;
+                    }
+                    // while holding: taunt / Aura of Hate on the boss itself, not only adds
+                    if ((now >= rbTurnAt) && taunt(ctx, me, target, now)) {
+                        rbTurnAt = now + RB_TURN_MS;
+                        detail = "holds " + target.name();
+                        rbKeepHitting(ctx, me, target);
+                        return 800;
+                    }
                     final long k = rbKite(ctx, w, me, lead, now, "kites " + target.name() + " round the party");
                     if (k > 0) {
                         return k;
                     }
+                    // geo blocked every angle/radius: melee is the fallback, then try kite again later
+                    rbKeepHitting(ctx, me, target);
                 }
                 final long d = fight(ctx, w, me, now);
                 return d > 0 ? d : 400;
             }
             default -> {
-                // damage dealers: the tank takes the boss first
+                // damage dealers: the tank takes the boss first; they kite 1–2 steps then keep hitting
                 final PartyMember tank = tankOf(w);
                 if (bossy && (tank != null) && (target.targetId() != tank.objectId()) && ((now - rbEngagedAt) < RaidPlay.TANK_FIRST_MS) && (fightId == 0)) {
                     detail = "waits for " + tank.name() + " to take " + target.name();
                     return 500;
                 }
                 standIfSitting(ctx, me);
-                if (bossy && (target.targetId() == me.objectId()) && (tank != null)) {
-                    final long k = rbKite(ctx, w, me, lead, now, "runs from " + target.name() + " till " + tank.name() + " takes it");
-                    if (k > 0) {
-                        return k;
+                if (me.casting()) {
+                    return 400;
+                }
+                final boolean onMe = bossy && (target.targetId() == me.objectId()) && (tank != null);
+                if (onMe) {
+                    if (rbDdKiteBurstUntil == 0) {
+                        rbDdKiteBurstUntil = now + RB_DD_KITE_BURST_MS;
+                        rbDdKiteSteps = 0;
                     }
+                    final boolean burst = (rbDdKiteSteps < RB_DD_KITE_STEPS) && (now < rbDdKiteBurstUntil);
+                    if (burst && rbKiteMoving(me, now)) {
+                        detail = "runs from " + target.name() + " till " + tank.name() + " takes it";
+                        return 400;
+                    }
+                    if (burst) {
+                        final long k = rbKite(ctx, w, me, lead, now, "runs from " + target.name() + " till " + tank.name() + " takes it");
+                        if (k > 0) {
+                            rbDdKiteSteps++;
+                            return k;
+                        }
+                    }
+                    // pause after a kite step, or the burst is over: back on the boss
+                    rbKeepHitting(ctx, me, target);
+                } else {
+                    rbDdKiteBurstUntil = 0;
+                    rbDdKiteSteps = 0;
                 }
                 if (fightId != target.objectId()) {
                     detail = "assists " + lead.name();
@@ -5181,7 +5264,8 @@ public final class BasicBrain implements Brain {
             return rbCalls == 0 ? "" : "\nRB calls answered: " + rbCalls;
         }
         return "\nRB party: " + rbRole + " for " + rbCaller + (rbInParty ? " (in the party" + (rbEngaged ? ", fighting" : "") + ")" : " (waits for the invitation)")
-            + (rbLeaving > 0 ? ", leaving" : "") + (rbSummoned ? ", brought in" : "");
+            + (rbLeaving > 0 ? ", leaving" : "") + (rbSummoned ? ", brought in" : "")
+            + (rbEngaged ? ", kites " + rbKites + ", taunts " + rbTurns : "");
     }
 
     // ------------------------------------------------------------------ roles (4c, second part): summons, sweep, heals, back

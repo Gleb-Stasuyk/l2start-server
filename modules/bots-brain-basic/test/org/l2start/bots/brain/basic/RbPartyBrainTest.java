@@ -363,7 +363,7 @@ class RbPartyBrainTest {
     }
 
     @Test
-    void aDdWithTheBossOnItRunsRoundTheParty() {
+    void aDdWithTheBossOnItRunsRoundThePartyThenFights() {
         final FakeWorld w = BasicBrainTest.world(525, true);
         final BrainHarness h = joined(w, 525, 27, true, "DD");
         w.teleport(new Pos(40_000, 40_000, 0));
@@ -373,10 +373,119 @@ class RbPartyBrainTest {
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(6000);
+        boss.hp = Math.max(boss.hp, 4000); // stay alive while we watch the burst
         boss.targetId = FakeWorld.SELF_ID; // the boss turned to it
         final int k = brain(h).rbKites();
+        h.run(3500);
+        final int after = brain(h).rbKites();
+        assertTrue(after >= (k + 1), "did not run: " + h.notes());
+        assertTrue(after <= (k + BasicBrain.RB_DD_KITE_STEPS), "kept kiting instead of fighting: " + after + " " + h.notes());
+        final double hp = boss.hp;
+        h.act().clear();
+        h.run(6000);
+        assertTrue(brain(h).rbKites() <= after, "kited after the burst: " + brain(h).rbKites() + " " + h.notes());
+        assertTrue(boss.hp < hp, "did not return to the fight: " + h.notes() + " " + h.act().calls());
+        assertTrue((h.act().count("attack") + h.act().count("cast")) >= 3, "no hits after kite: " + h.act().calls());
+    }
+
+    @Test
+    void aDdKeepsHittingTheBossAndDoesNotStandIdle() {
+        final FakeWorld w = BasicBrainTest.world(528, true);
+        final BrainHarness h = joined(w, 528, 27, true, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(4000);
+        boss.targetId = FakeWorld.SELF_ID;
+        h.run(BasicBrain.RB_DD_KITE_BURST_MS + 500); // kite burst, then it must keep hitting
+        w.setHp(w.maxHp());
+        boss.targetId = 901; // the tank took it: still a raid fight, no standing around
+        assertFalse(w.dead(), "died during the burst: " + h.notes());
+        for (int i = 0; i < 6; i++) {
+            w.setHp(w.maxHp());
+            final double hp = boss.hp;
+            h.act().clear();
+            h.run(2500);
+            assertFalse(w.dead(), "died in slice " + i + ": " + h.notes());
+            final long hits = h.act().count("attack") + h.act().count("cast");
+            assertTrue((hits >= 1) || (boss.hp < hp), "idle slice " + i + " hits " + hits + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
+        }
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists")), "never fought: " + h.notes());
+    }
+
+    @Test
+    void aDdStaysOnTheBossWhenTheLeaderClicksAMinion() {
+        final FakeWorld w = BasicBrainTest.world(529, true);
+        final BrainHarness h = joined(w, 529, 27, true, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 5000;
+        final FakeWorld.Mob add = w.addMob(10, 40, beside(w, 520));
+        add.bossKind = WorldView.BOSS_MINION;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(5000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        final double bossHp = boss.hp;
+        final double addHp = add.hp;
+        moveGleb(w, beside(w, 100), add.objectId); // he clicked the helper
         h.run(8000);
-        assertTrue(brain(h).rbKites() >= (k + 3), "did not run: " + h.notes());
+        assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
+        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+    }
+
+    @Test
+    void theTankHoldsWithTauntAndKiteNotOnlyMelee() {
+        final FakeWorld w = BasicBrainTest.world(530, false);
+        w.addSkill(FakeWorld.AGGRESSION, SkillView.Kind.OTHER, 10, 3000);
+        w.addSkill(FakeWorld.HATE_AURA, SkillView.Kind.OTHER, 15, 6000);
+        final BrainHarness h = joined(w, 530, 5, false, "TANK");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        moveGleb(w, beside(w, 150), 0);
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 400));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 150), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(8000);
+        assertTrue(w.taunts >= 1, h.notes().toString());
+        assertEquals(FakeWorld.SELF_ID, boss.targetId);
+        final int taunts = w.taunts;
+        final int kites = brain(h).rbKites();
+        final int turns = brain(h).rbTurns();
+        final long attacks = h.act().count("attack");
+        h.run(16_000);
+        assertTrue(w.taunts > taunts, "no taunt while holding: " + w.taunts + " notes " + h.notes());
+        assertTrue(brain(h).rbKites() > kites, "no kite while holding: " + brain(h).rbKites() + " " + h.notes());
+        assertTrue(brain(h).rbTurns() > turns, "no hold-taunt: " + brain(h).rbTurns() + " " + h.notes());
+        final long moreAttacks = h.act().count("attack") - attacks;
+        assertTrue((brain(h).rbKites() + brain(h).rbTurns()) >= 4, "only melee: kites " + brain(h).rbKites() + " taunts " + brain(h).rbTurns() + " attacks " + moreAttacks + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("kites ") || n.contains("taunts ") || n.contains("hates ")), "notes without kite/taunt: " + h.notes());
+    }
+
+    @Test
+    void theTankKitesAroundAWall() {
+        final FakeWorld w = BasicBrainTest.world(531, false);
+        w.addSkill(FakeWorld.AGGRESSION, SkillView.Kind.OTHER, 10, 3000);
+        final BrainHarness h = joined(w, 531, 5, false, "TANK");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        // party centre ~40175,0 relative: the default ±40° steps land west of the tank
+        w.addWall(39_950, 39_790, 40_020, 39_890);
+        w.addWall(39_950, 40_110, 40_020, 40_210);
+        moveGleb(w, beside(w, 150), 0);
+        w.party.add(new PartyMember(901, "Sps", 27, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 400));
+        boss.bossKind = WorldView.BOSS_RAID;
+        moveGleb(w, beside(w, 150), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(18_000);
+        assertTrue(brain(h).rbKites() >= 1, "gave up to melee at a wall: kites " + brain(h).rbKites() + " " + h.notes());
     }
 
     @Test

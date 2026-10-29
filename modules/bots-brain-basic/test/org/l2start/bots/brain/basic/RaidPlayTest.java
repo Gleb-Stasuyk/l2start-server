@@ -59,4 +59,18 @@ class RaidPlayTest {
         assertEquals(3 * 60_000L, RaidPlay.INVITE_WAIT_MS);
         assertEquals(10 * 60_000L, RaidPlay.IDLE_MS);
     }
+
+    @Test
+    void kiteCandidatesCoverSeveralAnglesAndRadii() {
+        final Pos center = new Pos(0, 0, 0);
+        final Pos at = new Pos(300, 0, 0);
+        final List<Pos> c = RaidPlay.kiteCandidates(center, at, 1);
+        assertTrue(c.size() >= 8, "too few kite spots: " + c.size());
+        final long distinct = c.stream().map(p -> p.x() + "," + p.y()).distinct().count();
+        assertTrue(distinct >= 8, "duplicate kite spots: " + distinct);
+        final Pos first = RaidPlay.circleStep(center, at, RaidPlay.kiteRadius(center, at), RaidPlay.KITE_STEP_DEG, 1);
+        assertEquals(first, c.get(0), "preferred step should come first");
+        assertTrue(RaidPlay.stepDir(center, at, first) == 1);
+        assertTrue(RaidPlay.stepDir(center, at, RaidPlay.circleStep(center, at, 300, 40, -1)) == -1);
+    }
 }
