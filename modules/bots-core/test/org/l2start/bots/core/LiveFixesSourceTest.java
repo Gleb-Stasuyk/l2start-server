@@ -36,4 +36,19 @@ class LiveFixesSourceTest {
         assertTrue((give > 0) && (persist > give));
         assertTrue(s.contains("p.store(false);"));
     }
+
+    /** Hunter / RB prepare stocks class-skill reagents after cleanup; olympiad path is untouched. */
+    @Test
+    void hunterPrepareStocksSkillReagentsOlympiadDoesNot() throws Exception {
+        final String s = read("modules/bots-core/src/org/l2start/bots/core/Materializer.java");
+        final int cleanup = s.indexOf("cleanup(p, pk);");
+        final int hunter = s.indexOf("skillReagents(p)");
+        final int olympiad = s.indexOf("olympiadShots(p)");
+        assertTrue((cleanup > 0) && (hunter > cleanup), "reagents must come after cleanup or they vanish");
+        assertTrue(s.contains("if (!olympiad)"));
+        assertTrue(olympiad > 0);
+        assertTrue(s.contains("p.getSkills().get(1148)")); // olympiad still only Death Spike bones
+        final String recruit = read("modules/bots-core/src/org/l2start/bots/core/RbRecruit.java");
+        assertTrue(recruit.contains("restockReagents(r)"));
+    }
 }

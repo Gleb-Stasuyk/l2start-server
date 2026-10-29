@@ -33,8 +33,20 @@ final class Materializer {
     /** Beast Soulshot / Beast Spiritshot (not blessed 6647): for a servitor in the stadium. */
     static final int BEAST_SOULSHOT = 6645;
     static final int BEAST_SPIRITSHOT = 6646;
-    /** Cursed Bone: Soultaker Death Spike reagent (not an HP/MP potion). */
+    /** Cursed Bone: Soultaker Death Spike / Mass Gloom reagent (not an HP/MP potion). */
     static final int CURSED_BONE = 2508;
+    /** Spirit Ore: Major Heal, Greater Might/Shield, Turn Undead, Mana Regeneration, … */
+    static final int SPIRIT_ORE = 3031;
+    /** Soul Ore: Paladin Banish Undead. */
+    static final int SOUL_ORE = 1785;
+    /** Einhasad's Holy Water: Cardinal Cleanse / Salvation. */
+    static final int HOLY_WATER = 8874;
+    /** Energy Stone: Tyrant force spenders (Sonic/Force skills). */
+    static final int ENERGY_STONE = 5589;
+    /** Phoenix Blood: Phoenix Knight Soul of the Phoenix. */
+    static final int PHOENIX_BLOOD = 8873;
+    /** How many casts of each reagent skill a hunter / RB-party bot is stocked for. */
+    static final int REAGENT_CASTS = 200;
 
     /** Phase 6f: item ids a party mate may gift through the trade window (any shot grade + HP potions). */
     static java.util.Set<Integer> partyGiftIds() {
@@ -165,6 +177,12 @@ final class Materializer {
         final String crystals = summonItems(p, olympiad);
         if (crystals != null) {
             sb.append(", ").append(crystals);
+        }
+        if (!olympiad) {
+            final String reagents = skillReagents(p); // Death Spike bones, Spirit Ore, cubics: after cleanup
+            if (reagents != null) {
+                sb.append(", ").append(reagents);
+            }
         }
         if (p.isDead()) { // logged out dead (left unseen before "To village"): never arrive as a corpse
             p.setDead(false);
@@ -383,6 +401,59 @@ final class Materializer {
             p.getInventory().addItem(ItemProcessType.REWARD, e.getKey(), e.getValue(), p, null);
         }
         return "summon crystals " + need;
+    }
+
+    /**
+     * Combat reagents for every learned class skill that consumes an item: Cursed Bones (Death Spike), Spirit Ore
+     * (Major Heal, Greater Might/Shield, …), Soul Ore, cubic crystals, Energy Stones, Holy Water. Servitor crystals
+     * stay in {@link #summonItems}. Olympiad keeps its own Death Spike bones in {@link #olympiadShots}.
+     * Top-up: calling twice does not double the stack.
+     */
+    String skillReagents(Player p) {
+        final java.util.Map<Integer, Integer> need = new java.util.TreeMap<>();
+        for (Skill s : p.getSkills().values()) {
+            if (!reagentSkill(s.getId(), s.getItemConsumeId())) {
+                continue;
+            }
+            need.merge(s.getItemConsumeId(), reagentWant(s.getItemConsumeCount()), Math::max);
+        }
+        if (need.isEmpty()) {
+            return null;
+        }
+        for (java.util.Map.Entry<Integer, Integer> e : need.entrySet()) {
+            final Item have = p.getInventory().getItemByItemId(e.getKey());
+            final int want = e.getValue();
+            final int got = have == null ? 0 : (int) Math.min(want, have.getCount());
+            final int add = Math.max(0, want - got);
+            if (add > 0) {
+                p.getInventory().addItem(ItemProcessType.REWARD, e.getKey(), add, p, null);
+            }
+        }
+        return "reagents " + need;
+    }
+
+    /** Item ids a class skill may consume in a rotation / heal / buff (not siege/quest/scrolls). */
+    static boolean reagentItem(int itemId) {
+        return (itemId == CURSED_BONE) || (itemId == SPIRIT_ORE) || (itemId == SOUL_ORE) || (itemId == HOLY_WATER)
+            || (itemId == ENERGY_STONE) || (itemId == PHOENIX_BLOOD) || ((itemId >= 1458) && (itemId <= 1462));
+    }
+
+    /**
+     * True when this learned skill should be stocked by {@link #skillReagents}: a class skill (id &lt; 2000) that
+     * consumes a {@link #reagentItem}, and is not a servitor / Dark Panther already covered by {@link #summonItems}.
+     */
+    static boolean reagentSkill(int skillId, int itemId) {
+        if ((itemId <= 0) || (skillId >= 2000) || !reagentItem(itemId)) {
+            return false;
+        }
+        if ((skillId >= 1323) && (skillId <= 1325)) {
+            return false; // Noblesse Blessing / Summon CP Potion / Fortune of Noblesse
+        }
+        return !SkillView.servitorSummon(skillId) && (skillId != 283);
+    }
+
+    static int reagentWant(int consumeCount) {
+        return Math.max(1, consumeCount) * REAGENT_CASTS;
     }
 
     private static boolean jewel(Item it) {

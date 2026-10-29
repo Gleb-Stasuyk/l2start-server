@@ -741,4 +741,23 @@ class RbPartyBrainTest {
             "empty MP, stood idle: " + h.notes() + " " + h.act().calls());
         assertFalse(w.sitting(), "sat down in the raid: " + h.notes());
     }
+
+    @Test
+    void bishopSkipsMajorHealWithoutSpiritOreAndHealsWithTheNextLine() {
+        final FakeWorld w = BasicBrainTest.world(546, true);
+        w.addSkill(new FakeWorld.Extra(1401, SkillView.Kind.OTHER, 20, 0, 3031, 1, 0)); // Major Heal: Spirit Ore
+        w.addSkill(1217, SkillView.Kind.OTHER, 20, 0); // Greater Heal: no reagent
+        final BrainHarness h = joined(w, 546, 16, true, "BISHOP");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(902, "Tank", 5, 40, beside(w, 250), 0, 40, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 700));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.targetId = 902;
+        moveGleb(w, beside(w, 150), boss.objectId);
+        w.partyCasts.clear();
+        h.run(8000);
+        assertTrue(w.partyCasts.stream().noneMatch(c -> c.startsWith("1401>")), "Major Heal without ore: " + w.partyCasts);
+        assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1217>902")),
+            "stuck on boneless Major Heal, never Greater Heal: " + w.partyCasts + " " + h.notes());
+    }
 }

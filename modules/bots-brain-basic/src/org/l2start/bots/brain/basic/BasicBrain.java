@@ -2259,7 +2259,7 @@ public final class BasicBrain implements Brain {
             if (raidMage) {
                 for (SkillView nuke : me.skills()) {
                     if ((nuke.kind() != SkillView.Kind.NUKE) || (badSkills.getOrDefault(badKey(nuke.id(), mob.npcId()), 0L) > now) || !nuke.ready()
-                        || (nuke.mpCost() > me.mp())) {
+                        || (nuke.mpCost() > me.mp()) || !hasReagent(w, nuke)) {
                         continue;
                     }
                     final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
@@ -2279,7 +2279,7 @@ public final class BasicBrain implements Brain {
                     }
                 }
             } else {
-                final SkillView nuke = nuke(me, mob.npcId(), badSkills, now);
+                final SkillView nuke = nuke(me, mob.npcId(), badSkills, now, w);
                 if (nuke != null) {
                     if (nuke.ready() && (nuke.mpCost() <= me.mp())) {
                         final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
@@ -2329,8 +2329,13 @@ public final class BasicBrain implements Brain {
 
     /** The first magic damage skill that the game has not refused lately on this monster type. */
     static SkillView nuke(SelfView me, int npcId, Map<Long, Long> bad, long now) {
+        return nuke(me, npcId, bad, now, null);
+    }
+
+    static SkillView nuke(SelfView me, int npcId, Map<Long, Long> bad, long now, WorldView w) {
         for (SkillView s : me.skills()) {
-            if ((s.kind() == SkillView.Kind.NUKE) && (bad.getOrDefault(badKey(s.id(), npcId), 0L) <= now)) {
+            if ((s.kind() == SkillView.Kind.NUKE) && (bad.getOrDefault(badKey(s.id(), npcId), 0L) <= now)
+                && ((w == null) || hasReagent(w, s))) {
                 return s;
             }
         }
@@ -2470,7 +2475,8 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         for (SkillView s : me.skills()) {
-            if ((s.kind() != SkillView.Kind.BUFF) || (s.buffLeft() > BUFF_RENEW) || !s.ready() || (s.mpCost() > me.mp()) || (buffTried.getOrDefault(s.id(), 0L) > now)) {
+            if ((s.kind() != SkillView.Kind.BUFF) || (s.buffLeft() > BUFF_RENEW) || !s.ready() || (s.mpCost() > me.mp())
+                || (buffTried.getOrDefault(s.id(), 0L) > now) || !hasReagent(ctx.world(), s)) {
                 continue;
             }
             final ActionResult r = ctx.act().cast(s.id(), me.objectId());
@@ -2578,7 +2584,7 @@ public final class BasicBrain implements Brain {
         if ((hurt != null) && (me.mpPct() >= 10)) {
             for (int id : HEALS) {
                 final SkillView s = skill(me, id);
-                if (usable(me, s)) {
+                if (usable(me, s, w)) {
                     final ActionResult r = ctx.act().cast(id, hurt.objectId());
                     partyTried = now + (r.ok() ? 2500 : 5000);
                     if (r.ok()) {
@@ -2634,7 +2640,7 @@ public final class BasicBrain implements Brain {
             for (int id : buffIds) {
                 final SkillView s = skill(me, id);
                 final String key = id + ">" + m.objectId();
-                if (!usable(me, s) || (partyBuffed.getOrDefault(key, 0L) > now)) {
+                if (!usable(me, s, w) || (partyBuffed.getOrDefault(key, 0L) > now)) {
                     continue;
                 }
                 final ActionResult r = ctx.act().cast(id, m.objectId());
@@ -3689,7 +3695,7 @@ public final class BasicBrain implements Brain {
                 }
             }
             case HEAL -> {
-                if (healSkill(me) == null) {
+                if (healSkill(me, w) == null) {
                     reply = "HUH";
                 } else {
                     ptHealAsked = true;
@@ -3730,10 +3736,10 @@ public final class BasicBrain implements Brain {
         return false;
     }
 
-    private static SkillView healSkill(SelfView me) {
+    private static SkillView healSkill(SelfView me, WorldView w) {
         for (int id : HEALS) {
             final SkillView s = skill(me, id);
-            if (s != null) {
+            if ((s != null) && hasReagent(w, s)) {
                 return s;
             }
         }
@@ -3939,9 +3945,9 @@ public final class BasicBrain implements Brain {
         }
         // heal, raise and buff the party (the mate included)
         if (ptHealAsked && !mate.dead() && (mate.hpPct() < 95) && (mate.distance() < 900) && !me.casting()) {
-            final SkillView h = healSkill(me);
+            final SkillView h = healSkill(me, w);
             ptHealAsked = false;
-            if ((h != null) && usable(me, h) && ctx.act().cast(h.id(), mate.objectId()).ok()) {
+            if ((h != null) && usable(me, h, w) && ctx.act().cast(h.id(), mate.objectId()).ok()) {
                 partyHeals++;
                 detail = "heals " + ptMate;
                 return 2500;
@@ -4733,7 +4739,7 @@ public final class BasicBrain implements Brain {
             return;
         }
         if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
-            final SkillView nuke = rbReadyNuke(me, target, ctx.now());
+            final SkillView nuke = rbReadyNuke(me, target, ctx.now(), ctx.world());
             if (nuke != null) {
                 final ActionResult r = ctx.act().cast(nuke.id(), target.objectId());
                 if (r.ok() || (r == ActionResult.COOLDOWN)) {
@@ -4758,7 +4764,7 @@ public final class BasicBrain implements Brain {
         if ((me == null) || (me.mpPct() < 20)) {
             return 80;
         }
-        SkillView n = rbReadyNuke(me, mob, now);
+        SkillView n = rbReadyNuke(me, mob, now, null);
         if (n == null) {
             n = nuke(me, mob == null ? 0 : mob.npcId(), badSkills, now);
         }
@@ -4766,12 +4772,12 @@ public final class BasicBrain implements Brain {
         return Math.max(280, Math.min(range - 80, 700));
     }
 
-    /** A magic damage skill that can be fired now (ready, affordable, not 10-minute-banned). */
-    private SkillView rbReadyNuke(SelfView me, NpcView mob, long now) {
+    /** A magic damage skill that can be fired now (ready, affordable, not 10-minute-banned, reagent in the bag). */
+    private SkillView rbReadyNuke(SelfView me, NpcView mob, long now, WorldView w) {
         final int npcId = mob == null ? 0 : mob.npcId();
         for (SkillView s : me.skills()) {
             if ((s.kind() == SkillView.Kind.NUKE) && (badSkills.getOrDefault(badKey(s.id(), npcId), 0L) <= now) && s.ready()
-                && (s.mpCost() <= me.mp())) {
+                && (s.mpCost() <= me.mp()) && ((w == null) || hasReagent(w, s))) {
                 return s;
             }
         }
@@ -4899,8 +4905,9 @@ public final class BasicBrain implements Brain {
         final List<Integer> wanted = PartyBuffs.wantedRaid(me.classId(), classId);
         final List<Integer> ids = known.isEmpty() ? wanted : PartyBuffs.filterLearnable(wanted, known);
         for (int id : ids) {
-            if (skill(me, id) == null) {
-                continue;
+            final SkillView s = skill(me, id);
+            if ((s == null) || !hasReagent(w, s)) {
+                continue; // Greater Shield / Greater Might without Spirit Ore: skip, do not stall the session
             }
             if (rbBuffGaveUp.contains(id + ">" + objectId)) {
                 continue;
@@ -4984,8 +4991,8 @@ public final class BasicBrain implements Brain {
         final int[] q = rbBuffQueue.get(0);
         final SkillView s = skill(me, q[0]);
         final Pos at = buffTargetAt(w, me, q[1]);
-        if ((s == null) || (at == null)) {
-            rbBuffQueue.remove(0); // no such skill now / the target is gone or dead
+        if ((s == null) || (at == null) || !hasReagent(w, s)) {
+            rbBuffQueue.remove(0); // no such skill now / the target is gone or dead / no Spirit Ore
             return 100;
         }
         int need = 0;
@@ -5542,6 +5549,19 @@ public final class BasicBrain implements Brain {
         return (s != null) && s.ready() && (s.mpCost() <= me.mp());
     }
 
+    /** Ready, enough MP, and the reagent (Cursed Bone, Spirit Ore, …) is in the bag. */
+    private static boolean usable(SelfView me, SkillView s, WorldView w) {
+        return usable(me, s) && hasReagent(w, s);
+    }
+
+    /**
+     * False only when the skill consumes an item the bot does not have. A missing reagent must skip the line, not
+     * return INVALID every tick (Death Spike without bones, Major Heal without Spirit Ore).
+     */
+    static boolean hasReagent(WorldView w, SkillView s) {
+        return (s == null) || (s.itemId() <= 0) || (w.itemCount(s.itemId()) >= Math.max(1, s.itemCount()));
+    }
+
     /**
      * Out of a fight: heal itself (a healer heals instead of sitting down while MP lasts), heal the summon, call the
      * servitor when there is none (on the hunting ground, crystals at hand).
@@ -5554,7 +5574,7 @@ public final class BasicBrain implements Brain {
         if ((me.hpPct() < SELF_HEAL_HP) && (me.mpPct() >= 30) && (buffTried.getOrDefault(-1, 0L) <= now) && !rbNoHeal()) {
             for (int id : HEALS) {
                 final SkillView s = skill(me, id);
-                if (usable(me, s)) {
+                if (usable(me, s, w)) {
                     final ActionResult r = ctx.act().cast(id, me.objectId());
                     buffTried.put(-1, now + (r.ok() ? 2500 : 10_000));
                     if (r.ok()) {
