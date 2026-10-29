@@ -4422,7 +4422,10 @@ public final class BasicBrain implements Brain {
 
     /** bots-core chose this bot for a player's RB call: whisper him, go to him, wait for his invitation. */
     private void onRbCall(BrainContext ctx, WorldView w, SelfView me, BotEvent.RbCall call, long now) {
-        if ((rbCallerId != 0) || !w.party().isEmpty() || me.dead()) {
+        // party 2 («фп»): bots-core joins the pinned bots into their own party right after posting the call, so a
+        // party made only of bots is not "busy" for a party-2 call
+        final boolean party2Bots = (call.party() == 2) && w.party().stream().allMatch(PartyMember::bot);
+        if ((rbCallerId != 0) || (!w.party().isEmpty() && !party2Bots) || me.dead()) {
             rbNote(ctx, "rb party: cannot answer " + call.from() + " (busy)");
             if (call.summoned() && (rbCallerId == 0)) {
                 rbCallerId = call.fromId();
