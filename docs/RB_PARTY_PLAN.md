@@ -11,10 +11,17 @@ A player writes in trade or shout "рб"/"rb" plus the roles: танк, биш, 
    bots near him take the same gatekeeper to the same place 2–10 s later (paying adena); a scroll / return skill
    — they read a scroll of escape. On the way they only defend. A stuck or far-behind bot teleports to the party
    where nobody sees it.
-3. **Prophet.** Wind Walk to everyone in town; any party message with "баф" — the full buff set.
-4. **Fight.** Bots hold until the leader hits the boss or writes "го". The tank taunts first, holds the boss and
-   turns it away from the party; the others assist the leader's target. The bishop heals the tank first;
-   necromancer — servitor. Regular raid bosses only (grand/epic bosses: the bots refuse).
+3. **Prophet.** Wind Walk to everyone in town; any party message with "баф" — the short raid set for DD/mages,
+   and for the tank the full hunt prophet set except Berserker (Might yes; Haste/Focus are melee-only, not hunt-tank).
+4. **Fight.** Auto-engage when a raid boss (or the leader's target) is already on a party member — without waiting
+   for "го". Else the leader hits a raid boss, or writes "го" (fallback: leader target / party attacker, even if
+   the NPC is not tagged BOSS_RAID). The tank taunts first, holds and kites the boss (constant kite, PR #16);
+   RB tanks auto-use soulshots plus blessed spiritshots (Drain Health is magic; Aggression / Aura of Hate do not
+   consume shots). Olympiad shots stay regular A/S, never blessed. DD kite at most one short burst per ~10 s.
+   Physical DD: auto-attack first, at most one skill/stance per 2 s so they keep swinging in place (no multi-second
+   idle gaps). The bishop heals the tank first; necromancer — servitor.
+   Regular raid bosses only (grand/epic bosses: the bots refuse). `ctx.note` of the raid party also goes to the
+   game log (`Module[bots-brain-basic]`).
 5. **End.** Party disbanded — scroll of escape home (bots brought in log out). Otherwise they follow the leader to
    the next boss; 10 min of nothing — goodbye and leave.
 

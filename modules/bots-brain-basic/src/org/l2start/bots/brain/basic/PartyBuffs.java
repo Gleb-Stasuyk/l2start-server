@@ -7,7 +7,7 @@ import java.util.Set;
 /**
  * KT12 F3/F4: party buff sets by the target's combat role; Berserker Spirit for everyone; BD/SWS dances and songs
  * by role. In town / peace only Wind Walk (F4). RB party uses {@link #wantedRaid}: a shorter set so the prophet's
- * mana lasts, tank only defensive+speed, mages without Regeneration / Magic Barrier / Mental Shield.
+ * mana lasts; the tank gets the full hunt set except Berserker; mages without Regeneration / Magic Barrier / Mental Shield.
  */
 public final class PartyBuffs {
     public enum Role {
@@ -45,8 +45,6 @@ public final class PartyBuffs {
 
     /** RB: speed + a cheap shield for everyone. */
     static final int[] RAID_BASE = { WIND_WALK, SHIELD };
-    /** RB tank: defensive + speed only (no Might / Berserker / Haste). */
-    static final int[] RAID_TANK = { BLESSED_BODY, BLESS_SHIELD, GREATER_SHIELD };
     /** RB mages: no Regeneration, Magic Barrier or Mental Shield. */
     static final int[] RAID_MAGE = { BLESSED_SOUL, BERSERKER, ACUMEN, EMPOWER, CONCENTRATION };
     static final int[] RAID_FIGHTER = { BLESSED_BODY, BERSERKER, MIGHT, HASTE, FOCUS };
@@ -146,18 +144,22 @@ public final class PartyBuffs {
     }
 
     /**
-     * RB party on "баф": a short set so the prophet's mana covers the whole party. Tank: defensive + speed only.
-     * Mages: no Regeneration, Magic Barrier or Mental Shield.
+     * RB party on "баф": a short set so the prophet's mana covers the whole party.
+     * Tank: the full hunt prophet set (SHARED + TANK arrays) except Berserker — Might yes;
+     * Haste / Focus stay melee-only and are not on the hunt tank. Mages: no Regeneration, Magic Barrier or Mental Shield.
      */
     public static List<Integer> wantedRaid(int casterClassId, int targetClassId) {
         final Role role = roleOf(targetClassId);
+        if (role == Role.TANK) {
+            final List<Integer> out = new ArrayList<>();
+            add(out, SHARED);
+            add(out, TANK);
+            out.removeIf(id -> id == BERSERKER);
+            return out;
+        }
         final List<Integer> out = new ArrayList<>();
         add(out, RAID_BASE);
-        add(out, switch (role) {
-            case TANK -> RAID_TANK;
-            case MAGE -> RAID_MAGE;
-            case MELEE, ARCHER, DAGGER -> RAID_FIGHTER;
-        });
+        add(out, role == Role.MAGE ? RAID_MAGE : RAID_FIGHTER);
         return out;
     }
 

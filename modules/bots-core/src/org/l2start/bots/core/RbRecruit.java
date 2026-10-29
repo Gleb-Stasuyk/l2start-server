@@ -231,7 +231,7 @@ public final class RbRecruit {
         module.brains().post(r, new BotEvent.RbCall(from.getObjectId(), from.getName(), role.name(), summoned, new Pos(from.getX(), from.getY(), from.getZ())));
     }
 
-    /** Top up skill reagents so a hunter who spent bones on the ground still nukes the raid. */
+    /** Top up skill reagents so a hunter who spent bones on the ground still nukes the raid. RB tanks also get blessed SPS. */
     private void restockReagents(BotRecord r) {
         final Player p = r.player();
         final DirectorRunner d = module.director();
@@ -239,6 +239,7 @@ public final class RbRecruit {
             return;
         }
         d.materializer().skillReagents(p);
+        d.materializer().restockRbTankShots(p);
     }
 
     /**

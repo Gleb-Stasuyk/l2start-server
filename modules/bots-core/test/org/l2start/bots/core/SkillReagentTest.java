@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.l2start.bots.api.SkillView;
+import org.l2start.bots.director.GearTable;
 
 /** Skill reagents stocked at materialize (Death Spike bones, Spirit Ore, cubics) — not olympiad. */
 class SkillReagentTest {
@@ -48,5 +49,22 @@ class SkillReagentTest {
         assertEquals(600, Materializer.reagentWant(3)); // Greater Might lv3
         assertEquals(200, Materializer.reagentWant(0));
         assertTrue(SkillView.servitorSummon(1111));
+    }
+
+    @Test
+    void rbTankGetsSoulshotsAndBlessedSpiritshotsNotOlympiadPlain() {
+        assertTrue(Materializer.rbTankNeedsMageShots(5)); // Paladin
+        assertTrue(Materializer.rbTankNeedsMageShots(6)); // Dark Avenger
+        assertTrue(Materializer.rbTankNeedsMageShots(20)); // Temple Knight
+        assertTrue(Materializer.rbTankNeedsMageShots(33)); // Shillien Knight
+        assertTrue(Materializer.rbTankNeedsMageShots(90)); // Phoenix Knight
+        assertFalse(Materializer.rbTankNeedsMageShots(13)); // Necromancer
+        assertFalse(Materializer.rbTankNeedsMageShots(2)); // Gladiator
+        assertFalse(Materializer.rbTankNeedsMageShots(17)); // Prophet
+        final int[] c = Materializer.rbTankShotItemIds(GearTable.Grade.C.ordinal());
+        assertEquals(Materializer.SOULSHOTS[2], c[0]);
+        assertEquals(Materializer.SPIRITSHOTS[2], c[1]);
+        assertTrue(Materializer.blessedShot(c[1]), "RB tank SPS are blessed, unlike olympiad");
+        assertFalse(c[1] == Materializer.SPIRITSHOTS_PLAIN[2]);
     }
 }

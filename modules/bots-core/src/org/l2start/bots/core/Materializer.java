@@ -12,6 +12,7 @@ import org.l2jmobius.gameserver.entity.item.instance.Item;
 import org.l2jmobius.gameserver.entity.item.type.EtcItemType;
 import org.l2jmobius.gameserver.mechanics.skill.Skill;
 import org.l2start.bots.api.SkillView;
+import org.l2start.bots.chat.RbParse;
 import org.l2start.bots.director.GearTable;
 import org.l2start.bots.persona.Persona;
 
@@ -331,6 +332,17 @@ final class Materializer {
         return false;
     }
 
+    /** Paladin / DA / TK / SK (RB tank classes): Drain Health is magic and consumes spiritshots. */
+    static boolean rbTankNeedsMageShots(int classId) {
+        return RbParse.roleOf(classId, classId) == RbParse.Role.TANK;
+    }
+
+    /** Soulshots + blessed spiritshots of this grade for an RB tank (olympiad still uses {@link #SPIRITSHOTS_PLAIN}). */
+    static int[] rbTankShotItemIds(int gradeOrdinal) {
+        final int g = Math.max(0, Math.min(SOULSHOTS.length - 1, gradeOrdinal));
+        return new int[] { SOULSHOTS[g], SPIRITSHOTS[g] };
+    }
+
     /** Shots of the weapon's grade on auto-use, like every player farming (they vanish with the rest on logout). */
     private String shots(Player p, BotRecord r, int level, int grade) {
         final int g = Math.max(0, Math.min(SOULSHOTS.length - 1, grade));
@@ -430,6 +442,36 @@ final class Materializer {
             }
         }
         return "reagents " + need;
+    }
+
+    /**
+     * RB tank only: keep soulshots and add blessed spiritshots of the weapon's grade on auto-use.
+     * Drain Health (70) is {@code isMagic=1} and consumes SPS; Aggression / Aura of Hate do not.
+     * Olympiad path (olympiadShots) is untouched — this is called from RbRecruit after pin.
+     */
+    String restockRbTankShots(Player p) {
+        if ((p == null) || !rbTankNeedsMageShots(p.getPlayerClass().getId())) {
+            return null;
+        }
+        final Item weapon = p.getActiveWeaponInstance();
+        final int grade = (weapon != null) ? weapon.getTemplate().getCrystalType().ordinal() : GearTable.Grade.of(p.getLevel()).ordinal();
+        final int[] ids = rbTankShotItemIds(grade);
+        final int ss = ids[0];
+        final int sps = ids[1];
+        topUpItem(p, ss, 2000);
+        topUpItem(p, sps, 800);
+        p.addAutoSoulShot(ss);
+        p.addAutoSoulShot(sps);
+        return "tank shots " + ss + " " + sps;
+    }
+
+    private static void topUpItem(Player p, int itemId, int want) {
+        final Item have = p.getInventory().getItemByItemId(itemId);
+        final int got = have == null ? 0 : (int) Math.min(want, have.getCount());
+        final int add = Math.max(0, want - got);
+        if (add > 0) {
+            p.getInventory().addItem(ItemProcessType.REWARD, itemId, add, p, null);
+        }
     }
 
     /** Item ids a class skill may consume in a rotation / heal / buff (not siege/quest/scrolls). */

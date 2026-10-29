@@ -50,5 +50,10 @@ class LiveFixesSourceTest {
         assertTrue(s.contains("p.getSkills().get(1148)")); // olympiad still only Death Spike bones
         final String recruit = read("modules/bots-core/src/org/l2start/bots/core/RbRecruit.java");
         assertTrue(recruit.contains("restockReagents(r)"));
+        assertTrue(recruit.contains("restockRbTankShots(p)"));
+        assertTrue(s.contains("String restockRbTankShots(Player p)"));
+        assertTrue(s.contains("SPIRITSHOTS_PLAIN[a]")); // olympiad still regular SPS
+        assertTrue(s.contains("private String olympiadShots(Player p)"));
+        assertFalse(s.contains("restockRbTankShots(p);"), "hunter prepare must not call tank SPS restock");
     }
 }
