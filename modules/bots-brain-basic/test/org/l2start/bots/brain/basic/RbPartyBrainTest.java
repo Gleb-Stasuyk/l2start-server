@@ -431,6 +431,7 @@ class RbPartyBrainTest {
     @Test
     void aDdWithTheBossOnItRunsRoundThePartyThenFights() {
         final FakeWorld w = BasicBrainTest.world(525, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
         final BrainHarness h = joined(w, 525, 27, true, "DD");
         w.teleport(new Pos(40_000, 40_000, 0));
         w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
@@ -457,6 +458,7 @@ class RbPartyBrainTest {
     @Test
     void aDdKeepsHittingTheBossAndDoesNotStandIdle() {
         final FakeWorld w = BasicBrainTest.world(528, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
         final BrainHarness h = joined(w, 528, 27, true, "DD");
         w.teleport(new Pos(40_000, 40_000, 0));
         w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
@@ -589,8 +591,10 @@ class RbPartyBrainTest {
     // ------------------------------------------------------------------ mage DD named Sniper (Spellsinger / Spellhowler / Necro — not a bow class)
 
     static final int HYDRO_BLAST = 1235;
+    static final int HURRICANE = 1239;
     static final int DEATH_SPIKE = 1148;
     static final int VAMPIRIC_CLAW = 1234;
+    static final int ICE_DAGGER = 1237;
     static final int CURSED_BONE = 2508;
 
     private static BrainHarness sniperDd(FakeWorld w, long seed, int classId) throws Exception {
@@ -696,8 +700,10 @@ class RbPartyBrainTest {
         h.run(10_000);
         assertTrue(brain(h).rbEngaged(), h.notes().toString());
         assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(DEATH_SPIKE + "->")), "Death Spike without bones: " + w.casts);
-        assertTrue(w.casts.stream().anyMatch(c -> c.startsWith(VAMPIRIC_CLAW + "->") || c.startsWith(FakeWorld.NUKE_ID + "->")),
-            "rotation stuck on boneless Death Spike: " + w.casts + " " + h.notes());
+        assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(VAMPIRIC_CLAW + "->") || c.startsWith(FakeWorld.NUKE_ID + "->")),
+            "RB necro used a nuke other than Death Spike: " + w.casts + " " + h.notes());
+        assertTrue((h.act().countOk("attack") >= 1) || (boss.hp < 8000),
+            "did not staff-hit when Death Spike had no bones: " + h.notes() + " " + h.act().calls());
         assertTrue(boss.hp < 8000, "nobody hit it: " + h.notes());
     }
 
@@ -920,6 +926,7 @@ class RbPartyBrainTest {
     @Test
     void aDdDoesNotRestartKiteEveryTimeTheBossLooksAtIt() {
         final FakeWorld w = BasicBrainTest.world(561, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
         final BrainHarness h = joined(w, 561, 27, true, "DD");
         w.teleport(new Pos(40_000, 40_000, 0));
         w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
@@ -1139,5 +1146,162 @@ class RbPartyBrainTest {
         assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1011>901")),
             "kited instead of healing: casts " + w.partyCasts + " kites " + brain(h).rbKites() + " " + h.notes() + " " + h.act().calls());
         assertTrue(h.notes().stream().anyMatch(n -> n.contains("heals Kabanchik")), "no heal note: " + h.notes());
+    }
+
+    // ------------------------------------------------------------------ t381–t383: mage nukes, second full party, SE, assist
+
+    static PlayerView glebSeen(Pos at, boolean combat, int targetId) {
+        return new PlayerView(GLEB, "Gleb", 40, 10, at, 0, 0, false, combat, targetId, false);
+    }
+
+    private static void seeGleb(FakeWorld w, Pos at, boolean combat, int targetId) {
+        w.clearPlayers();
+        w.addPlayer(glebSeen(at, combat, targetId));
+    }
+
+    private static BrainHarness calledSecond(FakeWorld w, long seed, int classId, boolean mage, String role, String name) {
+        final BrainHarness h = bot(w, seed, classId, mage, name);
+        final Pos at = beside(w, 400);
+        w.addPlayer(glebSeen(at));
+        w.event(new BotEvent.RbCall(GLEB, "Gleb", role, false, at, 2));
+        h.run(20_000);
+        assertEquals(2, brain(h).rbParty(), h.notes().toString());
+        assertEquals(GLEB, brain(h).rbCaller());
+        return h;
+    }
+
+    @Test
+    void raidMageDdUsesOnlyHydroBlastHurricaneDeathSpike() throws Exception {
+        BasicBrain.playstyles = Playstyles.load(PlaystyleTest.DATA);
+        final FakeWorld w = BasicBrainTest.world(580, true);
+        w.addSkill(ICE_DAGGER, SkillView.Kind.NUKE, 12, 500);
+        w.addSkill(VAMPIRIC_CLAW, SkillView.Kind.NUKE, 12, 500);
+        final BrainHarness h = joined(w, 580, 27, true, "DD", "Sniper");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(8000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(ICE_DAGGER + "->") || c.startsWith(VAMPIRIC_CLAW + "->")
+            || c.startsWith(FakeWorld.NUKE_ID + "->")), "cast a banned raid nuke: " + w.casts + " " + h.notes());
+        assertTrue((h.act().countOk("attack") >= 1) || (boss.hp < 8000), "idle without the allowed nukes: " + h.notes() + " " + h.act().calls());
+    }
+
+    @Test
+    void raidSpellsingerUsesHydroBlastNotTheRestOfTheRotation() throws Exception {
+        BasicBrain.playstyles = Playstyles.load(PlaystyleTest.DATA);
+        final FakeWorld w = BasicBrainTest.world(581, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
+        w.addSkill(ICE_DAGGER, SkillView.Kind.NUKE, 12, 500);
+        final BrainHarness h = joined(w, 581, 27, true, "DD", "Sniper");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(8000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(w.casts.stream().anyMatch(c -> c.startsWith(HYDRO_BLAST + "->")), "no Hydro Blast: " + w.casts + " " + h.notes());
+        assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(ICE_DAGGER + "->") || c.startsWith(FakeWorld.NUKE_ID + "->")),
+            "also cast a banned nuke: " + w.casts);
+    }
+
+    @Test
+    void prophetBuffsParty2WithoutBerserker() {
+        final FakeWorld w = BasicBrainTest.world(582, true);
+        for (int id : new int[] { 1204, 1040, 1085, 1059, 1062 }) {
+            w.addSkill(id, SkillView.Kind.OTHER, 20, 0);
+        }
+        final BrainHarness h = joined(w, 582, 17, true, "PROPHET");
+        w.setMp(w.maxMp());
+        moveGleb(w, beside(w, 150), 0);
+        w.addPlayer(new PlayerView(910, "Sps", 40, 27, beside(w, 180), 50, 0, false, false, 0, true));
+        w.chatFrom("PARTY", GLEB, "Gleb", "баф");
+        h.run(40_000);
+        final java.util.Set<Integer> onSecond = w.effects.getOrDefault(910, java.util.Set.of());
+        assertTrue(onSecond.contains(1204) && onSecond.contains(1040), "party 2 not buffed: " + w.effects + " " + h.notes());
+        assertFalse(onSecond.contains(1062), "party 2 got Berserker: " + w.effects);
+        assertTrue(w.effects.getOrDefault(GLEB, java.util.Set.of()).contains(1062), "party 1 mage lost Berserker: " + w.effects);
+        assertTrue(w.partyCasts.contains("1040>910") || w.casts.stream().anyMatch(c -> c.startsWith("1040->910")),
+            "PP did not buff the second party: " + w.partyCasts + " " + w.casts);
+    }
+
+    @Test
+    void seEmpowersAndRestoresManaWithoutBuffCommand() {
+        final FakeWorld w = BasicBrainTest.world(583, true);
+        w.addSkill(PartyBuffs.EMPOWER, SkillView.Kind.OTHER, 20, 0);
+        w.addSkill(BasicBrain.RB_RECHARGE, SkillView.Kind.OTHER, 20, 0);
+        final BrainHarness h = calledSecond(w, 583, 30, true, "ELDER", "Se");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        seeGleb(w, beside(w, 120), false, 0);
+        w.party.add(new PartyMember(911, "Sps", 27, 40, beside(w, 160), 0, 100, 20, false, 0, true));
+        h.run(15_000);
+        assertTrue(w.partyCasts.contains(PartyBuffs.EMPOWER + ">911") || w.effects.getOrDefault(911, java.util.Set.of()).contains(PartyBuffs.EMPOWER)
+            || w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).contains(PartyBuffs.EMPOWER),
+            "SE did not Empower: " + w.partyCasts + " " + w.effects + " " + h.notes());
+        assertTrue(w.partyCasts.contains(BasicBrain.RB_RECHARGE + ">911"),
+            "SE did not Recharge low MP: " + w.partyCasts + " " + h.notes());
+        assertFalse(w.chat.stream().anyMatch(c -> c.contains("баф")), "SE waited for a buff command: " + w.chat);
+    }
+
+    @Test
+    void party2IgnoresGoAndFightsWhenParty1EngagesByAssist() throws Exception {
+        BasicBrain.playstyles = Playstyles.EMPTY;
+        final FakeWorld w = BasicBrainTest.world(584, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
+        final BrainHarness h = calledSecond(w, 584, 27, true, "DD", "Sniper");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(912, "Bish", 16, 40, beside(w, 180), 0, 100, 100, false, 0, true));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        seeGleb(w, beside(w, 100), false, boss.objectId);
+        h.run(5000);
+        assertFalse(brain(h).rbEngaged(), "party 2 engaged before party 1: " + h.notes());
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        w.chatFrom("PARTY", 912, "Bish", "баф");
+        w.chatFrom("PARTY", 912, "Bish", "стоп");
+        h.run(4000);
+        assertFalse(brain(h).rbEngaged(), "party 2 took go/buff/stop: " + h.notes() + " " + w.chat);
+        seeGleb(w, beside(w, 100), true, boss.objectId);
+        boss.targetId = GLEB;
+        h.run(8000);
+        assertTrue(brain(h).rbEngaged(), "party 2 did not assist after party 1 engaged: " + h.notes());
+        assertEquals(boss.objectId, brain(h).rbBossId(), "not on the raid: " + h.notes());
+        assertTrue(boss.hp < 8000, "party 2 DD did not hit: " + boss.hp + " " + w.casts + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("assists") || n.contains("fight ")), "detail is not assist: " + h.notes());
+    }
+
+    @Test
+    void party2StaysOnTheRaidWhenTheLeaderClicksAMinion() throws Exception {
+        BasicBrain.playstyles = Playstyles.EMPTY;
+        final FakeWorld w = BasicBrainTest.world(585, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
+        final BrainHarness h = calledSecond(w, 585, 27, true, "DD", "Sniper");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 5000;
+        boss.targetId = GLEB;
+        final FakeWorld.Mob add = w.addMob(10, 40, beside(w, 520));
+        add.bossKind = WorldView.BOSS_MINION;
+        seeGleb(w, beside(w, 100), true, boss.objectId);
+        h.run(5000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        final double bossHp = boss.hp;
+        final double addHp = add.hp;
+        seeGleb(w, beside(w, 100), true, add.objectId);
+        h.run(8000);
+        assertTrue(boss.hp < bossHp, "left the boss: " + h.notes());
+        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+        assertEquals(boss.objectId, brain(h).rbBossId());
     }
 }

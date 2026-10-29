@@ -95,4 +95,36 @@ class RbParseTest {
         assertEquals(2, RbParse.parse("need 2 sh for rb").size());
         assertEquals(List.of(RbParse.Role.TANK, RbParse.Role.DD, RbParse.Role.DD), roles("rb: tank + 2 dd"));
     }
+
+    @Test
+    void fullPartyShoutIsBishopSeAndSevenMageDd() {
+        assertTrue(RbParse.isFullParty("ищу фп на рб"));
+        assertTrue(RbParse.isFullParty("ищу ФП на РБ"));
+        assertTrue(RbParse.isFullParty("Ищу фп на rb"));
+        assertFalse(RbParse.isFullParty("еще пати на рб"));
+        assertFalse(RbParse.isFullParty("2 пати на рб"));
+        assertFalse(RbParse.isFullParty("ищу фп"));
+        assertFalse(RbParse.isFullParty("lfp 4 dd rb"), "lfp is not the word fp");
+        final List<RbParse.Slot> fp = RbParse.parse("ищу фп на рб");
+        assertEquals(RbParse.MAX_FP_SLOTS, fp.size());
+        assertEquals(RbParse.Role.BISHOP, fp.get(0).role());
+        assertEquals(RbParse.Role.ELDER, fp.get(1).role());
+        assertEquals(Set.of(RbParse.ELVEN_ELDER), fp.get(1).classes());
+        assertEquals(RbParse.FP_DD_COUNT, fp.stream().filter(s -> s.role() == RbParse.Role.DD).count());
+        assertTrue(fp.stream().noneMatch(s -> s.role() == RbParse.Role.TANK));
+        assertTrue(fp.stream().noneMatch(s -> s.role() == RbParse.Role.PROPHET));
+        assertEquals(RbParse.DDS, fp.get(2).classes());
+    }
+
+    @Test
+    void party1NeverAsksForSe() {
+        assertTrue(roles("ищу танка и биша на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
+        assertTrue(roles("танк биш пп 5 дд сх на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
+        assertEquals(RbParse.Role.ELDER, RbParse.roleOf(30, 25));
+        assertEquals(RbParse.Role.ELDER, RbParse.roleOf(0, 105));
+        assertEquals(30, RbParse.futureOf(105));
+        assertEquals(25, RbParse.startClassOf(30));
+        assertEquals("се", RbParse.word(RbParse.Role.ELDER, true));
+        assertEquals("se", RbParse.word(RbParse.Role.ELDER, false));
+    }
 }
