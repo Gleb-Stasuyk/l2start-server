@@ -12,9 +12,13 @@ A player writes in trade or shout "рб"/"rb" plus the roles: танк, биш, 
    — they read a scroll of escape. On the way they only defend. A stuck or far-behind bot teleports to the party
    where nobody sees it.
 3. **Prophet.** Wind Walk to everyone in town; any party message with "баф" — the full buff set.
-4. **Fight.** Bots hold until the leader hits the boss or writes "го". The tank taunts first, holds the boss and
-   turns it away from the party; the others assist the leader's target. The bishop heals the tank first;
-   necromancer — servitor. Regular raid bosses only (grand/epic bosses: the bots refuse).
+4. **Fight.** Auto-engage when a raid boss (or the leader's target) is already on a party member — without waiting
+   for "го". Else the leader hits a raid boss, or writes "го" (fallback: leader target / party attacker, even if
+   the NPC is not tagged BOSS_RAID). The tank taunts first, holds and kites the boss (constant kite, PR #16);
+   DD kite at most one short burst per ~10 s. Physical DD: auto-attack first, at most one skill/stance per 2 s so
+   they keep swinging in place (no multi-second idle gaps). The bishop heals the tank first; necromancer — servitor.
+   Regular raid bosses only (grand/epic bosses: the bots refuse). `ctx.note` of the raid party also goes to the
+   game log (`Module[bots-brain-basic]`).
 5. **End.** Party disbanded — scroll of escape home (bots brought in log out). Otherwise they follow the leader to
    the next boss; 10 min of nothing — goodbye and leave.
 

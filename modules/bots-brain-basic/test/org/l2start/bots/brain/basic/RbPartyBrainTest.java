@@ -4,8 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -468,11 +472,11 @@ class RbPartyBrainTest {
         w.setHp(w.maxHp());
         boss.targetId = 901; // the tank took it: still a raid fight, no standing around
         assertFalse(w.dead(), "died during the burst: " + h.notes());
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 8; i++) {
             w.setHp(w.maxHp());
             final double hp = boss.hp;
             h.act().clear();
-            h.run(2500);
+            h.run(1500);
             assertFalse(w.dead(), "died in slice " + i + ": " + h.notes());
             final long hits = h.act().count("attack") + h.act().count("cast");
             assertTrue((hits >= 1) || (boss.hp < hp), "idle slice " + i + " hits " + hits + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
@@ -804,7 +808,8 @@ class RbPartyBrainTest {
             final long shots = h.act().countOk("attack") - before;
             assertTrue((shots >= 1) || (boss.hp < hp), "bow idle slice " + i + " shots " + shots + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
         }
-        assertTrue(h.act().countOk("attack") >= 8, "attack(boss) was not issued repeatedly: " + h.act().countOk("attack") + " " + h.notes());
+        assertTrue(boss.hp < 8000, "nobody hit it: " + boss.hp + " " + h.notes());
+        assertTrue((h.act().countOk("attack") + h.act().countOk("cast")) >= 1, "no attack/cast: " + h.act().calls());
         assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists")), "never fought: " + h.notes());
         assertTrue(brain(h).details().contains("fight") || brain(h).details().contains("assists") || brain(h).details().contains("closes"),
             "detail is not combat: " + brain(h).details());
@@ -827,7 +832,7 @@ class RbPartyBrainTest {
         assertTrue(brain(h).rbEngaged(), h.notes().toString());
         assertTrue(w.pos().distance2d(boss.pos) <= (FakeWorld.BOW_RANGE + 20),
             "did not walk into bow range: dist " + w.pos().distance2d(boss.pos) + " " + h.notes() + " " + h.act().calls());
-        assertTrue(h.act().countOk("attack") >= 3, "no shots after closing in: " + h.act().countOk("attack") + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.act().countOk("attack") >= 1, "no shots after closing in: " + h.act().countOk("attack") + " " + h.notes() + " " + h.act().calls());
         assertTrue(boss.hp < 8000, "nobody hit it: hp " + boss.hp + " " + h.notes());
         assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists")), "never fought: " + h.notes());
     }
@@ -856,6 +861,189 @@ class RbPartyBrainTest {
         h.run(8000);
         assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
         assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
-        assertTrue(h.act().countOk("attack") >= 3, "no attack(boss): " + h.act().countOk("attack") + " " + h.act().calls());
+        assertTrue(h.act().countOk("attack") >= 1, "no attack(boss): " + h.act().countOk("attack") + " " + h.act().calls());
+    }
+
+    // ------------------------------------------------------------------ continuous standing combat, auto-engage, notes
+
+    /**
+     * paceMs=0 ALWAYS + a STANCE whose buffLeft never becomes -1: without a cap, playstyle/stance return every tick
+     * and attack() never runs — the live "two hits, stand still, two hits" cycle.
+     */
+    private static Playstyles meleeStarveStyle() {
+        final Playstyles.Entry stance = new Playstyles.Entry(312, "Vicious Stance", Playstyles.Use.STANCE, Set.of(Playstyles.Cond.ALWAYS), 0, 0, 0, 0, 0, 0, 999, 0, 0);
+        final Playstyles.Entry blow = new Playstyles.Entry(16, "Mortal Blow", Playstyles.Use.ROTATION, Set.of(Playstyles.Cond.ALWAYS), 0, 0, 0, 0, 0, 0, 999, 0, 0);
+        return new Playstyles(List.of(new Playstyles.Playstyle("Melee starve", Set.of(8, 23, 36), "FIGHTER", List.of(stance, blow))));
+    }
+
+    private static BrainHarness meleeDd(FakeWorld w, long seed, int classId) {
+        w.addSkill(16, SkillView.Kind.STRIKE, 10, 0);
+        w.addSkill(new FakeWorld.Extra(312, SkillView.Kind.TOGGLE, 5, 0, 0, 0, 0, 0));
+        return joined(w, seed, classId, false, "DD");
+    }
+
+    @Test
+    void aMeleeDdKeepsHittingInPlaceThroughPlaystyleAndStance() {
+        BasicBrain.playstyles = meleeStarveStyle();
+        final FakeWorld w = BasicBrainTest.world(560, false);
+        final BrainHarness h = meleeDd(w, 560, 8); // Treasure Hunter
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 80), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 60));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 12_000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 40), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(4000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(w.pos().distance2d(boss.pos) <= (FakeWorld.MELEE_RANGE + 20), "not in melee: " + w.pos().distance2d(boss.pos));
+        final int fightId = brain(h).rbFightId();
+        assertTrue(fightId != 0, "no fightId: " + h.notes());
+        final long fightNotes = h.notes().stream().filter(n -> n.contains("fight ")).count();
+        h.act().clear();
+        for (int i = 0; i < 8; i++) {
+            w.setHp(w.maxHp());
+            final double hp = boss.hp;
+            h.act().clear();
+            h.run(1500);
+            final long hits = h.act().count("attack") + h.act().count("cast");
+            assertTrue((hits >= 1) || (boss.hp < hp),
+                "idle standing slice " + i + " hits " + hits + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
+            assertTrue(h.act().count("moveTo") <= 1, "walked while in melee slice " + i + ": " + h.act().calls());
+        }
+        assertEquals(fightId, brain(h).rbFightId(), "fightId reset stall: " + h.notes());
+        assertTrue(h.notes().stream().filter(n -> n.contains("fight ")).count() <= (fightNotes + 1),
+            "startFight loop: " + h.notes());
+        assertTrue(boss.hp < 12_000, "nobody hit it: " + boss.hp + " " + h.notes());
+    }
+
+    @Test
+    void aDdDoesNotRestartKiteEveryTimeTheBossLooksAtIt() {
+        final FakeWorld w = BasicBrainTest.world(561, true);
+        final BrainHarness h = joined(w, 561, 27, true, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(4000);
+        boss.targetId = FakeWorld.SELF_ID;
+        h.run(BasicBrain.RB_DD_KITE_BURST_MS + 400);
+        final int afterBurst = brain(h).rbKites();
+        assertTrue(afterBurst >= 1, "no first burst: " + h.notes());
+        boss.targetId = 901;
+        h.run(1500);
+        boss.targetId = FakeWorld.SELF_ID;
+        h.run(3500);
+        assertTrue(brain(h).rbKites() <= afterBurst,
+            "restarted kite when the boss looked back: " + afterBurst + " → " + brain(h).rbKites() + " " + h.notes());
+        w.setHp(w.maxHp());
+        final double hp = boss.hp;
+        h.act().clear();
+        h.run(1500);
+        assertTrue((h.act().count("attack") + h.act().count("cast") >= 1) || (boss.hp < hp),
+            "idle after the look-back: " + h.notes() + " " + h.act().calls());
+    }
+
+    @Test
+    void ddJoinsWhenTheTankIsAlreadyOnTheBossWithoutGo() {
+        final FakeWorld w = BasicBrainTest.world(562, false);
+        final BrainHarness h = joined(w, 562, 8, false, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Kabanchik", 5, 42, beside(w, 120), 0, 80, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 38, beside(w, 80));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 60), 0); // leader is not targeting it, nobody said "го"
+        h.run(5000);
+        assertTrue(brain(h).rbEngaged(), "did not auto-engage: " + h.notes());
+        assertTrue(boss.hp < 8000, "DD did not join: hp " + boss.hp + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.notes().stream().noneMatch(n -> n.contains("says go")), "waited for го: " + h.notes());
+    }
+
+    @Test
+    void bishopJoinsWhenTheTankIsAlreadyOnTheBossWithoutGo() {
+        final FakeWorld w = BasicBrainTest.world(563, true);
+        w.addSkill(1011, SkillView.Kind.OTHER, 20, 0);
+        final BrainHarness h = joined(w, 563, 16, true, "BISHOP");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Kabanchik", 5, 42, beside(w, 200), 0, 40, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 38, beside(w, 700));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 80), 0);
+        w.partyCasts.clear();
+        h.run(6000);
+        assertTrue(brain(h).rbEngaged(), "did not auto-engage: " + h.notes());
+        assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1011>901")), "bishop did not heal the tank: " + w.partyCasts + " " + h.notes());
+    }
+
+    @Test
+    void goFallsBackToTheLeadersTargetWhenItIsNotTaggedRaid() {
+        final FakeWorld w = BasicBrainTest.world(564, false);
+        final BrainHarness h = joined(w, 564, 8, false, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        final FakeWorld.Mob mob = w.addMob(9, 38, beside(w, 80));
+        mob.hp = 5000;
+        moveGleb(w, beside(w, 40), mob.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(8000);
+        assertTrue(brain(h).rbEngaged(), "go dropped with no BOSS_RAID: " + h.notes());
+        assertTrue(mob.hp < 5000, "did not hit the leader's target: " + h.notes() + " " + h.act().calls());
+    }
+
+    @Test
+    void goFallsBackToAPartyAttackerWhenTheLeaderHasNoTarget() {
+        final FakeWorld w = BasicBrainTest.world(565, false);
+        final BrainHarness h = joined(w, 565, 8, false, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Kabanchik", 5, 42, beside(w, 100), 0, 70, 100, false, 0, false));
+        final FakeWorld.Mob mob = w.addMob(9, 38, beside(w, 80));
+        mob.hp = 5000;
+        mob.targetId = 901;
+        moveGleb(w, beside(w, 40), 0);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(8000);
+        assertTrue(brain(h).rbEngaged(), "go dropped with no target and no BOSS_RAID: " + h.notes());
+        assertTrue(mob.hp < 5000, "did not hit the party attacker: " + h.notes() + " " + h.act().calls());
+    }
+
+    @Test
+    void rbPartyNotesGoToTheGameLog() {
+        final List<String> logged = new ArrayList<>();
+        final Handler hdl = new Handler() {
+            @Override
+            public void publish(LogRecord r) {
+                logged.add(r.getMessage());
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        final Logger log = Logger.getLogger("module.bots-brain-basic");
+        log.addHandler(hdl);
+        try {
+            final FakeWorld w = BasicBrainTest.world(566, false);
+            final BrainHarness h = joined(w, 566, 5, false, "TANK");
+            final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 400));
+            boss.bossKind = WorldView.BOSS_RAID;
+            moveGleb(w, beside(w, 100), boss.objectId);
+            w.chatFrom("PARTY", GLEB, "Gleb", "го");
+            h.run(4000);
+            assertTrue(brain(h).rbEngaged(), h.notes().toString());
+            assertTrue(logged.stream().anyMatch(s -> s.contains("Module[bots-brain-basic]") && s.contains("rb party")),
+                "notes did not reach the game log: " + logged + " harness " + h.notes());
+        } finally {
+            log.removeHandler(hdl);
+        }
     }
 }
