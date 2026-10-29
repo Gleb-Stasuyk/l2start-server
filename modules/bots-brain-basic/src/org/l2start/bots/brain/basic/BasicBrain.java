@@ -2229,57 +2229,91 @@ public final class BasicBrain implements Brain {
         }
         final boolean petTanks = me.hasPet() && (mob.targetId() == me.petId());
         final boolean raidFight = rbEngaged && (w.bossKind(mob.objectId()) != WorldView.BOSS_NONE);
+        final boolean raidMage = raidFight && me.mage();
+        final long now = ctx.now();
         // hunt kite / backstab walk would cancel RB auto-attack and leave a DD standing
-        if (!raidFight && !petTanks && kite(ctx, w, me, mob, ctx.now())) {
+        if (!raidFight && !petTanks && kite(ctx, w, me, mob, now)) {
             return;
         }
-        if (stance(ctx, me, me.mpPct() >= 15, ctx.now())) {
+        if (!raidMage && stance(ctx, me, me.mpPct() >= 15, now)) {
             return; // the stance is switched (it targets the bot itself): the next tick attacks again
         }
-        if (!raidFight && sneak(ctx, w, me, mob, ctx.now())) {
+        if (!raidFight && sneak(ctx, w, me, mob, now)) {
             return;
         }
-        if (petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
-            // the servitor holds the monster: a summoner keeps its MP for Servitor Heal instead of meleeing with a staff
+        if (!raidFight && petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
+            // hunt: the servitor holds the monster. RB necro DD still nukes the boss.
             if ("ATTACK".equals(me.intention())) {
                 ctx.act().stop();
             }
             detail = "fight " + fightName + ": servitor tanks";
             return;
         }
-        if (playstyle(ctx, w, me, mob, ctx.now())) {
+        if (playstyle(ctx, w, me, mob, now)) {
             return;
         }
-        if (me.mage() && (me.mpPct() >= 20)) {
-            final SkillView nuke = nuke(me, mob.npcId(), badSkills, ctx.now());
-            if (nuke != null) {
-                if (me.casting()) {
-                    return;
-                }
-                if (nuke.ready() && (nuke.mpCost() <= me.mp())) {
+        if (me.mage() && ((me.mpPct() >= 20) || (raidMage && (me.mp() > 0)))) {
+            if (me.casting()) {
+                return;
+            }
+            if (raidMage) {
+                for (SkillView nuke : me.skills()) {
+                    if ((nuke.kind() != SkillView.Kind.NUKE) || (badSkills.getOrDefault(badKey(nuke.id(), mob.npcId()), 0L) > now) || !nuke.ready()
+                        || (nuke.mpCost() > me.mp())) {
+                        continue;
+                    }
                     final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
                     if (r.ok() || (r == ActionResult.COOLDOWN)) {
                         return;
                     }
-                    if (r == ActionResult.INVALID) {
-                        badSkills.put(badKey(nuke.id(), mob.npcId()), ctx.now() + BAD_SKILL_MS); // next decision tries the next nuke
+                    if (r == ActionResult.NOT_REACHABLE) {
+                        rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
                         return;
                     }
-                } else {
-                    return; // wait for the reuse instead of running into melee
+                    if (r == ActionResult.INVALID) {
+                        if ((nuke.castRange() <= 0) || (mob.distance() > (nuke.castRange() - 20))) {
+                            rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                            return; // range / LoS: do not 10-minute-ban the rotation
+                        }
+                        badSkills.put(badKey(nuke.id(), mob.npcId()), now + BAD_SKILL_MS);
+                    }
+                }
+            } else {
+                final SkillView nuke = nuke(me, mob.npcId(), badSkills, now);
+                if (nuke != null) {
+                    if (nuke.ready() && (nuke.mpCost() <= me.mp())) {
+                        final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
+                        if (r.ok() || (r == ActionResult.COOLDOWN)) {
+                            return;
+                        }
+                        if (r == ActionResult.INVALID) {
+                            badSkills.put(badKey(nuke.id(), mob.npcId()), now + BAD_SKILL_MS); // next decision tries the next nuke
+                            return;
+                        }
+                    } else {
+                        return; // wait for the reuse instead of running into melee
+                    }
                 }
             }
         }
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != mob.objectId())) { // the stock AI keeps hitting by itself
             final ActionResult r = ctx.act().attack(mob.objectId());
-            if (r == ActionResult.NOT_REACHABLE) {
-                blacklist.put(mob.objectId(), ctx.now() + BLACKLIST_MS);
-                claims.release(mob.objectId(), botId);
-                fightId = 0;
-            } else if (r == ActionResult.INVALID && !"ATTACK".equals(me.intention())) {
-                blacklist.put(mob.objectId(), ctx.now() + 30_000);
-                claims.release(mob.objectId(), botId);
-                fightId = 0;
+            if ((r == ActionResult.NOT_REACHABLE) || ((r == ActionResult.INVALID) && !"ATTACK".equals(me.intention()))) {
+                if (raidFight) {
+                    if (raidMage) {
+                        rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                    }
+                    return; // keep fightId: dropping it re-startFight without walking into nuke range
+                }
+                if (r == ActionResult.NOT_REACHABLE) {
+                    blacklist.put(mob.objectId(), now + BLACKLIST_MS);
+                    claims.release(mob.objectId(), botId);
+                    fightId = 0;
+                } else {
+                    blacklist.put(mob.objectId(), now + 30_000);
+                    claims.release(mob.objectId(), botId);
+                    fightId = 0;
+                }
             }
         }
     }
@@ -2362,8 +2396,27 @@ public final class BasicBrain implements Brain {
         if (pick == null) {
             return false;
         }
+        if (rbEngaged && !pick.self()) {
+            final int cr = pick.skill().castRange();
+            if ((cr >= 150) && (mob.distance() > (cr - 20))) {
+                rbCloseIn(ctx, me, mob, Math.max(80, cr - 80));
+                return true; // walk into nuke/debuff range; do not 10-minute-ban the rotation
+            }
+        }
         final ActionResult r = ctx.act().cast(pick.skill().id(), pick.self() ? me.objectId() : mob.objectId());
+        if (r == ActionResult.NOT_REACHABLE) {
+            if (rbEngaged && !pick.self()) {
+                rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                return true;
+            }
+            engine.cast(pick, false, me.mage(), now);
+            return false;
+        }
         if (r == ActionResult.INVALID) {
+            if (rbEngaged && !pick.self() && ((pick.skill().castRange() <= 0) || (mob.distance() > (pick.skill().castRange() - 20)))) {
+                rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                return true;
+            }
             badSkills.put(badKey(pick.skill().id(), mob.npcId()), now + BAD_SKILL_MS);
         }
         engine.cast(pick, r.ok(), me.mage(), now);
@@ -4679,9 +4732,68 @@ public final class BasicBrain implements Brain {
         if ((target == null) || target.dead()) {
             return;
         }
+        if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
+            final SkillView nuke = rbReadyNuke(me, target, ctx.now());
+            if (nuke != null) {
+                final ActionResult r = ctx.act().cast(nuke.id(), target.objectId());
+                if (r.ok() || (r == ActionResult.COOLDOWN)) {
+                    return;
+                }
+                if ((r == ActionResult.NOT_REACHABLE) || (r == ActionResult.INVALID)) {
+                    rbCloseIn(ctx, me, target, rbCastWant(me, target, ctx.now()));
+                    return;
+                }
+            }
+        }
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != target.objectId())) {
             ctx.act().attack(target.objectId());
         }
+    }
+
+    /**
+     * Distance a raid mage DD wants from the boss: nuke range minus a buffer, or staff range when MP is gone.
+     * Hydro Blast / Prominence / Hurricane are ~900; Wind Strike is 600.
+     */
+    private int rbCastWant(SelfView me, NpcView mob, long now) {
+        if ((me == null) || (me.mpPct() < 20)) {
+            return 80;
+        }
+        SkillView n = rbReadyNuke(me, mob, now);
+        if (n == null) {
+            n = nuke(me, mob == null ? 0 : mob.npcId(), badSkills, now);
+        }
+        final int range = (n != null) && (n.castRange() > 0) ? n.castRange() : 600;
+        return Math.max(280, Math.min(range - 80, 700));
+    }
+
+    /** A magic damage skill that can be fired now (ready, affordable, not 10-minute-banned). */
+    private SkillView rbReadyNuke(SelfView me, NpcView mob, long now) {
+        final int npcId = mob == null ? 0 : mob.npcId();
+        for (SkillView s : me.skills()) {
+            if ((s.kind() == SkillView.Kind.NUKE) && (badSkills.getOrDefault(badKey(s.id(), npcId), 0L) <= now) && s.ready()
+                && (s.mpCost() <= me.mp())) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /** Walk toward the boss to {@code want} instead of standing idle after cast/attack was refused. */
+    private void rbCloseIn(BrainContext ctx, SelfView me, NpcView mob, int want) {
+        if ((mob == null) || mob.dead()) {
+            return;
+        }
+        final int to = Math.max(80, want);
+        final Pos dest;
+        if (mob.distance() > to) {
+            dest = mob.pos().toward(me.pos(), to);
+        } else {
+            final double step = Math.min(120, Math.max(40, mob.distance() - 40));
+            dest = me.pos().toward(mob.pos(), step);
+        }
+        detail = "closes on " + (fightName.isEmpty() ? mob.name() : fightName);
+        ctx.act().setWalking(false);
+        ctx.act().moveTo(dest);
     }
 
     /** The boss has helpers not on the tank: it runs up to them and pulls them all with Aura of Hate. */
@@ -5085,6 +5197,23 @@ public final class BasicBrain implements Brain {
                 } else {
                     rbDdKiteBurstUntil = 0;
                     rbDdKiteSteps = 0;
+                }
+                if (me.mage() && bossy) {
+                    final int want = rbCastWant(me, target, now);
+                    if (target.distance() > (want + 40)) {
+                        standIfSitting(ctx, me);
+                        if (fightId != target.objectId()) {
+                            fightId = target.objectId();
+                            fightName = target.name();
+                            fightSince = now;
+                            fightHp = target.hpPct();
+                            fightHpAt = now;
+                            ctx.note("fight " + target.name() + " lv " + target.level());
+                        }
+                        detail = "closes on " + target.name();
+                        rbCloseIn(ctx, me, target, want);
+                        return 400;
+                    }
                 }
                 if (fightId != target.objectId()) {
                     detail = "assists " + lead.name();
