@@ -660,6 +660,18 @@ public final class BasicBrain implements Brain {
                 pvpProtectParty, pvpProtectClan, pvpRevenge, pvpMode, me.level(), p.level(), me.mage(), isMageClass(p.classId()), enemies, allies,
                 me.hpPct(), me.mpPct(), ctx.info().aggression(), cd, p.level() < PvpDecision.MIN_TARGET_LEVEL);
             PvpDecision.Verdict v = PvpDecision.decide(sit);
+            // RB party (either party): it stays with the caller and defends — never runs off alone, and an attack on
+            // the caller (or someone of its own party) is an attack on it
+            if ((rbCallerId != 0) && rbInParty) {
+                final boolean onCaller = (p.objectId() != rbCallerId) && (p.targetId() == rbCallerId) && p.inCombat();
+                if (hit || revenge || allyHit || onCaller) {
+                    if (v.intent() != PvpDecision.Intent.FIGHT) {
+                        v = new PvpDecision.Verdict(PvpDecision.Intent.FIGHT, "rb-defend");
+                    }
+                } else if (v.intent() == PvpDecision.Intent.FLEE) {
+                    v = PvpDecision.Verdict.none("rb-stay");
+                }
+            }
             // phase 7c: PK persona opens chaotic fights (peace / <20 / off / cooldown already in decide)
             if ((v.intent() == PvpDecision.Intent.NONE) && initiative && ctx.info().pk() && me.inPvpZone() && p.inPvpZone()
                 && (me.hpPct() >= 40) && !(p.level() < PvpDecision.MIN_TARGET_LEVEL)
@@ -3031,7 +3043,9 @@ public final class BasicBrain implements Brain {
                 case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
                 case BotEvent.RbCall rc -> onRbCall(ctx, w, me, rc, now);
                 case BotEvent.Chat c -> {
-                    if ("PARTY".equals(c.channel()) && rbInParty) {
+                    if ((rbCallerId != 0) && rbBuffChat(ctx, c)) {
+                        // «баф» from the caller in ordinary chat (or party 2 hearing him): both RB parties buff
+                    } else if ("PARTY".equals(c.channel()) && rbInParty) {
                         onRbPartyChat(ctx, w, me, c, now);
                     } else if ("PARTY".equals(c.channel()) && (c.fromId() == ptMateId) && (ptMateId != 0)) {
                         onPartyCommand(ctx, w, me, c.text(), now);
@@ -4472,7 +4486,7 @@ public final class BasicBrain implements Brain {
             role = org.l2start.bots.chat.RbParse.Role.DD;
         }
         // like people reading the chat: not all at once
-        speak(ctx, "WHISPER", rbCaller, "RB_REPLY", Map.of("player", rbCaller, "level", Integer.toString(me.level()), "role", org.l2start.bots.chat.RbParse.word(role, ru)),
+        speak(ctx, "WHISPER", rbCaller, rbParty == 2 ? "RB2_REPLY" : "RB_REPLY", Map.of("player", rbCaller, "level", Integer.toString(me.level()), "role", org.l2start.bots.chat.RbParse.word(role, ru)),
             now + ctx.reactionDelay() + 1500 + ctx.rnd().nextInt(9000));
     }
 
@@ -4601,11 +4615,44 @@ public final class BasicBrain implements Brain {
         return rbParty(ctx, w, me, lead, now);
     }
 
+    /** Who runs the RB buff session: the prophet of party 1, the Elven Elder of party 2. */
+    private boolean rbBuffer() {
+        return "PROPHET".equals(rbRole) || ((rbParty == 2) && "ELDER".equals(rbRole));
+    }
+
+    /**
+     * «баф» from the caller in ordinary chat (ALL), or, for party 2 (not in his party window), in any chat it hears
+     * him in: the buffer of each RB party starts its session, like «баф» in party 1's party chat.
+     * @return true when the line was a buff request for this bot's RB party
+     */
+    private boolean rbBuffChat(BrainContext ctx, BotEvent.Chat c) {
+        if ((c.fromId() != rbCallerId) && ((ptMateId == 0) || (c.fromId() != ptMateId))) {
+            return false;
+        }
+        final boolean heard = "ALL".equals(c.channel()) || ((rbParty == 2) && ("PARTY".equals(c.channel()) || "SHOUT".equals(c.channel())));
+        if (!heard || !RaidPlay.wantsBuff(c.text())) {
+            return false;
+        }
+        if (rbInParty && rbBuffer()) {
+            rbBuffAsked = true;
+            rbBuffQueue = null;
+            rbBuffCasting = null;
+            rbManaSaid = false;
+            rbBuffResting = false;
+            rbBuffRescans = 0;
+            rbBuffGaveUp.clear();
+            partyBuffed.clear();
+            partyTried = 0;
+            rbNote(ctx, "rb party: " + c.from() + " asks for buffs in " + c.channel() + (rbParty == 2 ? " (party 2)" : ""));
+        }
+        return true;
+    }
+
     /** The live caller as a synthetic party leader (party 2 is not in his party window). */
     private PartyMember rbCallerAsLead(WorldView w) {
         final PlayerView p = playerById(w, rbCallerId);
         if (p == null) {
-            return null;
+            return w.playerAnywhere(rbCallerId); // out of sight (he teleported to the RB): still follow him
         }
         return new PartyMember(p.objectId(), p.name(), p.classId(), p.level(), p.pos(), p.distance(), p.hpPct(), 100, false, p.targetId(),
             true, false, false);
@@ -4613,7 +4660,7 @@ public final class BasicBrain implements Brain {
 
     /** Called, not invited yet: goes to the player and waits by him; 3 min without an invitation and it leaves. */
     private long rbWait(BrainContext ctx, WorldView w, SelfView me, long now) {
-        if ((rbParty == 2) && (playerById(w, rbCallerId) != null)) {
+        if ((rbParty == 2) && ((playerById(w, rbCallerId) != null) || (w.playerAnywhere(rbCallerId) != null))) {
             rbWaitUntil = now + RaidPlay.INVITE_WAIT_MS; // party 2 stays while the caller is in sight
         } else if (now >= rbWaitUntil) {
             rbNote(ctx, "rb party: " + rbCaller + " did not invite it in " + (RaidPlay.INVITE_WAIT_MS / 60_000) + " min");
@@ -4642,6 +4689,11 @@ public final class BasicBrain implements Brain {
         final PlayerView p = playerById(w, rbCallerId);
         if (p != null) {
             rbCallAt = p.pos();
+        } else if (rbParty == 2) {
+            final PartyMember far = w.playerAnywhere(rbCallerId);
+            if (far != null) {
+                rbCallAt = far.pos(); // party 2: the caller is out of sight (at the RB): appear near him
+            }
         }
         if (rbCallAt == null) {
             detail = "waits for the invitation of " + rbCaller;
@@ -5389,7 +5441,7 @@ public final class BasicBrain implements Brain {
      * @return the delay, 0 = no session (or a fight comes first)
      */
     private long rbBuffSession(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now, NpcView attacker) {
-        if (!rbBuffAsked || !"PROPHET".equals(rbRole) || (attacker != null) || (fightId != 0)) {
+        if (!rbBuffAsked || !rbBuffer() || (attacker != null) || (fightId != 0)) {
             return 0;
         }
         if (rbBuffQueue == null) {
