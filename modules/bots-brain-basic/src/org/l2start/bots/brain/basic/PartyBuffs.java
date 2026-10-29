@@ -8,6 +8,7 @@ import java.util.Set;
  * KT12 F3/F4: party buff sets by the target's combat role; Berserker Spirit for everyone; BD/SWS dances and songs
  * by role. In town / peace only Wind Walk (F4). RB party uses {@link #wantedRaid}: a shorter set so the prophet's
  * mana lasts; the tank gets the full hunt set except Berserker; mages without Regeneration / Magic Barrier / Mental Shield.
+ * The second full party is buffed without Berserker.
  */
 public final class PartyBuffs {
     public enum Role {
@@ -147,8 +148,16 @@ public final class PartyBuffs {
      * RB party on "баф": a short set so the prophet's mana covers the whole party.
      * Tank: the full hunt prophet set (SHARED + TANK arrays) except Berserker — Might yes;
      * Haste / Focus stay melee-only and are not on the hunt tank. Mages: no Regeneration, Magic Barrier or Mental Shield.
+     * Party 1 DDs get Berserker; the second full party does not ({@link #wantedRaid(int, int, boolean)}).
      */
     public static List<Integer> wantedRaid(int casterClassId, int targetClassId) {
+        return wantedRaid(casterClassId, targetClassId, true);
+    }
+
+    /**
+     * @param berserker false = second full party (and the tank): no Berserker Spirit
+     */
+    public static List<Integer> wantedRaid(int casterClassId, int targetClassId, boolean berserker) {
         final Role role = roleOf(targetClassId);
         if (role == Role.TANK) {
             final List<Integer> out = new ArrayList<>();
@@ -160,6 +169,9 @@ public final class PartyBuffs {
         final List<Integer> out = new ArrayList<>();
         add(out, RAID_BASE);
         add(out, role == Role.MAGE ? RAID_MAGE : RAID_FIGHTER);
+        if (!berserker) {
+            out.removeIf(id -> id == BERSERKER);
+        }
         return out;
     }
 

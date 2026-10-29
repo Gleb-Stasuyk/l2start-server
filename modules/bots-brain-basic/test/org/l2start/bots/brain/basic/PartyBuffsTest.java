@@ -137,4 +137,16 @@ class PartyBuffsTest {
         assertTrue(raid < hunt, "raid " + raid + " hunt " + hunt);
         assertTrue(raid <= 40, "still too many: " + raid);
     }
+
+    @Test
+    void secondPartyRaidSetOmitsBerserker() {
+        final List<Integer> mage = PartyBuffs.wantedRaid(PROPHET, SORCERER, false);
+        assertTrue(mage.contains(PartyBuffs.ACUMEN));
+        assertTrue(mage.contains(PartyBuffs.EMPOWER));
+        assertFalse(mage.contains(PartyBuffs.BERSERKER));
+        final List<Integer> party1 = PartyBuffs.wantedRaid(PROPHET, SORCERER, true);
+        assertTrue(party1.contains(PartyBuffs.BERSERKER));
+        final List<Integer> tank = PartyBuffs.wantedRaid(PROPHET, PALADIN, false);
+        assertFalse(tank.contains(PartyBuffs.BERSERKER));
+    }
 }

@@ -129,12 +129,23 @@ public sealed interface BotEvent {
 
     /**
      * RB party (iteration 1): a live player asked in trade / shout for this role for a raid boss and bots-core picked
-     * this bot. It whispers him, runs to him and waits for his invitation (3 min).
-     * @param role TANK, BISHOP, PROPHET or DD (org.l2start.bots.chat.RbParse.Role)
+     * this bot. It whispers him, runs to him and waits for his invitation (3 min). Party 2 («ищу фп на рб») forms its
+     * own bot party and does not wait for the player's invite.
+     * @param role TANK, BISHOP, PROPHET, ELDER or DD (org.l2start.bots.chat.RbParse.Role)
      * @param summoned brought into the world for this call: it logs out when it is over
      * @param at where the player stood when he asked
+     * @param party 1 = the player's party, 2 = the second full party (bishop + SE + 7 mage DD)
      */
-    record RbCall(int fromId, String from, String role, boolean summoned, Pos at) implements BotEvent {
+    record RbCall(int fromId, String from, String role, boolean summoned, Pos at, int party) implements BotEvent {
+        public RbCall {
+            party = party <= 0 ? 1 : party;
+        }
+
+        /** Party 1 (the player's own RB party). */
+        public RbCall(int fromId, String from, String role, boolean summoned, Pos at) {
+            this(fromId, from, role, summoned, at, 1);
+        }
+
         @Override
         public String key() {
             return "rbCall";

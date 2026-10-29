@@ -1512,10 +1512,19 @@ public final class FakeWorld {
                     spend(e, objectId);
                     return ActionResult.OK;
                 }
-                if ((m == null) && players.stream().anyMatch(x -> x.objectId() == objectId) && !peaceZone) {
+                if ((m == null) && players.stream().anyMatch(x -> x.objectId() == objectId)) {
+                    if ((e.kind() == SkillView.Kind.NUKE) || (e.kind() == SkillView.Kind.STRIKE)) {
+                        if (peaceZone) {
+                            return ActionResult.INVALID;
+                        }
+                        spend(e, objectId);
+                        targetId = objectId;
+                        intention = "ATTACK";
+                        return ActionResult.OK;
+                    }
+                    friendBuff(e.id(), objectId);
+                    partyCasts.add(e.id() + ">" + objectId);
                     spend(e, objectId);
-                    targetId = objectId;
-                    intention = "ATTACK";
                     return ActionResult.OK;
                 }
                 if ((m == null) || m.dead() || peaceZone) {

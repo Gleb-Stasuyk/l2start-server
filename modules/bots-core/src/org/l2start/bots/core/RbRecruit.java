@@ -25,6 +25,9 @@ import org.l2start.platform.api.ModuleContext;
  * demand (DirectorPoolReserve keeps only starters ready) and brings in out of the player's sight. The chosen bot gets
  * {@link BotEvent.RbCall}: it whispers him, runs to him and waits for his invitation. From then on it is "pinned": the
  * director leaves it be until it has left the party and the player (a bot brought in for the call logs out then).
+ * <p>
+ * «ищу фп на рб» is a second full party of 9 bots (bishop + Elven Elder SE + 7 mage DD). They do not join the player's
+ * party: RbRecruit forms a bot-only party around the bishop. SE is never recruited into party 1.
  */
 public final class RbRecruit {
     /** How long a bot waits for the invitation (its brain gives up at 3 min; bots-core keeps the pin a little longer). */
@@ -34,15 +37,19 @@ public final class RbRecruit {
     /** In-world bots that hear the call: like shout. */
     static final int HEAR = BotsCoreModule.HEAR_SHOUT;
 
-    /** A bot that answered a call: whose it is and since when. */
-    record Pin(int playerId, String player, RbParse.Role role, boolean summoned, long since) {
+    /** A bot that answered a call: whose it is, which party (1 = player's, 2 = full FP), and since when. */
+    record Pin(int playerId, String player, RbParse.Role role, boolean summoned, long since, int party) {
+        Pin(int playerId, String player, RbParse.Role role, boolean summoned, long since) {
+            this(playerId, player, role, summoned, since, 1);
+        }
     }
 
     private final BotsCoreModule module;
     private final ModuleContext ctx;
     private final Map<Integer, Pin> pins = new ConcurrentHashMap<>();
-    private final Map<Integer, Long> lastCall = new ConcurrentHashMap<>();
-    /** Bots being brought in now (not in the world yet): token -> {playerId, until}. */
+    /** Repeat key: playerId<<1 | (full-party ? 1 : 0). Party 1 and «фп» are separate calls. */
+    private final Map<Long, Long> lastCall = new ConcurrentHashMap<>();
+    /** Bots being brought in now (not in the world yet): token -> {playerId, until, party}. */
     private final Map<Long, long[]> coming = new ConcurrentHashMap<>();
     private final java.util.concurrent.atomic.AtomicLong tokens = new java.util.concurrent.atomic.AtomicLong();
 
@@ -75,12 +82,16 @@ public final class RbRecruit {
         if (slots.isEmpty() || !ctx.config().getBoolean("RbParty")) {
             return false;
         }
+        final boolean fp = RbParse.isFullParty(text);
+        final int party = fp ? 2 : 1;
         final long now = System.currentTimeMillis();
-        final Long last = lastCall.put(from.getObjectId(), now);
+        final long key = ((long) from.getObjectId() << 1) | (fp ? 1L : 0L);
+        final Long last = lastCall.put(key, now);
         if ((last != null) && ((now - last) < REPEAT_MS)) {
             return true;
         }
-        int free = 9 - (from.getParty() == null ? 1 : from.getParty().getMemberCount()) - waitingFor(from.getObjectId());
+        int free = fp ? (RbParse.MAX_FP_SLOTS - waitingFor(from.getObjectId(), 2))
+            : (9 - (from.getParty() == null ? 1 : from.getParty().getMemberCount()) - waitingFor(from.getObjectId(), 1));
         if (free <= 0) {
             return true;
         }
@@ -97,39 +108,48 @@ public final class RbRecruit {
             final BotRecord near = inWorld(at, level, slot, taken);
             if (near != null) {
                 taken.add(near.botId());
-                pin(near, from, slot.role(), false);
+                pin(near, from, slot.role(), false, party);
                 free--;
                 answered++;
                 continue;
             }
-            if (bringIn(from, at, level, slot, taken)) {
+            if (bringIn(from, at, level, slot, taken, party)) {
                 free--;
                 summoned++;
             } else {
                 missed.add(slot.role().name());
             }
         }
-        ctx.log().info("rb party: " + from.getName() + " (lv " + level + ") asked for " + slots.size() + " place(s): " + answered + " bot(s) nearby answer, " + summoned
+        ctx.log().info("rb party: " + from.getName() + " (lv " + level + ") asked for " + slots.size() + " place(s)"
+            + (fp ? " (full party 2)" : "") + ": " + answered + " bot(s) nearby answer, " + summoned
             + " come" + (missed.isEmpty() ? "" : ", nobody for " + missed));
         ctx.metrics().counter("rbCalls").inc();
+        if (fp) {
+            formParty2(from.getObjectId());
+        }
         return true;
     }
 
-    private int waitingFor(int playerId) {
+    private int waitingFor(int playerId, int party) {
         final long now = System.currentTimeMillis();
         int n = 0;
         for (long[] c : coming.values()) {
-            if ((c[0] == playerId) && (c[1] > now)) {
+            final int p = c.length > 2 ? (int) c[2] : 1;
+            if ((c[0] == playerId) && (p == party) && (c[1] > now)) {
                 n++;
             }
         }
         for (Map.Entry<Integer, Pin> e : pins.entrySet()) {
             final Pin pin = e.getValue();
-            if ((pin.playerId() != playerId) || ((now - pin.since()) > WAIT_MS)) {
+            if ((pin.playerId() != playerId) || (pin.party() != party) || ((now - pin.since()) > WAIT_MS)) {
                 continue;
             }
             final BotRecord r = module.registry().byBotId(e.getKey());
             final Player bp = r == null ? null : r.player();
+            if (party == 2) {
+                n++; // party 2 occupies a slot from the pin until the pin ends
+                continue;
+            }
             final boolean inHisParty = (bp != null) && (bp.getParty() != null) && bp.getParty().getMembers().stream().anyMatch(m -> m.getObjectId() == playerId);
             if (!inHisParty) {
                 n++; // still on its way or waiting for the invitation (the party counts the ones in it)
@@ -170,7 +190,7 @@ public final class RbRecruit {
     }
 
     /** An offline persona of that role and level, else a new one, brought in out of his sight. */
-    private boolean bringIn(Player from, Pos at, int level, RbParse.Slot slot, Set<Integer> taken) {
+    private boolean bringIn(Player from, Pos at, int level, RbParse.Slot slot, Set<Integer> taken, int party) {
         final DirectorRunner d = module.director();
         if ((d == null) || d.stopping()) {
             return false;
@@ -207,7 +227,7 @@ public final class RbRecruit {
         final String player = from.getName();
         final RbParse.Role role = slot.role();
         final long token = tokens.incrementAndGet();
-        coming.put(token, new long[] { playerId, now + 60_000L }); // an arrival that fails is forgotten after a minute
+        coming.put(token, new long[] { playerId, now + 60_000L, party }); // an arrival that fails is forgotten after a minute
         d.materializeFor(new Director.Command.Materialize(known == null ? 0 : known.botId(), lvl, spot, a, -1), known != null ? null : () -> module.createOne(RbParse.startClassOf(futureClass),
             p -> new Persona(Persona.VERSION, p.seed(), p.name(), p.nameStyle(), p.lang(), p.classId(), futureClass, p.female(), p.face(), p.hairStyle(), p.hairColor(), p.traits(),
                 p.chronotype(), p.timezone(), false)), bot -> {
@@ -215,20 +235,73 @@ public final class RbRecruit {
                     final Player pl = org.l2jmobius.gameserver.entity.World.getPlayer(playerId);
                     if (pl == null) {
                         module.brains().noteFor(bot, "rb party: " + player + " went offline before it came");
-                        pins.put(bot.botId(), new Pin(playerId, player, role, true, System.currentTimeMillis()));
-                        module.brains().post(bot, new BotEvent.RbCall(playerId, player, role.name(), true, a.center()));
+                        pins.put(bot.botId(), new Pin(playerId, player, role, true, System.currentTimeMillis(), party));
+                        module.brains().post(bot, new BotEvent.RbCall(playerId, player, role.name(), true, a.center(), party));
                         return;
                     }
-                    pin(bot, pl, role, true);
+                    pin(bot, pl, role, true, party);
                 });
         return true;
     }
 
-    private void pin(BotRecord r, Player from, RbParse.Role role, boolean summoned) {
-        pins.put(r.botId(), new Pin(from.getObjectId(), from.getName(), role, summoned, System.currentTimeMillis()));
+    private void pin(BotRecord r, Player from, RbParse.Role role, boolean summoned, int party) {
+        pins.put(r.botId(), new Pin(from.getObjectId(), from.getName(), role, summoned, System.currentTimeMillis(), party));
         restockReagents(r); // in-world hunter answering the call: bones / ore before the fight
-        module.brains().noteFor(r, "rb party: answers " + from.getName() + " as " + role + (summoned ? " (brought in)" : ""));
-        module.brains().post(r, new BotEvent.RbCall(from.getObjectId(), from.getName(), role.name(), summoned, new Pos(from.getX(), from.getY(), from.getZ())));
+        module.brains().noteFor(r, "rb party: answers " + from.getName() + " as " + role
+            + (party == 2 ? " (party 2)" : "") + (summoned ? " (brought in)" : ""));
+        module.brains().post(r, new BotEvent.RbCall(from.getObjectId(), from.getName(), role.name(), summoned, new Pos(from.getX(), from.getY(), from.getZ()),
+            party));
+        if (party == 2) {
+            formParty2(from.getObjectId());
+        }
+    }
+
+    /**
+     * Second full party: a real L2 party of the pinned bots (bishop leads when it is in the world). Bots cannot invite
+     * each other through {@code inviteParty} (detached client), so the recruit uses the same stock {@code Party} join
+     * as the presence director's groups.
+     */
+    private void formParty2(int playerId) {
+        synchronized (this) {
+            Player leader = null;
+            final List<Player> members = new ArrayList<>();
+            for (Map.Entry<Integer, Pin> e : pins.entrySet()) {
+                final Pin pin = e.getValue();
+                if ((pin.playerId() != playerId) || (pin.party() != 2)) {
+                    continue;
+                }
+                final BotRecord r = module.registry().byBotId(e.getKey());
+                final Player p = r == null ? null : r.player();
+                if ((p == null) || !p.isOnline() || p.isDead()) {
+                    continue;
+                }
+                if ((p.getParty() != null) && p.getParty().getMembers().stream().anyMatch(m -> m.getObjectId() == playerId)) {
+                    continue; // already in the player's party 1
+                }
+                members.add(p);
+                if ((pin.role() == RbParse.Role.BISHOP) && (leader == null)) {
+                    leader = p;
+                }
+            }
+            if (members.size() < 2) {
+                return;
+            }
+            if (leader == null) {
+                leader = members.get(0);
+            }
+            org.l2jmobius.gameserver.entity.groups.Party party = leader.getParty();
+            if (party == null) {
+                party = new org.l2jmobius.gameserver.entity.groups.Party(leader,
+                    org.l2jmobius.gameserver.entity.groups.PartyDistributionType.FINDERS_KEEPERS);
+                leader.setParty(party);
+            }
+            for (Player p : members) {
+                if ((p == leader) || (p.getParty() != null) || (party.getMemberCount() >= 9)) {
+                    continue;
+                }
+                p.joinParty(party);
+            }
+        }
     }
 
     /** Top up skill reagents so a hunter who spent bones on the ground still nukes the raid. RB tanks also get blessed SPS. */
@@ -256,7 +329,7 @@ public final class RbRecruit {
                 continue;
             }
             final Pin pin = e.getValue();
-            final boolean withLive = withLive(p);
+            final boolean withLive = pin.party() == 2 ? callerOnline(pin) : withLive(p);
             if (!pin.summoned() && !withLive && ((now - pin.since()) > WAIT_MS)) {
                 pins.remove(e.getKey());
             } else if (pin.summoned() && !withLive && ((now - pin.since()) > (WAIT_MS * 3)) && (module.director() != null)) {
@@ -264,11 +337,19 @@ public final class RbRecruit {
                 module.director().requestLogout(r, "rb party over");
             }
             if (withLive && ((now - pin.since()) > WAIT_MS)) {
-                pins.put(e.getKey(), new Pin(pin.playerId(), pin.player(), pin.role(), pin.summoned(), now - WAIT_MS + 60_000L)); // in his party: renew
+                pins.put(e.getKey(), new Pin(pin.playerId(), pin.player(), pin.role(), pin.summoned(), now - WAIT_MS + 60_000L, pin.party())); // in his party: renew
+            }
+            if ((pin.party() == 2) && withLive) {
+                formParty2(pin.playerId());
             }
         }
         lastCall.values().removeIf(t -> (now - t) > REPEAT_MS);
         coming.values().removeIf(c -> c[1] <= now);
+    }
+
+    private boolean callerOnline(Pin pin) {
+        final Player pl = org.l2jmobius.gameserver.entity.World.getPlayer(pin.playerId());
+        return (pl != null) && pl.isOnline();
     }
 
     private boolean withLive(Player p) {
