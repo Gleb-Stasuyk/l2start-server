@@ -226,8 +226,19 @@ public final class RbRecruit {
 
     private void pin(BotRecord r, Player from, RbParse.Role role, boolean summoned) {
         pins.put(r.botId(), new Pin(from.getObjectId(), from.getName(), role, summoned, System.currentTimeMillis()));
+        restockReagents(r); // in-world hunter answering the call: bones / ore before the fight
         module.brains().noteFor(r, "rb party: answers " + from.getName() + " as " + role + (summoned ? " (brought in)" : ""));
         module.brains().post(r, new BotEvent.RbCall(from.getObjectId(), from.getName(), role.name(), summoned, new Pos(from.getX(), from.getY(), from.getZ())));
+    }
+
+    /** Top up skill reagents so a hunter who spent bones on the ground still nukes the raid. */
+    private void restockReagents(BotRecord r) {
+        final Player p = r.player();
+        final DirectorRunner d = module.director();
+        if ((p == null) || (d == null)) {
+            return;
+        }
+        d.materializer().skillReagents(p);
     }
 
     /**

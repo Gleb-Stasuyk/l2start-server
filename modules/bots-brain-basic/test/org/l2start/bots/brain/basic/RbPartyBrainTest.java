@@ -40,11 +40,16 @@ class RbPartyBrainTest {
     }
 
     private static BrainHarness bot(FakeWorld w, long seed, int classId, boolean mage) {
+        return bot(w, seed, classId, mage, "Bot");
+    }
+
+    private static BrainHarness bot(FakeWorld w, long seed, int classId, boolean mage, String name) {
         BasicBrain.afkShare = 0;
         w.setLevel(40);
         w.classId = classId;
+        w.botName = name;
         final BasicBrain b = new BasicBrain(1, BasicBrainTest.zones(), BasicBrainTest.VILLAGES, new MobClaims());
-        final BrainHarness h = new BrainHarness(b, new BotInfo(1, 100, "Bot", classId, false, "RU", 0.5, 0.7, 0.5, 0.5, 0.5, 0.8, 700, BasicBrainTest.TOWN, seed), w, seed);
+        final BrainHarness h = new BrainHarness(b, new BotInfo(1, 100, name, classId, false, "RU", 0.5, 0.7, 0.5, 0.5, 0.5, 0.8, 700, BasicBrainTest.TOWN, seed), w, seed);
         h.setAssignment(PresenceBrainTest.hunt(1));
         h.run(3000);
         return h;
@@ -64,7 +69,11 @@ class RbPartyBrainTest {
 
     /** Called, comes and joins on his invitation (also past PartyBotsMax). */
     private static BrainHarness joined(FakeWorld w, long seed, int classId, boolean mage, String role) {
-        final BrainHarness h = bot(w, seed, classId, mage);
+        return joined(w, seed, classId, mage, role, "Bot");
+    }
+
+    private static BrainHarness joined(FakeWorld w, long seed, int classId, boolean mage, String role, String name) {
+        final BrainHarness h = bot(w, seed, classId, mage, name);
         final Pos at = beside(w, 900);
         w.addPlayer(glebSeen(at));
         call(w, role, false, at);
@@ -574,6 +583,187 @@ class RbPartyBrainTest {
         assertTrue(w.partyCasts.stream().noneMatch(c -> c.startsWith("1011>")), "healed a member: " + w.partyCasts);
     }
 
+    // ------------------------------------------------------------------ mage DD named Sniper (Spellsinger / Spellhowler / Necro — not a bow class)
+
+    static final int HYDRO_BLAST = 1235;
+    static final int DEATH_SPIKE = 1148;
+    static final int VAMPIRIC_CLAW = 1234;
+    static final int CURSED_BONE = 2508;
+
+    private static BrainHarness sniperDd(FakeWorld w, long seed, int classId) throws Exception {
+        BasicBrain.playstyles = Playstyles.load(PlaystyleTest.DATA);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 20, 2000);
+        return joined(w, seed, classId, true, "DD", "Sniper");
+    }
+
+    @Test
+    void sniperMageDdCastsTheBossThroughPlaystyle() throws Exception {
+        final FakeWorld w = BasicBrainTest.world(540, true);
+        final BrainHarness h = sniperDd(w, 540, 27); // Spellsinger, character name Sniper
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(4000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertEquals("Sniper", w.self().name());
+        h.act().clear();
+        for (int i = 0; i < 6; i++) {
+            w.setHp(w.maxHp());
+            w.setMp(Math.max(w.mp(), w.maxMp() * 0.5));
+            final double hp = boss.hp;
+            h.run(2500);
+            final long casts = h.act().countOk("cast");
+            assertTrue((casts >= 1) || (boss.hp < hp), "Sniper idle slice " + i + " casts " + casts + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
+        }
+        assertTrue((h.act().countOk("cast") + h.act().countOk("attack")) >= 4, "no casts/hits: " + h.act().calls());
+        assertTrue(boss.hp < 8000, "nobody hit it: " + boss.hp + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists") || n.contains("closes")), "never fought: " + h.notes());
+        assertTrue(brain(h).details().contains("fight") || brain(h).details().contains("assists") || brain(h).details().contains("closes"),
+            "detail is not combat: " + brain(h).details());
+    }
+
+    @Test
+    void sniperMageDdClosesIntoNukeRangeAndKeepsCasting() throws Exception {
+        final FakeWorld w = BasicBrainTest.world(541, true);
+        w.castMaxRange = FakeWorld.NUKE_RANGE;
+        w.attackMaxRange = FakeWorld.MELEE_RANGE;
+        final BrainHarness h = sniperDd(w, 541, 40); // Spellhowler named Sniper
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(12_000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(w.pos().distance2d(boss.pos) <= (FakeWorld.NUKE_RANGE + 40),
+            "did not walk into nuke range: dist " + w.pos().distance2d(boss.pos) + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.act().countOk("cast") >= 3, "no casts after closing in: " + h.act().countOk("cast") + " " + h.notes() + " " + h.act().calls());
+        assertTrue(boss.hp < 8000, "nobody hit it: hp " + boss.hp + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists") || n.contains("closes")), "never fought: " + h.notes());
+        assertTrue(brain(h).details().contains("fight") || brain(h).details().contains("closes") || brain(h).details().contains("assists"),
+            "detail is not combat: " + brain(h).details());
+    }
+
+    @Test
+    void sniperMageDdUsesTheNextNukeWhenWindStrikeIsOnCooldown() throws Exception {
+        BasicBrain.playstyles = Playstyles.EMPTY; // nuke() fallback, not the class rotation
+        final FakeWorld w = BasicBrainTest.world(542, true);
+        w.addSkill(HYDRO_BLAST, SkillView.Kind.NUKE, 12, 500);
+        final BrainHarness h = joined(w, 542, 27, true, "DD", "Sniper");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(3000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        h.act().clear();
+        w.casts.clear();
+        h.run(8000);
+        assertTrue(w.casts.stream().anyMatch(c -> c.startsWith(HYDRO_BLAST + "->")),
+            "waited on Wind Strike reuse, never Hydro Blast: " + w.casts + " " + h.notes() + " " + h.act().calls());
+        assertTrue(boss.hp < 8000, "nobody hit it: " + h.notes());
+    }
+
+    @Test
+    void sniperNecroDdNukesWhenDeathSpikeHasNoBones() throws Exception {
+        BasicBrain.playstyles = Playstyles.load(PlaystyleTest.DATA);
+        final FakeWorld w = BasicBrainTest.world(543, true);
+        w.addSkill(new FakeWorld.Extra(DEATH_SPIKE, SkillView.Kind.OTHER, 30, 0, CURSED_BONE, 1, 0));
+        w.addSkill(VAMPIRIC_CLAW, SkillView.Kind.NUKE, 20, 1500);
+        final BrainHarness h = joined(w, 543, 13, true, "DD", "Sniper"); // Necromancer
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(10_000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(DEATH_SPIKE + "->")), "Death Spike without bones: " + w.casts);
+        assertTrue(w.casts.stream().anyMatch(c -> c.startsWith(VAMPIRIC_CLAW + "->") || c.startsWith(FakeWorld.NUKE_ID + "->")),
+            "rotation stuck on boneless Death Spike: " + w.casts + " " + h.notes());
+        assertTrue(boss.hp < 8000, "nobody hit it: " + h.notes());
+    }
+
+    @Test
+    void sniperMageDdStaysOnTheBossWhenTheLeaderClicksAMinion() throws Exception {
+        final FakeWorld w = BasicBrainTest.world(544, true);
+        final BrainHarness h = sniperDd(w, 544, 27);
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 5000;
+        boss.targetId = 901;
+        final FakeWorld.Mob add = w.addMob(10, 40, beside(w, 520));
+        add.bossKind = WorldView.BOSS_MINION;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(5000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        final double bossHp = boss.hp;
+        final double addHp = add.hp;
+        moveGleb(w, beside(w, 100), add.objectId);
+        h.run(8000);
+        assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
+        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+    }
+
+    @Test
+    void sniperMageDdStillHitsWhenMpIsEmpty() throws Exception {
+        final FakeWorld w = BasicBrainTest.world(545, true);
+        final BrainHarness h = sniperDd(w, 545, 27);
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 200));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(3000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        w.setMp(0);
+        final double hp = boss.hp;
+        h.act().clear();
+        h.run(6000);
+        assertTrue((h.act().countOk("attack") + h.act().countOk("cast") >= 1) || (boss.hp < hp),
+            "empty MP, stood idle: " + h.notes() + " " + h.act().calls());
+        assertFalse(w.sitting(), "sat down in the raid: " + h.notes());
+    }
+
+    @Test
+    void bishopSkipsMajorHealWithoutSpiritOreAndHealsWithTheNextLine() {
+        final FakeWorld w = BasicBrainTest.world(546, true);
+        w.addSkill(new FakeWorld.Extra(1401, SkillView.Kind.OTHER, 20, 0, 3031, 1, 0)); // Major Heal: Spirit Ore
+        w.addSkill(1217, SkillView.Kind.OTHER, 20, 0); // Greater Heal: no reagent
+        final BrainHarness h = joined(w, 546, 16, true, "BISHOP");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(902, "Tank", 5, 40, beside(w, 250), 0, 40, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 700));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.targetId = 902;
+        moveGleb(w, beside(w, 150), boss.objectId);
+        w.partyCasts.clear();
+        h.run(8000);
+        assertTrue(w.partyCasts.stream().noneMatch(c -> c.startsWith("1401>")), "Major Heal without ore: " + w.partyCasts);
+        assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1217>902")),
+            "stuck on boneless Major Heal, never Greater Heal: " + w.partyCasts + " " + h.notes());
+    }
+
     // ------------------------------------------------------------------ bow DD (Hawkeye / Silver Ranger / Phantom Ranger): shoot the RB
 
     /**
@@ -595,8 +785,8 @@ class RbPartyBrainTest {
     @Test
     void aBowDdKeepsShootingTheBossThroughPlaystyleAndStance() {
         BasicBrain.playstyles = archerStarveStyle();
-        final FakeWorld w = BasicBrainTest.world(540, false);
-        final BrainHarness h = archerDd(w, 540, 9); // Hawkeye, rbRole=DD
+        final FakeWorld w = BasicBrainTest.world(550, false);
+        final BrainHarness h = archerDd(w, 550, 9); // Hawkeye, rbRole=DD
         w.teleport(new Pos(40_000, 40_000, 0));
         final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
@@ -624,9 +814,9 @@ class RbPartyBrainTest {
     @Test
     void aBowDdWalksIntoBowRangeWhenAttackIsUnreachable() {
         BasicBrain.playstyles = archerStarveStyle();
-        final FakeWorld w = BasicBrainTest.world(541, false);
+        final FakeWorld w = BasicBrainTest.world(551, false);
         w.attackMaxRange = FakeWorld.BOW_RANGE;
-        final BrainHarness h = archerDd(w, 541, 24); // Silver Ranger
+        final BrainHarness h = archerDd(w, 551, 24); // Silver Ranger
         w.teleport(new Pos(40_000, 40_000, 0));
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
         boss.bossKind = WorldView.BOSS_RAID;
@@ -645,8 +835,8 @@ class RbPartyBrainTest {
     @Test
     void aBowDdStaysOnTheRaidBossLikeOtherDd() {
         BasicBrain.playstyles = archerStarveStyle();
-        final FakeWorld w = BasicBrainTest.world(542, false);
-        final BrainHarness h = archerDd(w, 542, 37); // Phantom Ranger
+        final FakeWorld w = BasicBrainTest.world(552, false);
+        final BrainHarness h = archerDd(w, 552, 37); // Phantom Ranger
         w.teleport(new Pos(40_000, 40_000, 0));
         w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 350));

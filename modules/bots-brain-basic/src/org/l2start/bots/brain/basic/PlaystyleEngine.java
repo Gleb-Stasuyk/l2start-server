@@ -109,6 +109,9 @@ final class PlaystyleEngine {
             if ((s == null) || !s.ready() || (s.mpCost() > me.mp())) {
                 continue;
             }
+            if ((s.itemId() > 0) && (w.itemCount(s.itemId()) < Math.max(1, s.itemCount()))) {
+                continue; // Death Spike without bones / Major Heal without Spirit Ore: skip, do not stall
+            }
             if (e.use() == Use.STANCE) {
                 if ((s.buffLeft() != -1) && (me.mpPct() >= 25)) {
                     return new Pick(e, s, true);

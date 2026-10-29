@@ -2229,6 +2229,7 @@ public final class BasicBrain implements Brain {
         }
         final boolean petTanks = me.hasPet() && (mob.targetId() == me.petId());
         final boolean raidFight = rbEngaged && (w.bossKind(mob.objectId()) != WorldView.BOSS_NONE);
+        final boolean raidMage = raidFight && me.mage();
         final boolean raidBow = raidFight && me.bow();
         final long now = ctx.now();
         // hunt kite / backstab walk would cancel RB auto-attack and leave a DD standing
@@ -2236,9 +2237,10 @@ public final class BasicBrain implements Brain {
             return;
         }
         // raid bow: auto-attack first, then at most one skill/stance per RB_BOW_SKILL_MS (Double Shot ALWAYS
-        // would otherwise return every tick and never call attack())
+        // would otherwise return every tick and never call attack()). Raid mage skips stance (it would steal
+        // nuke ticks the way Accuracy stole bow shots).
         final boolean allowStyle = !raidBow || (rbBowHasShot && (now >= rbBowSkillAt));
-        if (allowStyle && stance(ctx, me, me.mpPct() >= 15, now)) {
+        if (allowStyle && !raidMage && stance(ctx, me, me.mpPct() >= 15, now)) {
             if (raidBow) {
                 rbBowSkillAt = now + RB_BOW_SKILL_MS;
             }
@@ -2247,8 +2249,8 @@ public final class BasicBrain implements Brain {
         if (!raidFight && sneak(ctx, w, me, mob, now)) {
             return;
         }
-        if (petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
-            // the servitor holds the monster: a summoner keeps its MP for Servitor Heal instead of meleeing with a staff
+        if (!raidFight && petTanks && me.mage() && (me.mpPct() < SUMMONER_NUKE_MP)) {
+            // hunt: the servitor holds the monster. RB necro DD still nukes the boss.
             if ("ATTACK".equals(me.intention())) {
                 ctx.act().stop();
             }
@@ -2261,23 +2263,47 @@ public final class BasicBrain implements Brain {
             }
             return;
         }
-        if (me.mage() && (me.mpPct() >= 20)) {
-            final SkillView nuke = nuke(me, mob.npcId(), badSkills, now);
-            if (nuke != null) {
-                if (me.casting()) {
-                    return;
-                }
-                if (nuke.ready() && (nuke.mpCost() <= me.mp())) {
+        if (me.mage() && ((me.mpPct() >= 20) || (raidMage && (me.mp() > 0)))) {
+            if (me.casting()) {
+                return;
+            }
+            if (raidMage) {
+                for (SkillView nuke : me.skills()) {
+                    if ((nuke.kind() != SkillView.Kind.NUKE) || (badSkills.getOrDefault(badKey(nuke.id(), mob.npcId()), 0L) > now) || !nuke.ready()
+                        || (nuke.mpCost() > me.mp()) || !hasReagent(w, nuke)) {
+                        continue;
+                    }
                     final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
                     if (r.ok() || (r == ActionResult.COOLDOWN)) {
                         return;
                     }
-                    if (r == ActionResult.INVALID) {
-                        badSkills.put(badKey(nuke.id(), mob.npcId()), now + BAD_SKILL_MS); // next decision tries the next nuke
+                    if (r == ActionResult.NOT_REACHABLE) {
+                        rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
                         return;
                     }
-                } else {
-                    return; // wait for the reuse instead of running into melee
+                    if (r == ActionResult.INVALID) {
+                        if ((nuke.castRange() <= 0) || (mob.distance() > (nuke.castRange() - 20))) {
+                            rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                            return; // range / LoS: do not 10-minute-ban the rotation
+                        }
+                        badSkills.put(badKey(nuke.id(), mob.npcId()), now + BAD_SKILL_MS);
+                    }
+                }
+            } else {
+                final SkillView nuke = nuke(me, mob.npcId(), badSkills, now, w);
+                if (nuke != null) {
+                    if (nuke.ready() && (nuke.mpCost() <= me.mp())) {
+                        final ActionResult r = ctx.act().cast(nuke.id(), mob.objectId());
+                        if (r.ok() || (r == ActionResult.COOLDOWN)) {
+                            return;
+                        }
+                        if (r == ActionResult.INVALID) {
+                            badSkills.put(badKey(nuke.id(), mob.npcId()), now + BAD_SKILL_MS); // next decision tries the next nuke
+                            return;
+                        }
+                    } else {
+                        return; // wait for the reuse instead of running into melee
+                    }
                 }
             }
         }
@@ -2290,9 +2316,11 @@ public final class BasicBrain implements Brain {
             }
             if ((r == ActionResult.NOT_REACHABLE) || ((r == ActionResult.INVALID) && !"ATTACK".equals(me.intention()))) {
                 if (raidFight) {
-                    // keep fightId: dropping it re-startFight without walking into bow range / LoS
-                    if (me.bow() && ((r == ActionResult.NOT_REACHABLE) || (mob.distance() > rbBowWant(me)))) {
-                        rbCloseIn(ctx, me, mob);
+                    // keep fightId: dropping it re-startFight without walking into nuke / bow range
+                    if (raidMage) {
+                        rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                    } else if (me.bow() && ((r == ActionResult.NOT_REACHABLE) || (mob.distance() > rbBowWant(me)))) {
+                        rbCloseIn(ctx, me, mob, rbBowWant(me));
                     }
                     return;
                 }
@@ -2322,8 +2350,13 @@ public final class BasicBrain implements Brain {
 
     /** The first magic damage skill that the game has not refused lately on this monster type. */
     static SkillView nuke(SelfView me, int npcId, Map<Long, Long> bad, long now) {
+        return nuke(me, npcId, bad, now, null);
+    }
+
+    static SkillView nuke(SelfView me, int npcId, Map<Long, Long> bad, long now, WorldView w) {
         for (SkillView s : me.skills()) {
-            if ((s.kind() == SkillView.Kind.NUKE) && (bad.getOrDefault(badKey(s.id(), npcId), 0L) <= now)) {
+            if ((s.kind() == SkillView.Kind.NUKE) && (bad.getOrDefault(badKey(s.id(), npcId), 0L) <= now)
+                && ((w == null) || hasReagent(w, s))) {
                 return s;
             }
         }
@@ -2389,8 +2422,27 @@ public final class BasicBrain implements Brain {
         if (pick == null) {
             return false;
         }
+        if (rbEngaged && !pick.self()) {
+            final int cr = pick.skill().castRange();
+            if ((cr >= 150) && (mob.distance() > (cr - 20))) {
+                rbCloseIn(ctx, me, mob, Math.max(80, cr - 80));
+                return true; // walk into nuke/debuff range; do not 10-minute-ban the rotation
+            }
+        }
         final ActionResult r = ctx.act().cast(pick.skill().id(), pick.self() ? me.objectId() : mob.objectId());
+        if (r == ActionResult.NOT_REACHABLE) {
+            if (rbEngaged && !pick.self()) {
+                rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                return true;
+            }
+            engine.cast(pick, false, me.mage(), now);
+            return false;
+        }
         if (r == ActionResult.INVALID) {
+            if (rbEngaged && !pick.self() && ((pick.skill().castRange() <= 0) || (mob.distance() > (pick.skill().castRange() - 20)))) {
+                rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+                return true;
+            }
             badSkills.put(badKey(pick.skill().id(), mob.npcId()), now + BAD_SKILL_MS);
         }
         engine.cast(pick, r.ok(), me.mage(), now);
@@ -2444,7 +2496,8 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         for (SkillView s : me.skills()) {
-            if ((s.kind() != SkillView.Kind.BUFF) || (s.buffLeft() > BUFF_RENEW) || !s.ready() || (s.mpCost() > me.mp()) || (buffTried.getOrDefault(s.id(), 0L) > now)) {
+            if ((s.kind() != SkillView.Kind.BUFF) || (s.buffLeft() > BUFF_RENEW) || !s.ready() || (s.mpCost() > me.mp())
+                || (buffTried.getOrDefault(s.id(), 0L) > now) || !hasReagent(ctx.world(), s)) {
                 continue;
             }
             final ActionResult r = ctx.act().cast(s.id(), me.objectId());
@@ -2552,7 +2605,7 @@ public final class BasicBrain implements Brain {
         if ((hurt != null) && (me.mpPct() >= 10)) {
             for (int id : HEALS) {
                 final SkillView s = skill(me, id);
-                if (usable(me, s)) {
+                if (usable(me, s, w)) {
                     final ActionResult r = ctx.act().cast(id, hurt.objectId());
                     partyTried = now + (r.ok() ? 2500 : 5000);
                     if (r.ok()) {
@@ -2608,7 +2661,7 @@ public final class BasicBrain implements Brain {
             for (int id : buffIds) {
                 final SkillView s = skill(me, id);
                 final String key = id + ">" + m.objectId();
-                if (!usable(me, s) || (partyBuffed.getOrDefault(key, 0L) > now)) {
+                if (!usable(me, s, w) || (partyBuffed.getOrDefault(key, 0L) > now)) {
                     continue;
                 }
                 final ActionResult r = ctx.act().cast(id, m.objectId());
@@ -3663,7 +3716,7 @@ public final class BasicBrain implements Brain {
                 }
             }
             case HEAL -> {
-                if (healSkill(me) == null) {
+                if (healSkill(me, w) == null) {
                     reply = "HUH";
                 } else {
                     ptHealAsked = true;
@@ -3704,10 +3757,10 @@ public final class BasicBrain implements Brain {
         return false;
     }
 
-    private static SkillView healSkill(SelfView me) {
+    private static SkillView healSkill(SelfView me, WorldView w) {
         for (int id : HEALS) {
             final SkillView s = skill(me, id);
-            if (s != null) {
+            if ((s != null) && hasReagent(w, s)) {
                 return s;
             }
         }
@@ -3913,9 +3966,9 @@ public final class BasicBrain implements Brain {
         }
         // heal, raise and buff the party (the mate included)
         if (ptHealAsked && !mate.dead() && (mate.hpPct() < 95) && (mate.distance() < 900) && !me.casting()) {
-            final SkillView h = healSkill(me);
+            final SkillView h = healSkill(me, w);
             ptHealAsked = false;
-            if ((h != null) && usable(me, h) && ctx.act().cast(h.id(), mate.objectId()).ok()) {
+            if ((h != null) && usable(me, h, w) && ctx.act().cast(h.id(), mate.objectId()).ok()) {
                 partyHeals++;
                 detail = "heals " + ptMate;
                 return 2500;
@@ -4719,9 +4772,38 @@ public final class BasicBrain implements Brain {
         if ((target == null) || target.dead()) {
             return;
         }
+        if (me.mage() && (me.mpPct() >= 20) && !me.casting()) {
+            final SkillView nuke = rbReadyNuke(me, target, ctx.now(), ctx.world());
+            if (nuke != null) {
+                final ActionResult r = ctx.act().cast(nuke.id(), target.objectId());
+                if (r.ok() || (r == ActionResult.COOLDOWN)) {
+                    return;
+                }
+                if ((r == ActionResult.NOT_REACHABLE) || (r == ActionResult.INVALID)) {
+                    rbCloseIn(ctx, me, target, rbCastWant(me, target, ctx.now()));
+                    return;
+                }
+            }
+        }
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != target.objectId())) {
             ctx.act().attack(target.objectId());
         }
+    }
+
+    /**
+     * Distance a raid mage DD wants from the boss: nuke range minus a buffer, or staff range when MP is gone.
+     * Hydro Blast / Prominence / Hurricane are ~900; Wind Strike is 600.
+     */
+    private int rbCastWant(SelfView me, NpcView mob, long now) {
+        if ((me == null) || (me.mpPct() < 20)) {
+            return 80;
+        }
+        SkillView n = rbReadyNuke(me, mob, now, null);
+        if (n == null) {
+            n = nuke(me, mob == null ? 0 : mob.npcId(), badSkills, now);
+        }
+        final int range = (n != null) && (n.castRange() > 0) ? n.castRange() : 600;
+        return Math.max(280, Math.min(range - 80, 700));
     }
 
     /** Distance a raid bow DD wants from the boss (weapon range minus a short buffer). */
@@ -4730,15 +4812,27 @@ public final class BasicBrain implements Brain {
         return Math.max(80, range - 50);
     }
 
-    /** Walk toward the boss to {@link #rbBowWant} instead of standing idle after attack() was refused. */
-    private void rbCloseIn(BrainContext ctx, SelfView me, NpcView mob) {
+    /** A magic damage skill that can be fired now (ready, affordable, not 10-minute-banned, reagent in the bag). */
+    private SkillView rbReadyNuke(SelfView me, NpcView mob, long now, WorldView w) {
+        final int npcId = mob == null ? 0 : mob.npcId();
+        for (SkillView s : me.skills()) {
+            if ((s.kind() == SkillView.Kind.NUKE) && (badSkills.getOrDefault(badKey(s.id(), npcId), 0L) <= now) && s.ready()
+                && (s.mpCost() <= me.mp()) && ((w == null) || hasReagent(w, s))) {
+                return s;
+            }
+        }
+        return null;
+    }
+
+    /** Walk toward the boss to {@code want} instead of standing idle after cast/attack was refused. */
+    private void rbCloseIn(BrainContext ctx, SelfView me, NpcView mob, int want) {
         if ((mob == null) || mob.dead()) {
             return;
         }
-        final int want = rbBowWant(me);
+        final int to = Math.max(80, want);
         final Pos dest;
-        if (mob.distance() > want) {
-            dest = mob.pos().toward(me.pos(), want);
+        if (mob.distance() > to) {
+            dest = mob.pos().toward(me.pos(), to);
         } else {
             final double step = Math.min(120, Math.max(40, mob.distance() - 40));
             dest = me.pos().toward(mob.pos(), step);
@@ -4851,8 +4945,9 @@ public final class BasicBrain implements Brain {
         final List<Integer> wanted = PartyBuffs.wantedRaid(me.classId(), classId);
         final List<Integer> ids = known.isEmpty() ? wanted : PartyBuffs.filterLearnable(wanted, known);
         for (int id : ids) {
-            if (skill(me, id) == null) {
-                continue;
+            final SkillView s = skill(me, id);
+            if ((s == null) || !hasReagent(w, s)) {
+                continue; // Greater Shield / Greater Might without Spirit Ore: skip, do not stall the session
             }
             if (rbBuffGaveUp.contains(id + ">" + objectId)) {
                 continue;
@@ -4936,8 +5031,8 @@ public final class BasicBrain implements Brain {
         final int[] q = rbBuffQueue.get(0);
         final SkillView s = skill(me, q[0]);
         final Pos at = buffTargetAt(w, me, q[1]);
-        if ((s == null) || (at == null)) {
-            rbBuffQueue.remove(0); // no such skill now / the target is gone or dead
+        if ((s == null) || (at == null) || !hasReagent(w, s)) {
+            rbBuffQueue.remove(0); // no such skill now / the target is gone or dead / no Spirit Ore
             return 100;
         }
         int need = 0;
@@ -5150,6 +5245,23 @@ public final class BasicBrain implements Brain {
                     rbDdKiteBurstUntil = 0;
                     rbDdKiteSteps = 0;
                 }
+                if (me.mage() && bossy) {
+                    final int want = rbCastWant(me, target, now);
+                    if (target.distance() > (want + 40)) {
+                        standIfSitting(ctx, me);
+                        if (fightId != target.objectId()) {
+                            fightId = target.objectId();
+                            fightName = target.name();
+                            fightSince = now;
+                            fightHp = target.hpPct();
+                            fightHpAt = now;
+                            ctx.note("fight " + target.name() + " lv " + target.level());
+                        }
+                        detail = "closes on " + target.name();
+                        rbCloseIn(ctx, me, target, want);
+                        return 400;
+                    }
+                }
                 if (me.bow() && bossy && (target.distance() > (rbBowWant(me) + 40))) {
                     standIfSitting(ctx, me);
                     if (fightId != target.objectId()) {
@@ -5161,7 +5273,7 @@ public final class BasicBrain implements Brain {
                         ctx.note("fight " + target.name() + " lv " + target.level());
                     }
                     detail = "closes on " + target.name();
-                    rbCloseIn(ctx, me, target);
+                    rbCloseIn(ctx, me, target, rbBowWant(me));
                     return 400;
                 }
                 if (fightId != target.objectId()) {
@@ -5491,6 +5603,19 @@ public final class BasicBrain implements Brain {
         return (s != null) && s.ready() && (s.mpCost() <= me.mp());
     }
 
+    /** Ready, enough MP, and the reagent (Cursed Bone, Spirit Ore, …) is in the bag. */
+    private static boolean usable(SelfView me, SkillView s, WorldView w) {
+        return usable(me, s) && hasReagent(w, s);
+    }
+
+    /**
+     * False only when the skill consumes an item the bot does not have. A missing reagent must skip the line, not
+     * return INVALID every tick (Death Spike without bones, Major Heal without Spirit Ore).
+     */
+    static boolean hasReagent(WorldView w, SkillView s) {
+        return (s == null) || (s.itemId() <= 0) || (w.itemCount(s.itemId()) >= Math.max(1, s.itemCount()));
+    }
+
     /**
      * Out of a fight: heal itself (a healer heals instead of sitting down while MP lasts), heal the summon, call the
      * servitor when there is none (on the hunting ground, crystals at hand).
@@ -5503,7 +5628,7 @@ public final class BasicBrain implements Brain {
         if ((me.hpPct() < SELF_HEAL_HP) && (me.mpPct() >= 30) && (buffTried.getOrDefault(-1, 0L) <= now) && !rbNoHeal()) {
             for (int id : HEALS) {
                 final SkillView s = skill(me, id);
-                if (usable(me, s)) {
+                if (usable(me, s, w)) {
                     final ActionResult r = ctx.act().cast(id, me.objectId());
                     buffTried.put(-1, now + (r.ok() ? 2500 : 10_000));
                     if (r.ok()) {

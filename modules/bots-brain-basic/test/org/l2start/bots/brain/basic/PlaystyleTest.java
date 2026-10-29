@@ -178,6 +178,26 @@ class PlaystyleTest {
     }
 
     @Test
+    void engineSkipsARotationLineThatNeedsAMissingReagent() {
+        final FakeWorld w = new FakeWorld(1, BasicBrainTest.TOWN, false);
+        w.teleport(new Pos(0, 4000, 0));
+        w.setLevel(40);
+        final FakeWorld.Mob m = w.addMob(2, 40, new Pos(30, 4000, 0));
+        final NpcView mob = w.view().npc(m.objectId);
+        final List<SkillView> skills = List.of(new SkillView(1148, 1, SkillView.Kind.OTHER, 30, 900, true, 0, 2508, 1),
+            new SkillView(1234, 1, SkillView.Kind.NUKE, 20, 900, true));
+        final Playstyles.Playstyle ps = new Playstyles.Playstyle("Soultaker", Set.of(13), null,
+            List.of(line(1148, Use.ROTATION, EnumSet.of(Cond.ALWAYS), 0, 0), line(1234, Use.ROTATION, EnumSet.of(Cond.ALWAYS), 0, 1)));
+        final PlaystyleEngine e = new PlaystyleEngine();
+        final long now = 1000;
+        assertEquals(1234, e.pick(ps, self(w, 90, skills), mob, w.view(), Map.of(), now).skill().id(),
+            "Death Spike without Cursed Bones must not stall on the first line");
+        w.giveItem(2508, 1);
+        assertEquals(1148, e.pick(ps, self(w, 90, skills), mob, w.view(), Map.of(), now).skill().id(),
+            "with bones the first rotation line fires");
+    }
+
+    @Test
     void pvpLineFiresOnlyInPvpPickAndSpoilDoesNot() {
         final FakeWorld w = new FakeWorld(1, BasicBrainTest.TOWN, false);
         w.teleport(new Pos(0, 4000, 0));

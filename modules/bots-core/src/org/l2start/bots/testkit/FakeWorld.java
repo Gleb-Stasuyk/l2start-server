@@ -337,11 +337,20 @@ public final class FakeWorld {
         players.clear();
     }
 
+    /** Name of the bot under test ({@link SelfView#name()}; RB tests: "Sniper" is a mage, not a bow class). */
+    public String botName = "Bot";
+
     /**
      * When &gt; 0, {@code attack()} is {@link ActionResult#NOT_REACHABLE} until the target is this close
-     * (RB bow tests: the real game refuses a shot with no LoS / out of range).
+     * (RB bow / mage tests: the real game refuses a shot or staff swing with no LoS / out of range).
      */
     public int attackMaxRange;
+
+    /**
+     * When &gt; 0, offensive {@code cast()} is {@link ActionResult#NOT_REACHABLE} until the target is this close
+     * (live {@code useMagic} LoS / range: INVALID, then the brain used to 10-minute-ban the nuke).
+     */
+    public int castMaxRange;
 
     /** A bow in the hands: shoots from {@link #BOW_RANGE}. */
     public void setArcher(boolean a) {
@@ -818,7 +827,7 @@ public final class FakeWorld {
                 e.itemId(), e.itemCount()));
         }
         final boolean combat = mobs.values().stream().anyMatch(m -> !m.dead() && (m.targetId == SELF_ID));
-        return new SelfView(SELF_ID, "Bot", classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
+        return new SelfView(SELF_ID, botName, classId >= 0 ? classId : mage ? 10 : 0, mage, level, (exp * 100.0) / expToNext(level), sp, hp, maxHp(), mp, maxMp(), pos, dead, sitting,
             "MOVE_TO".equals(intention) || "PICK_UP".equals(intention), combat, "ATTACK".equals(intention) && (now < (nextSwingAt - 500)), "CAST".equals(intention), targetId, peaceZone, false, intention, true, skills,
             0, 0, archer ? BOW_RANGE : 40, archer, charges, petId, petId == 0 ? 0 : (petHp * 100) / petMaxHp(), petTargetId, selfClanId, selfClanLeader, olympiadMode, olympiadGameId, olympiadStart);
     }
@@ -1031,6 +1040,9 @@ public final class FakeWorld {
             }
             if ((now < skillReadyAt.getOrDefault(skillId, 0L)) || (mp < NUKE_MP)) {
                 return ActionResult.COOLDOWN;
+            }
+            if ((castMaxRange > 0) && (m.pos.distance2d(pos) > castMaxRange)) {
+                return ActionResult.NOT_REACHABLE;
             }
             targetId = objectId;
             castSkill = skillId;
@@ -1510,6 +1522,9 @@ public final class FakeWorld {
                     return ActionResult.INVALID;
                 }
                 if (blocked(pos, m.pos)) {
+                    return ActionResult.NOT_REACHABLE;
+                }
+                if ((castMaxRange > 0) && (m.pos.distance2d(pos) > castMaxRange)) {
                     return ActionResult.NOT_REACHABLE;
                 }
             }
