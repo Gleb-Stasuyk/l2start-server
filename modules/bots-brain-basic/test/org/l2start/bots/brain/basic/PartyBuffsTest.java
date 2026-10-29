@@ -1,5 +1,6 @@
 package org.l2start.bots.brain.basic;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -88,18 +89,28 @@ class PartyBuffsTest {
     }
 
     @Test
-    void raidTankOnlyDefensiveAndSpeed() {
+    void raidTankIsFullHuntSetExceptBerserker() {
         final List<Integer> w = PartyBuffs.wantedRaid(PROPHET, PALADIN);
+        final List<Integer> hunt = PartyBuffs.wanted(PROPHET, PALADIN);
         assertTrue(w.contains(PartyBuffs.WIND_WALK));
         assertTrue(w.contains(PartyBuffs.SHIELD));
+        assertTrue(w.contains(PartyBuffs.MENTAL_SHIELD));
         assertTrue(w.contains(PartyBuffs.BLESSED_BODY));
+        assertTrue(w.contains(PartyBuffs.BLESSED_SOUL));
+        assertTrue(w.contains(PartyBuffs.MAGIC_BARRIER));
+        assertTrue(w.contains(PartyBuffs.REGENERATION));
+        assertTrue(w.contains(PartyBuffs.MIGHT));
         assertTrue(w.contains(PartyBuffs.BLESS_SHIELD));
         assertTrue(w.contains(PartyBuffs.GREATER_SHIELD));
         assertFalse(w.contains(PartyBuffs.BERSERKER));
-        assertFalse(w.contains(PartyBuffs.MIGHT));
-        assertFalse(w.contains(PartyBuffs.HASTE));
-        assertFalse(w.contains(PartyBuffs.FOCUS));
-        assertTrue(w.size() < PartyBuffs.wanted(PROPHET, PALADIN).size());
+        assertFalse(w.contains(PartyBuffs.HASTE), "Haste is melee-only, not hunt-tank");
+        assertFalse(w.contains(PartyBuffs.FOCUS), "Focus is melee-only, not hunt-tank");
+        assertEquals(hunt.size() - 1, w.size());
+        for (int id : hunt) {
+            if (id != PartyBuffs.BERSERKER) {
+                assertTrue(w.contains(id), "missing hunt buff " + id);
+            }
+        }
     }
 
     @Test

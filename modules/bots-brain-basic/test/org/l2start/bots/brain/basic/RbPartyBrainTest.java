@@ -282,8 +282,7 @@ class RbPartyBrainTest {
         h.run(110_000);
         final java.util.Set<Integer> none = java.util.Set.of();
         assertTrue(w.effects.getOrDefault(GLEB, none).containsAll(java.util.List.of(1204, 1040, 1085, 1062)), "leader (a mystic): " + w.effects + " " + h.notes());
-        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(1204, 1040)), "far tank: " + w.effects);
-        assertFalse(w.effects.getOrDefault(901, none).contains(1068), "tank got Might: " + w.effects);
+        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(1204, 1040, 1068)), "far tank: " + w.effects);
         assertFalse(w.effects.getOrDefault(901, none).contains(1062), "tank got Berserker: " + w.effects);
         assertTrue(w.effects.getOrDefault(950, none).containsAll(java.util.List.of(1204, 1040)), "his summon: " + w.effects);
         assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, none).containsAll(java.util.List.of(1204, 1040, 1085, 1062)), "itself: " + w.effects);
@@ -310,8 +309,8 @@ class RbPartyBrainTest {
         assertTrue(w.effects.getOrDefault(GLEB, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040)), "not all on him: " + w.effects + " " + h.notes());
         assertFalse(w.effects.getOrDefault(GLEB, java.util.Set.of()).contains(1035), "mage got Mental Shield: " + w.effects);
         assertFalse(w.effects.getOrDefault(GLEB, java.util.Set.of()).contains(1045), "mage got Blessed Body: " + w.effects);
-        assertTrue(w.effects.getOrDefault(901, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040, 1045)), "not all on the tank: " + w.effects);
-        assertFalse(w.effects.getOrDefault(901, java.util.Set.of()).contains(1068), "tank got Might: " + w.effects);
+        assertTrue(w.effects.getOrDefault(901, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040, 1045, 1068)), "not all on the tank: " + w.effects);
+        assertFalse(w.effects.getOrDefault(901, java.util.Set.of()).contains(1086), "tank got Haste: " + w.effects);
         assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).containsAll(java.util.List.of(1204, 1040)), "not all on itself: " + w.effects);
         assertFalse(w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).contains(1035), "prophet mage got Mental Shield");
         assertTrue(indexOfParty(w, "баф", "готово", "buffed", "done", "buffs up", "there you go") > mana, "'buffed' before the end: " + w.chat.subList(before, w.chat.size()));
@@ -352,8 +351,8 @@ class RbPartyBrainTest {
         assertTrue(saidInParty(w, "мана", "мп", "mana", "mp", "oom"), "no 'mana': " + w.chat);
         final java.util.Set<Integer> none = java.util.Set.of();
         assertTrue(w.effects.getOrDefault(GLEB, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.ACUMEN)), "leader skipped: " + w.effects + " " + h.notes());
-        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.BLESSED_BODY)), "tank skipped: " + w.effects);
-        assertFalse(w.effects.getOrDefault(901, none).contains(PartyBuffs.MIGHT), "tank got Might");
+        assertTrue(w.effects.getOrDefault(901, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.BLESSED_BODY, PartyBuffs.MIGHT)), "tank skipped: " + w.effects);
+        assertFalse(w.effects.getOrDefault(901, none).contains(PartyBuffs.BERSERKER), "tank got Berserker");
         assertTrue(w.effects.getOrDefault(902, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.MIGHT)), "dd skipped: " + w.effects);
         assertTrue(w.effects.getOrDefault(FakeWorld.SELF_ID, none).containsAll(java.util.List.of(PartyBuffs.WIND_WALK, PartyBuffs.SHIELD, PartyBuffs.ACUMEN)), "prophet skipped: " + w.effects);
         assertEquals(-1, brain(h).rbBuffsLeft(), h.notes().toString());
