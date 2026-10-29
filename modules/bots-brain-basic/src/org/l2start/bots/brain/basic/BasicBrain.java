@@ -2158,9 +2158,10 @@ public final class BasicBrain implements Brain {
         kiteNext = 0;
         kiteBlocked = false;
         final String msg = "fight " + mob.name() + " lv " + mob.level() + (mob.targetId() == me.objectId() ? " (it attacked)" : "");
-        ctx.note(msg);
         if (rbEngaged) {
-            rbLog("rb party: " + msg);
+            rbNote(ctx, "rb party: " + msg);
+        } else {
+            ctx.note(msg);
         }
         detail = "fight " + fightName;
         hit(ctx, ctx.world(), me, mob);
@@ -2199,6 +2200,12 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         if (mob.distance() > 2400) {
+            if (raidFight) {
+                // never drop fightId on the locked RB: walk back in and keep swinging
+                rbCloseIn(ctx, me, mob, me.bow() ? rbBowWant(me) : me.mage() ? rbCastWant(me, mob, now) : 80);
+                rbKeepHitting(ctx, me, mob);
+                return 400;
+            }
             abandon(now, 60_000);
             return 0;
         }
@@ -2582,50 +2589,21 @@ public final class BasicBrain implements Brain {
 
     private long partyCare(BrainContext ctx, WorldView w, SelfView me, long now, NpcView attacker) {
         final List<PartyMember> pm = w.party();
-        if (!partyPlay || pm.isEmpty() || me.casting() || me.sitting() || (now < partyTried) || rbNoHeal()) {
+        if (!partyPlay || pm.isEmpty() || me.casting() || me.sitting() || rbNoHeal()) {
             return 0;
         }
-        PartyMember hurt = null;
-        for (PartyMember m : pm) {
-            if (!m.dead() && (m.hpPct() < PARTY_HEAL_HP) && (m.distance() < 1200) && ((hurt == null) || (m.hpPct() < hurt.hpPct()))) {
-                hurt = m;
-            }
-        }
-        if (rbInParty) {
-            // RB party: first whoever the boss is on (the tank, or a DD it turned to), then the tank, then the others
-            final int on = rbAggroOn(w);
-            PartyMember holder = null;
+        PartyMember hurt = rbInParty ? rbHurtAlly(w) : null;
+        if (!rbInParty) {
             for (PartyMember m : pm) {
-                if ((on != 0) && (m.objectId() == on) && !m.dead() && (m.hpPct() < RB_TANK_HEAL_HP) && (m.distance() < 1200)) {
-                    holder = m;
-                }
-            }
-            if (holder != null) {
-                hurt = holder;
-            } else {
-                for (PartyMember m : pm) {
-                    if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK) && (m.hpPct() < RB_TANK_HEAL_HP) && (m.distance() < 1200)
-                        && ((hurt == null) || (hurt.hpPct() > 30) || (PartyBuffs.roleOf(hurt.classId()) != PartyBuffs.Role.TANK))) {
-                        hurt = m;
-                        break;
-                    }
+                if (!m.dead() && (m.hpPct() < PARTY_HEAL_HP) && (m.distance() < 1200) && ((hurt == null) || (m.hpPct() < hurt.hpPct()))) {
+                    hurt = m;
                 }
             }
         }
         if ((hurt != null) && (me.mpPct() >= 10)) {
-            for (int id : HEALS) {
-                final SkillView s = skill(me, id);
-                if (usable(me, s, w)) {
-                    final ActionResult r = ctx.act().cast(id, hurt.objectId());
-                    partyTried = now + (r.ok() ? 2500 : 5000);
-                    if (r.ok()) {
-                        heals++;
-                        partyHeals++;
-                        detail = "heals " + hurt.name();
-                        return 2500;
-                    }
-                    break;
-                }
+            final long healed = tryPartyHeal(ctx, w, me, hurt, now);
+            if (healed > 0) {
+                return healed;
             }
         }
         if ((fightId != 0) || (attacker != null)) {
@@ -2683,6 +2661,77 @@ public final class BasicBrain implements Brain {
                     return 2500;
                 }
             }
+        }
+        return 0;
+    }
+
+    /**
+     * Who a raid bishop should heal now: whoever the boss is on, then the tank / supports below
+     * {@link #RB_TANK_HEAL_HP}, then anyone below {@link #PARTY_HEAL_HP}.
+     */
+    private PartyMember rbHurtAlly(WorldView w) {
+        final int on = rbAggroOn(w);
+        PartyMember best = null;
+        double bestRank = 99;
+        for (PartyMember m : w.party()) {
+            if (m.dead() || (m.distance() > 1500)) {
+                continue;
+            }
+            final boolean holder = (on != 0) && (m.objectId() == on);
+            final boolean tank = PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK;
+            final boolean sup = support(m.classId());
+            final double below = (holder || tank || sup) ? RB_TANK_HEAL_HP : PARTY_HEAL_HP;
+            if (m.hpPct() >= below) {
+                continue;
+            }
+            final double rank = holder ? 0 : tank ? 1 : sup ? 2 : 3 + (m.hpPct() / 100.0);
+            if (rank < bestRank) {
+                best = m;
+                bestRank = rank;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Cast the first ready heal that has its reagent. Do not {@code break} on Major Heal INVALID — that hid Greater
+     * Heal / Heal in live RB fights. Stop moving first: a kite step makes {@code useMagic} fail.
+     */
+    private long tryPartyHeal(BrainContext ctx, WorldView w, SelfView me, PartyMember hurt, long now) {
+        if ((hurt == null) || (me.mpPct() < 10)) {
+            return 0;
+        }
+        if (me.moving() || me.attacking()) {
+            ctx.act().stop();
+            return 300;
+        }
+        boolean needCloser = false;
+        for (int id : HEALS) {
+            final SkillView s = skill(me, id);
+            if (!usable(me, s, w)) {
+                continue;
+            }
+            final ActionResult r = ctx.act().cast(id, hurt.objectId());
+            if (r.ok()) {
+                heals++;
+                partyHeals++;
+                partyTried = now + 1500;
+                if (rbInParty) {
+                    rbNote(ctx, "rb party: heals " + hurt.name());
+                }
+                detail = "heals " + hurt.name();
+                return 1500;
+            }
+            if ((r == ActionResult.NOT_REACHABLE) || (r == ActionResult.INVALID)) {
+                needCloser = true;
+                continue;
+            }
+        }
+        if (needCloser && (hurt.distance() > 200)) {
+            standIfSitting(ctx, me);
+            ctx.act().setWalking(false);
+            detail = "goes up to heal " + hurt.name();
+            return Math.min(800, walk(ctx, w, me, hurt.pos().toward(me.pos(), 250), now));
         }
         return 0;
     }
@@ -4217,6 +4266,8 @@ public final class BasicBrain implements Brain {
     static final long RB_TURN_MS = 2500;
     /** Supports keep this far from the boss (heals reach, cleaves do not). */
     static final int RB_SUPPORT_BACK = 550;
+    /** After this many failed kite {@code moveTo} (INVALID / blocked) in a row: stand still, keep fighting. */
+    static final int RB_KITE_FAILS_STOP = 2;
     /**
      * Raid physical DD (bow and melee): at most one playstyle/stance tick in this window. Auto-attack is the
      * damage; skills must not starve {@code attack()} every tick (Hawkeye Double Shot ALWAYS, Accuracy /
@@ -4253,6 +4304,9 @@ public final class BasicBrain implements Brain {
     private int rbKites;
     private int rbKiteDir = 1;
     private long rbKiteAt;
+    /** Consecutive failed raid kite steps (INVALID moveTo or geodata). {@link #RB_KITE_FAILS_STOP} → stand. */
+    private int rbKiteInvalid;
+    private boolean rbKiteStand;
     /** DD kite burst while the boss is on it: steps used, when the burst ends, and when the next burst may start. */
     private int rbDdKiteSteps;
     private long rbDdKiteBurstUntil;
@@ -4327,6 +4381,16 @@ public final class BasicBrain implements Brain {
     /** Tests: the NPC this raid fighter is on (0 = none / not engaged). */
     public int rbFightId() {
         return rbEngaged ? fightId : 0;
+    }
+
+    /** Tests: locked raid-boss object id (0 = none). */
+    public int rbBossId() {
+        return rbEngaged ? rbBossId : 0;
+    }
+
+    /** Tests: kite gave up after failed {@code moveTo} / geodata (stands and fights). */
+    public boolean rbKiteStand() {
+        return rbKiteStand;
     }
 
     public int rbGkFollows() {
@@ -4683,36 +4747,39 @@ public final class BasicBrain implements Brain {
      * Who the raid party should fight now, or null = wait. Auto-engages when a raid boss (or the leader's
      * target) is already on a party member — without "го". "го" with no BOSS_RAID uses the leader's target
      * or whatever is hitting the party.
+     * <p>
+     * A nearby living {@code BOSS_RAID} always wins over a minion the leader has targeted ("го" on
+     * Nellis' Follower while Nellis' Vengeful Spirit is in the room). A minion is the fight only when it
+     * is on the party and the real boss is dead or far.
      */
     private NpcView rbFindFight(WorldView w, SelfView me, PartyMember lead, NpcView leadNpc, int kind) {
         final boolean raidLead = (leadNpc != null) && !leadNpc.dead() && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION));
         final boolean pulled = raidLead && RaidPlay.bossPulled(leadNpc.hpPct(), leadNpc.attackingNow(), leadNpc.targetId(), lead.objectId(),
             w.party(), me.objectId());
+        NpcView trigger = null;
         final NpcView onPartyRaid = rbMonsterOnParty(w, me, true);
         if (onPartyRaid != null) {
-            return onPartyRaid;
-        }
-        if ((leadNpc != null) && !leadNpc.dead() && leadNpc.monster() && leadNpc.attackable() && (kind != WorldView.BOSS_EPIC)
+            trigger = onPartyRaid;
+        } else if ((leadNpc != null) && !leadNpc.dead() && leadNpc.monster() && leadNpc.attackable() && (kind != WorldView.BOSS_EPIC)
             && inParty(w, leadNpc.targetId())) {
-            return leadNpc; // the leader's target is hitting the party
+            trigger = leadNpc; // the leader's target is hitting the party
+        } else if (pulled) {
+            trigger = leadNpc;
+        } else if (rbGoAsked) {
+            if (raidLead) {
+                trigger = leadNpc;
+            } else if ((leadNpc != null) && !leadNpc.dead() && leadNpc.monster() && leadNpc.attackable() && (kind != WorldView.BOSS_EPIC)) {
+                trigger = leadNpc; // "го" on what he has targeted, even if it is not tagged BOSS_RAID
+            } else {
+                final NpcView anyOnParty = rbMonsterOnParty(w, me, false);
+                trigger = anyOnParty != null ? anyOnParty : nearestRaid(w, lead);
+            }
         }
-        if (pulled) {
-            return leadNpc;
-        }
-        if (!rbGoAsked) {
+        if (trigger == null) {
             return null;
         }
-        if (raidLead) {
-            return leadNpc;
-        }
-        if ((leadNpc != null) && !leadNpc.dead() && leadNpc.monster() && leadNpc.attackable() && (kind != WorldView.BOSS_EPIC)) {
-            return leadNpc; // "го" on what he has targeted, even if it is not tagged BOSS_RAID
-        }
-        final NpcView anyOnParty = rbMonsterOnParty(w, me, false);
-        if (anyOnParty != null) {
-            return anyOnParty;
-        }
-        return nearestRaid(w, lead);
+        final NpcView raid = nearestRaid(w, lead);
+        return raid != null ? raid : trigger;
     }
 
     /** A living monster on this bot or a party member. {@code raidOnly} = BOSS_RAID / BOSS_MINION (never epic). */
@@ -4739,15 +4806,23 @@ public final class BasicBrain implements Brain {
         return best;
     }
 
-    /** The nearest living ordinary raid boss within 1500 of the leader (epics never). */
+    /** The nearest living ordinary raid boss within 1500 of the leader or this bot (epics never). */
     private static NpcView nearestRaid(WorldView w, PartyMember lead) {
         NpcView best = null;
+        double bestD = 0;
         for (NpcView n : w.npcs()) {
-            if (n.dead() || !n.attackable() || (n.pos().distance2d(lead.pos()) > 1500) || (w.bossKind(n.objectId()) != WorldView.BOSS_RAID)) {
+            if (n.dead() || !n.attackable() || (w.bossKind(n.objectId()) != WorldView.BOSS_RAID)) {
                 continue;
             }
-            if ((best == null) || (n.distance() < best.distance())) {
+            final double dLead = n.pos().distance2d(lead.pos());
+            final double dSelf = n.distance();
+            if ((dLead > 1500) && (dSelf > 1500)) {
+                continue;
+            }
+            final double d = Math.min(dLead, dSelf);
+            if ((best == null) || (d < bestD)) {
                 best = n;
+                bestD = d;
             }
         }
         return best;
@@ -4765,6 +4840,8 @@ public final class BasicBrain implements Brain {
         rbDdKiteNext = 0;
         rbBowSkillAt = 0;
         rbBowHasShot = false;
+        rbKiteInvalid = 0;
+        rbKiteStand = false;
         ptMode = PartyMode.ASSIST;
         rbNote(ctx, "rb party: the fight starts on " + boss.name() + " lv " + boss.level() + " (" + rbRole + ")");
     }
@@ -4773,9 +4850,33 @@ public final class BasicBrain implements Brain {
         RB_LOG.info("Module[bots-brain-basic]: " + text);
     }
 
-    private static void rbNote(BrainContext ctx, String text) {
-        ctx.note(text);
-        rbLog(text);
+    /** {@code rb party [Name/ROLE]: …} so a live log of eight bots is readable. */
+    private String rbWho(BrainContext ctx) {
+        String name = null;
+        if ((ctx != null) && (ctx.world() != null) && (ctx.world().self() != null)) {
+            name = ctx.world().self().name();
+        }
+        if ((name == null) || name.isEmpty()) {
+            name = "?";
+        }
+        final String role = (rbRole == null) || rbRole.isEmpty() ? "?" : rbRole;
+        return name + "/" + role;
+    }
+
+    private static String rbNoteBody(String text) {
+        if (text.startsWith("rb party: ")) {
+            return text.substring("rb party: ".length());
+        }
+        if (text.startsWith("rb party:")) {
+            return text.substring("rb party:".length()).stripLeading();
+        }
+        return text;
+    }
+
+    private void rbNote(BrainContext ctx, String text) {
+        final String tagged = "rb party [" + rbWho(ctx) + "]: " + rbNoteBody(text);
+        ctx.note(tagged);
+        rbLog(tagged);
     }
 
     private void rbDisengage(BrainContext ctx, String why) {
@@ -4789,6 +4890,8 @@ public final class BasicBrain implements Brain {
         rbDdKiteNext = 0;
         rbBowSkillAt = 0;
         rbBowHasShot = false;
+        rbKiteInvalid = 0;
+        rbKiteStand = false;
         endFight();
         rbNote(ctx, "rb party: the fight is over (" + why + ")");
     }
@@ -4825,7 +4928,7 @@ public final class BasicBrain implements Brain {
      * and must not attack while this move is still running (that would cancel the kite).
      */
     private long rbKite(BrainContext ctx, WorldView w, SelfView me, PartyMember lead, long now, String what) {
-        if (now < rbKiteAt) {
+        if (rbKiteStand || (now < rbKiteAt)) {
             return 0;
         }
         Pos center = RaidPlay.center(w.party(), 1500);
@@ -4834,16 +4937,32 @@ public final class BasicBrain implements Brain {
         }
         for (Pos step : RaidPlay.kiteCandidates(center, me.pos(), rbKiteDir)) {
             final Pos to = new Pos(step.x(), step.y(), w.geo().height(step));
-            if (w.geo().canMoveTo(me.pos(), to) && ctx.act().moveTo(to).ok()) {
+            if (!w.geo().canMoveTo(me.pos(), to)) {
+                continue;
+            }
+            final ActionResult r = ctx.act().moveTo(to);
+            if (r.ok()) {
+                rbKiteInvalid = 0;
                 rbKiteAt = now + RB_KITE_MS;
                 rbKites++;
                 rbKiteDir = RaidPlay.stepDir(center, me.pos(), to);
                 detail = what;
                 return 900;
             }
+            rbKiteInvalid++;
+            if (rbKiteInvalid >= RB_KITE_FAILS_STOP) {
+                rbKiteStand = true;
+                rbNote(ctx, "rb party: kite blocked, stands still");
+                return 0;
+            }
         }
+        rbKiteInvalid++;
         rbKiteAt = now + 2000;
         rbKiteDir = -rbKiteDir;
+        if (rbKiteInvalid >= RB_KITE_FAILS_STOP) {
+            rbKiteStand = true;
+            rbNote(ctx, "rb party: kite blocked, stands still");
+        }
         return 0;
     }
 
@@ -5204,6 +5323,15 @@ public final class BasicBrain implements Brain {
             rbBossId = 0;
             boss = null;
         }
+        // a nearby living BOSS_RAID wins over a locked minion (live: "го" on Nellis' Follower)
+        final NpcView raid = nearestRaid(w, lead);
+        if ((raid != null) && !raid.dead() && (raid.distance() < 2400)) {
+            if (rbBossId != raid.objectId()) {
+                rbNote(ctx, "rb party: locks on " + raid.name() + " lv " + raid.level());
+                rbBossId = raid.objectId();
+            }
+            boss = raid;
+        }
         // lock on the raid boss while it lives in range: the leader clicking a minion must not pull DDs off it
         NpcView target = ((boss != null) && !boss.dead() && (boss.distance() < 2400)) ? boss : null;
         if (target == null) {
@@ -5227,9 +5355,24 @@ public final class BasicBrain implements Brain {
         final boolean bossy = w.bossKind(target.objectId()) != WorldView.BOSS_NONE;
         switch (rbRole) {
             case "BISHOP", "PROPHET" -> {
-                // supports keep back from the boss and near the party: heals and buffs come from partyCare
+                // never cancel a heal: kite / keep-back walk / stop() abort a live cast bar
+                if (me.casting()) {
+                    detail = "heals";
+                    return 400;
+                }
                 standIfSitting(ctx, me);
-                if (bossy && (target.targetId() == me.objectId()) && (tankOf(w) != null)) {
+                if (fightId != 0) {
+                    endFight(); // do not stop(): that cancels Greater Heal / Major Heal
+                }
+                final PartyMember hurt = rbHurtAlly(w);
+                if ((hurt != null) && "BISHOP".equals(rbRole)) {
+                    final long h = tryPartyHeal(ctx, w, me, hurt, now);
+                    if (h > 0) {
+                        return h;
+                    }
+                }
+                // kite only when nobody needs a heal and geodata still allows it
+                if ((hurt == null) && !rbKiteStand && bossy && (target.targetId() == me.objectId()) && (tankOf(w) != null)) {
                     if (rbKiteMoving(me, now)) {
                         detail = "runs from " + target.name() + " till the tank takes it";
                         return 400;
@@ -5239,9 +5382,9 @@ public final class BasicBrain implements Brain {
                         return k;
                     }
                 }
-                if (fightId != 0) {
-                    endFight();
-                    ctx.act().stop();
+                if (hurt != null) {
+                    detail = "supports the party on " + target.name();
+                    return 400;
                 }
                 final Pos center = RaidPlay.center(w.party(), 1500);
                 if (target.distance() < (RB_SUPPORT_BACK - 200)) {
@@ -5335,45 +5478,16 @@ public final class BasicBrain implements Brain {
                     // pause after a kite step, or the burst is over: back on the boss
                     rbKeepHitting(ctx, me, target);
                 }
-                if (me.mage() && bossy) {
-                    final int want = rbCastWant(me, target, now);
-                    if (target.distance() > (want + 40)) {
-                        standIfSitting(ctx, me);
-                        if (fightId != target.objectId()) {
-                            fightId = target.objectId();
-                            fightName = target.name();
-                            fightSince = now;
-                            fightHp = target.hpPct();
-                            fightHpAt = now;
-                            ctx.note("fight " + target.name() + " lv " + target.level());
-                            rbLog("rb party: fight " + target.name() + " lv " + target.level());
-                        }
-                        detail = "closes on " + target.name();
-                        rbCloseIn(ctx, me, target, want);
-                        return 400;
-                    }
-                }
-                if (me.bow() && bossy && (target.distance() > (rbBowWant(me) + 40))) {
-                    standIfSitting(ctx, me);
-                    if (fightId != target.objectId()) {
-                        fightId = target.objectId();
-                        fightName = target.name();
-                        fightSince = now;
-                        fightHp = target.hpPct();
-                        fightHpAt = now;
-                        ctx.note("fight " + target.name() + " lv " + target.level());
-                        rbLog("rb party: fight " + target.name() + " lv " + target.level());
-                    }
-                    detail = "closes on " + target.name();
-                    rbCloseIn(ctx, me, target, rbBowWant(me));
-                    return 400;
-                }
                 if (fightId != target.objectId()) {
                     detail = "assists " + lead.name();
                     return startFight(ctx, me, target, now, true);
                 }
                 final long d = fight(ctx, w, me, now);
-                return d > 0 ? d : 400;
+                if (d > 0) {
+                    return d;
+                }
+                rbKeepHitting(ctx, me, target);
+                return 400;
             }
         }
     }

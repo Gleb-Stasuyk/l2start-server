@@ -1039,10 +1039,105 @@ class RbPartyBrainTest {
             w.chatFrom("PARTY", GLEB, "Gleb", "го");
             h.run(4000);
             assertTrue(brain(h).rbEngaged(), h.notes().toString());
-            assertTrue(logged.stream().anyMatch(s -> s.contains("Module[bots-brain-basic]") && s.contains("rb party")),
-                "notes did not reach the game log: " + logged + " harness " + h.notes());
+            assertTrue(logged.stream().anyMatch(s -> s.contains("Module[bots-brain-basic]") && s.contains("rb party [Bot/TANK]")),
+                "notes did not reach the game log with [Name/Role]: " + logged + " harness " + h.notes());
         } finally {
             log.removeHandler(hdl);
         }
+    }
+
+    @Test
+    void goOnAMinionLocksTheDdOnTheNearbyRaidBoss() {
+        final FakeWorld w = BasicBrainTest.world(570, false);
+        final BrainHarness h = joined(w, 570, 8, false, "DD");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob raid = w.addMob(9, 80, beside(w, 400));
+        raid.bossKind = WorldView.BOSS_RAID;
+        raid.hp = 8000;
+        final FakeWorld.Mob minion = w.addMob(10, 38, beside(w, 220));
+        minion.bossKind = WorldView.BOSS_MINION;
+        minion.hp = 5000;
+        minion.targetId = GLEB; // the follower is on the party
+        moveGleb(w, beside(w, 80), minion.objectId); // "го" while the leader has the minion targeted
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(8000);
+        assertTrue(brain(h).rbEngaged(), "did not engage: " + h.notes());
+        assertEquals(raid.objectId, brain(h).rbBossId(), "locked the minion: bossId " + brain(h).rbBossId() + " " + h.notes());
+        assertTrue(raid.hp < 8000, "DD did not hit the raid boss: hp " + raid.hp + " " + h.notes() + " " + h.act().calls());
+        assertEquals(5000, minion.hp, 0.01, "hit the minion instead: " + minion.hp + " " + h.notes());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("rb party [Bot/DD]:")), "no [Name/Role] prefix: " + h.notes());
+    }
+
+    @Test
+    void tankStandsStillWhenKiteStepsAreBlockedAndKeepsFighting() {
+        final FakeWorld w = BasicBrainTest.world(571, false);
+        w.addSkill(FakeWorld.AGGRESSION, SkillView.Kind.OTHER, 10, 3000);
+        final BrainHarness h = joined(w, 571, 5, false, "TANK");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        // solid ring: kite steps (250–500) cannot leave a 60-wide hole; melee on the boss inside still can
+        w.addWall(39_000, 39_000, 39_970, 41_000);
+        w.addWall(40_030, 39_000, 41_000, 41_000);
+        w.addWall(39_000, 39_000, 41_000, 39_970);
+        w.addWall(39_000, 40_030, 41_000, 41_000);
+        moveGleb(w, beside(w, 20), 0);
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 15));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        moveGleb(w, beside(w, 20), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(12_000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        assertTrue(brain(h).rbKiteStand(), "kept trying blocked kite: kites " + brain(h).rbKites() + " " + h.notes());
+        assertTrue(w.taunts >= 1, "stopped taunting: " + w.taunts + " " + h.notes());
+        assertTrue(boss.hp < 8000, "stood idle without hitting: hp " + boss.hp + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("stands still")), "no stand-still note: " + h.notes());
+    }
+
+    @Test
+    void bishopHealsTheTankDuringTheRaidFight() {
+        final FakeWorld w = BasicBrainTest.world(572, true);
+        w.addSkill(1011, SkillView.Kind.OTHER, 20, 0);
+        w.addSkill(1217, SkillView.Kind.OTHER, 20, 0);
+        final BrainHarness h = joined(w, 572, 16, true, "BISHOP");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Kabanchik", 5, 42, beside(w, 180), 0, 40, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 38, beside(w, 80));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 60), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        w.partyCasts.clear();
+        h.run(4000);
+        assertTrue(brain(h).rbEngaged(), "did not engage: " + h.notes());
+        assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1011>901") || c.startsWith("1217>901")),
+            "bishop did not heal the tank during the fight: " + w.partyCasts + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("rb party [Bot/BISHOP]:") && n.contains("heals")),
+            "no heal note: " + h.notes());
+    }
+
+    @Test
+    void bishopHealsInsteadOfKitingWhenAnAllyIsLow() {
+        final FakeWorld w = BasicBrainTest.world(573, true);
+        w.addSkill(1011, SkillView.Kind.OTHER, 20, 0);
+        final BrainHarness h = joined(w, 573, 16, true, "BISHOP");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Kabanchik", 5, 42, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 38, beside(w, 120));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.targetId = FakeWorld.SELF_ID; // on the bishop: old code kited and cancelled heals
+        moveGleb(w, beside(w, 80), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(2500);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        w.party.removeIf(m -> m.objectId() == 901);
+        w.party.add(new PartyMember(901, "Kabanchik", 5, 42, beside(w, 200), 0, 35, 100, false, 0, false));
+        w.partyCasts.clear();
+        h.act().clear();
+        h.run(4000);
+        assertTrue(w.partyCasts.stream().anyMatch(c -> c.startsWith("1011>901")),
+            "kited instead of healing: casts " + w.partyCasts + " kites " + brain(h).rbKites() + " " + h.notes() + " " + h.act().calls());
+        assertTrue(h.notes().stream().anyMatch(n -> n.contains("heals Kabanchik")), "no heal note: " + h.notes());
     }
 }
