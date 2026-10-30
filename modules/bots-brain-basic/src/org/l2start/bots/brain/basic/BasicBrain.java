@@ -5117,24 +5117,9 @@ public final class BasicBrain implements Brain {
      * (on someone, swinging, or HP dropped). Targeting the boss alone is not enough — party 1 may still wait for "го".
      */
     private boolean rbParty1Fighting(WorldView w, PartyMember lead, NpcView t, int kind) {
-        // only on a command: the caller's «го» heard by party 2, or the caller himself hitting the boss / the boss on
-        // him. A boss that is merely hurt, has aggro on someone else, or a caller in combat with anything no longer
-        // counts (live 30.10: party 2 started on Gwindorr with no command).
-        if (rbGoAsked) {
-            return true;
-        }
-        final PlayerView caller = playerById(w, rbCallerId);
-        if (caller == null) {
-            return false;
-        }
-        final NpcView raid = nearestRaid(w, lead);
-        final int bossId = ((t != null) && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION))) ? t.objectId()
-            : (raid == null ? 0 : raid.objectId());
-        if (bossId == 0) {
-            return false;
-        }
-        final NpcView b = w.npc(bossId);
-        return (caller.inCombat() && (caller.targetId() == bossId)) || ((b != null) && !b.dead() && (b.targetId() == rbCallerId));
+        // only the caller's «го» (live 30.10 23:14: party 2 started on Leto Chief Talkin when he clicked the boss while
+        // fighting its bodyguards; the «he hits the boss / the boss is on him» signals are gone)
+        return rbGoAsked;
     }
 
     /** Hydro Blast / Hurricane / Death Spike only. */

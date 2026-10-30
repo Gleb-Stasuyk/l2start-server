@@ -1273,6 +1273,7 @@ class RbPartyBrainTest {
         assertFalse(brain(h).rbEngaged(), "party 2 took go/buff/stop: " + h.notes() + " " + w.chat);
         seeGleb(w, beside(w, 100), true, boss.objectId);
         boss.targetId = GLEB;
+        w.chatFrom("ALL", GLEB, "Gleb", "\u0433\u043e"); // party 2 engages only on his го in ordinary chat
         h.run(8000);
         assertTrue(brain(h).rbEngaged(), "party 2 did not assist after party 1 engaged: " + h.notes());
         assertEquals(boss.objectId, brain(h).rbBossId(), "not on the raid: " + h.notes());
@@ -1294,6 +1295,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob add = w.addMob(10, 40, beside(w, 520));
         add.bossKind = WorldView.BOSS_MINION;
         seeGleb(w, beside(w, 100), true, boss.objectId);
+        w.chatFrom("ALL", GLEB, "Gleb", "\u0433\u043e"); // party 2 engages only on his го in ordinary chat
         h.run(5000);
         assertTrue(brain(h).rbEngaged(), h.notes().toString());
         final double bossHp = boss.hp;
