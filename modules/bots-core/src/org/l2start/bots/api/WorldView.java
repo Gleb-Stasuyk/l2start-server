@@ -33,6 +33,14 @@ public interface WorldView {
         return List.of();
     }
 
+    /**
+     * A live player anywhere in the world, shaped like a party-window member (RB party 2 follows its caller who is
+     * not in its party window), null = offline / unknown.
+     */
+    default PartyMember playerAnywhere(int objectId) {
+        return null;
+    }
+
     /** It leads its party (or has none). */
     default boolean partyLeader() {
         return true;

@@ -121,6 +121,11 @@
 		<ru>{role} {level}, возьми на рб|я {role} {level}, кидай пати на рб|+ {role} {level}, иду к тебе|{role} {level} на рб, инвайть|могу на рб, {role} {level}</ru>
 		<en>{role} {level} for rb, inv|i'm {role} {level}, invite for rb|+ {role} {level}, coming|{role} {level}, can go rb</en>
 	</intent>
+	<!-- RB party 2 («фп»): its own bot party, no invitation from the player -->
+	<intent id="RB2_REPLY">
+		<ru>{role} {level}, фп с тобой|+ {role} {level}, иду фп|{role} {level} в фп, иду к тебе|+ фп, {role} {level}</ru>
+		<en>{role} {level}, fp with you|+ {role} {level}, fp coming|{role} {level} in fp, on my way</en>
+	</intent>
 	<!-- RB party: the player did not invite the bot that came -->
 	<intent id="RB_GIVE_UP">
 		<ru>ну ок|ладно, видимо уже набрали|ок, не нужен так не нужен|ну ладно, удачи на рб</ru>
