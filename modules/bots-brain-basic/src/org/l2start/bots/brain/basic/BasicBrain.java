@@ -2196,7 +2196,7 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         final boolean raidFight = rbEngaged;
-        if (!raidFight && mob.engagedByOther() && (mob.targetId() != me.objectId())) {
+        if (!raidFight && !rbInParty && mob.engagedByOther() && (mob.targetId() != me.objectId())) { // RB party: assisting a member is ours
             ctx.note("left " + fightName + ": someone else's");
             abandon(now, 60_000);
             ctx.act().stop();
@@ -3043,7 +3043,11 @@ public final class BasicBrain implements Brain {
                 case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
                 case BotEvent.RbCall rc -> onRbCall(ctx, w, me, rc, now);
                 case BotEvent.Chat c -> {
-                    if ((rbCallerId != 0) && rbBuffChat(ctx, c)) {
+                    if ((rbParty == 2) && (rbCallerId != 0) && (c.fromId() == rbCallerId) && ("ALL".equals(c.channel()) || "SHOUT".equals(c.channel())) && RaidPlay.isGo(c.text())) {
+                        rbGoAsked = true; // party 2 hears the caller's «го» in ordinary chat / shout: now it may engage
+                        rbGoAt = now;
+                        rbNote(ctx, "rb party: " + c.from() + " says go in " + c.channel() + " (party 2)");
+                    } else if ((rbCallerId != 0) && rbBuffChat(ctx, c)) {
                         // «баф» from the caller in ordinary chat (or party 2 hearing him): both RB parties buff
                     } else if ("PARTY".equals(c.channel()) && rbInParty) {
                         onRbPartyChat(ctx, w, me, c, now);
@@ -4775,6 +4779,23 @@ public final class BasicBrain implements Brain {
         if (lead.distance() > MATE_FAR) {
             return rbCatchUp(ctx, w, me, lead, now, attacker);
         }
+        // defend first: an ordinary monster on it, on a member or on the caller, and no raid fight yet. Damage
+        // dealers and the tank fight back at once and assist each other (live 30.10: Denis stood under mobs while
+        // the bishop only healed him). Bosses / minions are not started here (party 2 waits for a command).
+        if (!rbEngaged && !rbGoAsked && !"BISHOP".equals(rbRole) && !"PROPHET".equals(rbRole) && !"ELDER".equals(rbRole)) {
+            final NpcView foe = attacker != null ? attacker : rbMonsterOnParty(w, me, false);
+            if ((foe != null) && (w.bossKind(foe.objectId()) == WorldView.BOSS_NONE)) {
+                standIfSitting(ctx, me);
+                if (fightId != foe.objectId()) {
+                    detail = "defends the party from " + foe.name();
+                    return startFight(ctx, me, foe, now, true);
+                }
+                final long d = fight(ctx, w, me, now);
+                if (d > 0) {
+                    return d;
+                }
+            }
+        }
         // a scroll, the return skill or a gatekeeper of its own is over: with its leader again
         final long cared = care(ctx, w, me, now, true);
         if (cared > 0) {
@@ -4975,16 +4996,24 @@ public final class BasicBrain implements Brain {
      * (on someone, swinging, or HP dropped). Targeting the boss alone is not enough — party 1 may still wait for "го".
      */
     private boolean rbParty1Fighting(WorldView w, PartyMember lead, NpcView t, int kind) {
-        final PlayerView caller = playerById(w, rbCallerId);
-        if ((caller != null) && caller.inCombat()) {
+        // only on a command: the caller's «го» heard by party 2, or the caller himself hitting the boss / the boss on
+        // him. A boss that is merely hurt, has aggro on someone else, or a caller in combat with anything no longer
+        // counts (live 30.10: party 2 started on Gwindorr with no command).
+        if (rbGoAsked) {
             return true;
+        }
+        final PlayerView caller = playerById(w, rbCallerId);
+        if (caller == null) {
+            return false;
         }
         final NpcView raid = nearestRaid(w, lead);
-        if ((raid != null) && (raid.attackingNow() || (raid.targetId() != 0) || (raid.hpPct() < 99.5))) {
-            return true;
+        final int bossId = ((t != null) && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION))) ? t.objectId()
+            : (raid == null ? 0 : raid.objectId());
+        if (bossId == 0) {
+            return false;
         }
-        return (t != null) && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION))
-            && (t.attackingNow() || (t.targetId() != 0) || (t.hpPct() < 99.5));
+        final NpcView b = w.npc(bossId);
+        return (caller.inCombat() && (caller.targetId() == bossId)) || ((b != null) && !b.dead() && (b.targetId() == rbCallerId));
     }
 
     /** Hydro Blast / Hurricane / Death Spike only. */
