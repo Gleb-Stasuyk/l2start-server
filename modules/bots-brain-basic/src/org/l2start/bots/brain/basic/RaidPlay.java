@@ -17,6 +17,14 @@ import org.l2start.bots.api.Pos;
 public final class RaidPlay {
     /** The invitation is waited for this long, then the bot leaves. */
     public static final long INVITE_WAIT_MS = 3 * 60_000L;
+    /** Party 2 before the raid fight: asks «долго ещё?» this long after the recruit / the last boss kill. */
+    public static final long RB2_WAIT_MS = 20 * 60_000L;
+    /** Party 2: more waiting once the caller answers. */
+    public static final long RB2_EXTEND_MS = 10 * 60_000L;
+    /** Party 2: no answer to «долго ещё?» in this long: leaves. */
+    public static final long RB2_REPLY_MS = 3 * 60_000L;
+    /** Party 2: the caller offline this long: leaves. */
+    public static final long RB2_OFFLINE_MS = 5 * 60_000L;
     /** The leader does nothing this long (no move, no fight): the bots say goodbye and leave. */
     public static final long IDLE_MS = 10 * 60_000L;
     /** A bot this close to its leader when he teleports by a gatekeeper takes the same gatekeeper. */
