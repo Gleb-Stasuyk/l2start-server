@@ -10,8 +10,8 @@ import java.util.regex.Pattern;
 /**
  * RB party, iteration 1 (docs/RB_PARTY_PLAN.md): a live player's request in trade / shout for party members for a raid
  * boss, e.g. "ищу танка и биша на рб", "нужен пп rb", "2 дд на рб", "сх на рб". Only the roles named answer. The shout
- * «ищу фп на рб» is a second full party (bishop + Elven Elder SE + 7 mage DD), not a fill of the player's party.
- * SE here is Elven Elder 30 / Eva's Saint 105 (Empower 1059, Recharge 1013), not Spellhowler and not Shillien Elder.
+ * «ищу фп на рб» is a second full party (bishop + Shillien Elder SE + 7 mage DD), not a fill of the player's party.
+ * SE here is Shillien Elder 43 / Shillien Saint 112 (Empower, Recharge; Gleb 30.10 t410u), not Elven Elder.
  * Pure: no game types, unit-tested on a plain JDK.
  */
 public final class RbParse {
@@ -25,8 +25,8 @@ public final class RbParse {
     public static final Set<Integer> BISHOPS = Set.of(16);
     public static final Set<Integer> PROPHETS = Set.of(17);
     /** Elven Elder (RB «SE»: Empower + Recharge). Not Shillien Elder (town-buffer) and not Spellhowler. */
-    public static final int ELVEN_ELDER = 30;
-    public static final Set<Integer> ELDERS = Set.of(ELVEN_ELDER);
+    public static final int SHILLIEN_ELDER = 43;
+    public static final Set<Integer> ELDERS = Set.of(SHILLIEN_ELDER);
     public static final int NECROMANCER = 13;
     public static final int SPELLSINGER = 27;
     public static final int SPELLHOWLER = 40;
@@ -36,7 +36,7 @@ public final class RbParse {
     private static final Set<Integer> TANK_NOW = Set.of(5, 6, 20, 33, 90, 91, 99, 106);
     private static final Set<Integer> BISHOP_NOW = Set.of(16, 97);
     private static final Set<Integer> PROPHET_NOW = Set.of(17, 98);
-    private static final Set<Integer> ELDER_NOW = Set.of(30, 105); // Elven Elder / Eva's Saint
+    private static final Set<Integer> ELDER_NOW = Set.of(43, 112); // Shillien Elder / Shillien Saint
     private static final Set<Integer> DD_NOW = Set.of(13, 27, 40, 95, 103, 110);
 
     /** One place in the party: the role and the planned 2nd professions that fit it. */
@@ -81,7 +81,7 @@ public final class RbParse {
     /**
      * The places asked for, in the order roles are listed (tank, bishop, prophet, then damage dealers); empty when the
      * line is not an RB party request (no rb word, or no role named). «ищу фп на рб» is the second full party
-     * (9 places: bishop, Elven Elder, 7 mage DD) and is not capped at {@link #MAX_SLOTS}.
+     * (9 places: bishop, Shillien Elder, 7 mage DD) and is not capped at {@link #MAX_SLOTS}.
      */
     public static List<Slot> parse(String text) {
         final List<Slot> out = new ArrayList<>();
@@ -114,7 +114,7 @@ public final class RbParse {
         return RB.matcher(t).find() && FP.matcher(t).find();
     }
 
-    /** Bishop + Elven Elder + 7 mage DD (9 bots, their own party). */
+    /** Bishop + Shillien Elder + 7 mage DD (9 bots, their own party). */
     public static List<Slot> fullPartySlots() {
         final List<Slot> out = new ArrayList<>(MAX_FP_SLOTS);
         out.add(new Slot(Role.BISHOP, BISHOPS));
@@ -157,7 +157,7 @@ public final class RbParse {
             case 106 -> 33;
             case 97 -> 16;
             case 98 -> 17;
-            case 105 -> 30;
+            case 112 -> 43;
             case 95 -> 13;
             case 103 -> 27;
             case 110 -> 40;
@@ -174,7 +174,7 @@ public final class RbParse {
             case 20 -> 18; // Elven Fighter
             case 27, 30 -> 25; // Elven Mystic (Spellsinger / Elven Elder)
             case 33 -> 31; // Dark Fighter
-            case 40 -> 38; // Dark Mystic
+            case 40, 43 -> 38; // Dark Mystic (Spellhowler / Shillien Elder)
             default -> -1;
         };
     }

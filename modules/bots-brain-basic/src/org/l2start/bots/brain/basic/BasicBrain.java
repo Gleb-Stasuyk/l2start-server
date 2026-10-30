@@ -648,6 +648,10 @@ public final class BasicBrain implements Brain {
             if (p.objectId() == me.objectId() || p.distance() > 1200) {
                 continue;
             }
+            final boolean hitMe = hitByRecently(p.objectId(), now, PVP_HIT_MEMORY);
+            if ((rbCallerId != 0) && p.bot() && !hitMe && !p.pvpMarked()) {
+                continue; // RB party: a bot of either party healing / buffing the caller or a member is no foe (live 30.10 21:55: the parties killed each other)
+            }
             final boolean hit = hitByRecently(p.objectId(), now, PVP_HIT_MEMORY);
             final org.l2start.bots.api.Memory.Of mem = ctx.memory().of(p.objectId());
             final boolean revenge = PvpDecision.revengeReady(mem, now, pvpRevengeDelayMs, pvpRevengeTimeoutMs);
@@ -663,7 +667,7 @@ public final class BasicBrain implements Brain {
             // RB party (either party): it stays with the caller and defends — never runs off alone, and an attack on
             // the caller (or someone of its own party) is an attack on it
             if ((rbCallerId != 0) && rbInParty) {
-                final boolean onCaller = (p.objectId() != rbCallerId) && (p.targetId() == rbCallerId) && p.inCombat();
+                final boolean onCaller = (p.objectId() != rbCallerId) && (p.targetId() == rbCallerId) && p.inCombat() && p.pvpMarked(); // flagged = really attacking him, not healing
                 if (hit || revenge || allyHit || onCaller) {
                     if (v.intent() != PvpDecision.Intent.FIGHT) {
                         v = new PvpDecision.Verdict(PvpDecision.Intent.FIGHT, "rb-defend");
@@ -2690,7 +2694,14 @@ public final class BasicBrain implements Brain {
         final int on = rbAggroOn(w);
         PartyMember best = null;
         double bestRank = 99;
-        for (PartyMember m : w.party()) {
+        final List<PartyMember> pool = new ArrayList<>(w.party());
+        if ((rbCallerId != 0) && pool.stream().noneMatch(x -> x.objectId() == rbCallerId)) {
+            final PartyMember caller = rbCallerAsLead(w); // party 2 heals the caller too (t417u)
+            if (caller != null) {
+                pool.add(caller);
+            }
+        }
+        for (PartyMember m : pool) {
             if (m.dead() || (m.distance() > 1500)) {
                 continue;
             }
@@ -2701,7 +2712,8 @@ public final class BasicBrain implements Brain {
             if (m.hpPct() >= below) {
                 continue;
             }
-            final double rank = holder ? 0 : tank ? 1 : sup ? 2 : 3 + (m.hpPct() / 100.0);
+            // lowest HP first, whoever it is (t417u); the aggro holder / tank a little earlier
+            final double rank = holder ? -1 : (m.hpPct() / 100.0) - (tank ? 0.1 : 0);
             if (rank < bestRank) {
                 best = m;
                 bestRank = rank;
@@ -3043,6 +3055,10 @@ public final class BasicBrain implements Brain {
                 case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
                 case BotEvent.RbCall rc -> onRbCall(ctx, w, me, rc, now);
                 case BotEvent.Chat c -> {
+                    if ((rbCallerId != 0) && (c.fromId() == rbCallerId) && (PartyCommands.parse(c.text()) == PartyCommands.Command.ASSIST)) {
+                        rbAssistOn = true; // t413u/t414u: DDs take his target, no fight before «го»
+                        rbNote(ctx, "rb party: " + c.from() + " says assist in " + c.channel());
+                    }
                     if ((rbParty == 2) && (rb2AskedAt > 0) && (rb2ExtendUntil == 0) && (c.fromId() == rbCallerId) && ("WHISPER".equals(c.channel()) || "ALL".equals(c.channel()))) {
                         rb2ExtendUntil = now + RaidPlay.RB2_EXTEND_MS; // he answered «долго ещё?»: 10 more min
                         rbNote(ctx, "rb party: " + c.from() + " answered, waits " + (RaidPlay.RB2_EXTEND_MS / 60_000) + " more min (party 2)");
@@ -4351,6 +4367,11 @@ public final class BasicBrain implements Brain {
     private long rbAuraNext;
     private boolean rbGoAsked;
     private long rbGoAt;
+    /** «асист» from the caller: DDs hit his current target (switching with him) once the fight is on. */
+    private boolean rbAssistOn;
+    /** When this bot's raid fight started (DDs give the tank {@link #RB_TANK_FIRST_MS} to take aggro). */
+    private long rbFightStartAt;
+    static final long RB_TANK_FIRST_MS = 3000;
     private long rbIdleSince;
     private Pos rbLeaderLast;
     private Pos rbLeaderGk;
@@ -4469,6 +4490,8 @@ public final class BasicBrain implements Brain {
         rb2AskedAt = 0;
         rb2ExtendUntil = 0;
         rb2Fought = false;
+        rbAssistOn = false;
+        rbFightStartAt = 0;
         rbInParty = false;
         rbEngaged = false;
         rbBossId = 0;
@@ -4832,7 +4855,9 @@ public final class BasicBrain implements Brain {
             }
         }
         final NpcView attacker = attacker(w, me);
-        if (lead.distance() > MATE_FAR) {
+        final NpcView rbBossNow = rbBossId == 0 ? null : w.npc(rbBossId);
+        final boolean onBoss = rbEngaged && (rbBossNow != null) && !rbBossNow.dead() && (rbBossNow.distance() < 1500);
+        if ((lead.distance() > MATE_FAR) && !onBoss) { // in the raid fight by the boss: keep hitting, no catch-up run
             return rbCatchUp(ctx, w, me, lead, now, attacker);
         }
         // defend first: an ordinary monster on it, on a member or on the caller, and no raid fight yet. Damage
@@ -5025,6 +5050,46 @@ public final class BasicBrain implements Brain {
         return best;
     }
 
+    private static final java.util.Set<Integer> RB_SUPPORT_CLASSES = java.util.Set.of(16, 97, 17, 98, 30, 105, 43, 112, 15, 29, 42);
+
+    /** A living non-boss monster (minion or ordinary) on this bot or on a support of its party: on this bot first. */
+    private NpcView rbMinionOnParty(WorldView w, SelfView me) {
+        NpcView best = null;
+        int bestRank = Integer.MAX_VALUE;
+        for (NpcView n : w.npcs()) {
+            if (n.dead() || !n.monster() || !n.attackable() || (n.distance() > 1500)) {
+                continue;
+            }
+            final int k = w.bossKind(n.objectId());
+            if ((k == WorldView.BOSS_EPIC) || (k == WorldView.BOSS_RAID) || (n.targetId() == 0)) {
+                continue;
+            }
+            int rank;
+            if (n.targetId() == me.objectId()) {
+                rank = 0;
+            } else {
+                PartyMember on = null;
+                for (PartyMember m : w.party()) {
+                    if (m.objectId() == n.targetId()) {
+                        on = m;
+                        break;
+                    }
+                }
+                if (on == null) {
+                    continue;
+                }
+                if (!RB_SUPPORT_CLASSES.contains(on.classId())) {
+                    continue; // on the tank / another DD: the tank holds it
+                }
+                rank = 1;
+            }
+            if ((rank < bestRank) || ((rank == bestRank) && (best != null) && (n.distance() < best.distance()))) {
+                best = n;
+                bestRank = rank;
+            }
+        }
+        return best;
+    }
     /** The nearest living ordinary raid boss within 1500 of the leader or this bot (epics never). */
     private static NpcView nearestRaid(WorldView w, PartyMember lead) {
         NpcView best = null;
@@ -5104,6 +5169,7 @@ public final class BasicBrain implements Brain {
         rbKiteInvalid = 0;
         rbKiteStand = false;
         ptMode = PartyMode.ASSIST;
+        rbFightStartAt = now;
         rbNote(ctx, "rb party: the fight starts on " + boss.name() + " lv " + boss.level() + " (" + rbRole + ")");
     }
 
@@ -5392,7 +5458,7 @@ public final class BasicBrain implements Brain {
     }
 
     /**
-     * Elven Elder (party 2 SE): Empower on everyone missing it, Recharge when a member's MP is below
+     * Shillien Elder / Saint (party 2 SE): Empower on everyone missing it, Recharge when a member's MP is below
      * {@link #RB_SE_RECHARGE_MP}. No "баф" command — it keeps this up on its own.
      */
     private long rbSeCare(BrainContext ctx, WorldView w, SelfView me, long now) {
@@ -5402,7 +5468,12 @@ public final class BasicBrain implements Brain {
         final SkillView recharge = skill(me, RB_RECHARGE);
         if (usable(me, recharge)) {
             PartyMember low = null;
-            for (PartyMember m : w.party()) {
+            final List<PartyMember> pool = new ArrayList<>(w.party());
+            final PartyMember caller = rbCallerId == 0 ? null : w.playerAnywhere(rbCallerId);
+            if ((caller != null) && pool.stream().noneMatch(x -> x.objectId() == rbCallerId)) {
+                pool.add(caller); // party 2's SE fills the caller's mana too (t419u: закачка, not a drain)
+            }
+            for (PartyMember m : pool) {
                 if (!m.dead() && (m.mpPct() < RB_SE_RECHARGE_MP) && (m.distance() < 900)
                     && ((low == null) || (m.mpPct() < low.mpPct()))) {
                     low = m;
@@ -5690,6 +5761,32 @@ public final class BasicBrain implements Brain {
         }
         // lock on the raid boss while it lives in range: the leader clicking a minion must not pull DDs off it
         NpcView target = ((boss != null) && !boss.dead() && (boss.distance() < 2400)) ? boss : null;
+        final boolean support = "BISHOP".equals(rbRole) || "PROPHET".equals(rbRole) || "ELDER".equals(rbRole);
+        if ((target != null) && !support) {
+            // 1) minions on this bot, a support or the caller first, then back to the boss (t412u: minions killed them);
+            //    the tank takes them too (aggro)
+            final NpcView minion = rbMinionOnParty(w, me);
+            // 2) «асист» (t413u/t416u): DDs hit the caller's current target and switch the moment he does; the tank keeps its aggro
+            final NpcView ct = (!rbAssistOn || "TANK".equals(rbRole) || (lead.targetId() == 0)) ? null : w.npc(lead.targetId());
+            if ((ct != null) && !ct.dead() && ct.monster() && ct.attackable() && (ct.distance() < 2000) && (w.bossKind(ct.objectId()) != WorldView.BOSS_EPIC)
+                && ((minion == null) || (minion.targetId() != me.objectId()))) {
+                if (fightId != ct.objectId()) {
+                    rbNote(ctx, "rb party: assists " + lead.name() + " on " + ct.name());
+                }
+                target = ct;
+            } else if (minion != null) {
+                if (fightId != minion.objectId()) {
+                    rbNote(ctx, "rb party: takes " + minion.name() + " off the party");
+                }
+                target = minion;
+            }
+            // 3) after «го» the tank goes first (mass hate), DDs wait a moment unless something is already on them
+            final PartyMember rbTank = tankOf(w);
+            if (!"TANK".equals(rbRole) && (rbTank != null) && (target.targetId() != rbTank.objectId()) && (rbFightStartAt > 0) && ((now - rbFightStartAt) < RB_TANK_FIRST_MS) && (target.targetId() != me.objectId())) {
+                detail = "lets the tank take aggro first";
+                return 300;
+            }
+        }
         if (target == null) {
             final NpcView lt = lead.targetId() == 0 ? null : w.npc(lead.targetId());
             if ((lt != null) && !lt.dead() && lt.monster() && lt.attackable() && (lt.distance() < 2000) && (w.bossKind(lt.objectId()) != WorldView.BOSS_EPIC)) {
@@ -5721,7 +5818,7 @@ public final class BasicBrain implements Brain {
                     endFight(); // do not stop(): that cancels Greater Heal / Major Heal
                 }
                 final PartyMember hurt = rbHurtAlly(w);
-                if ((hurt != null) && "BISHOP".equals(rbRole)) {
+                if (hurt != null) { // bishop, SE and prophet all heal the lowest (t417u)
                     final long h = tryPartyHeal(ctx, w, me, hurt, now);
                     if (h > 0) {
                         return h;
