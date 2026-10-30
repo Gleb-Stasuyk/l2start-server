@@ -109,7 +109,7 @@ class RbParseTest {
         assertEquals(RbParse.MAX_FP_SLOTS, fp.size());
         assertEquals(RbParse.Role.BISHOP, fp.get(0).role());
         assertEquals(RbParse.Role.ELDER, fp.get(1).role());
-        assertEquals(Set.of(RbParse.ELVEN_ELDER), fp.get(1).classes());
+        assertEquals(Set.of(RbParse.SHILLIEN_ELDER), fp.get(1).classes());
         assertEquals(RbParse.FP_DD_COUNT, fp.stream().filter(s -> s.role() == RbParse.Role.DD).count());
         assertTrue(fp.stream().noneMatch(s -> s.role() == RbParse.Role.TANK));
         assertTrue(fp.stream().noneMatch(s -> s.role() == RbParse.Role.PROPHET));
@@ -120,10 +120,10 @@ class RbParseTest {
     void party1NeverAsksForSe() {
         assertTrue(roles("ищу танка и биша на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
         assertTrue(roles("танк биш пп 5 дд сх на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
-        assertEquals(RbParse.Role.ELDER, RbParse.roleOf(30, 25));
-        assertEquals(RbParse.Role.ELDER, RbParse.roleOf(0, 105));
-        assertEquals(30, RbParse.futureOf(105));
-        assertEquals(25, RbParse.startClassOf(30));
+        assertEquals(RbParse.Role.ELDER, RbParse.roleOf(43, 38));
+        assertEquals(RbParse.Role.ELDER, RbParse.roleOf(0, 112));
+        assertEquals(43, RbParse.futureOf(112));
+        assertEquals(38, RbParse.startClassOf(43));
         assertEquals("се", RbParse.word(RbParse.Role.ELDER, true));
         assertEquals("se", RbParse.word(RbParse.Role.ELDER, false));
     }

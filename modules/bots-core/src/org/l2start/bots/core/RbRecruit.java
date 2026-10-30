@@ -26,7 +26,7 @@ import org.l2start.platform.api.ModuleContext;
  * {@link BotEvent.RbCall}: it whispers him, runs to him and waits for his invitation. From then on it is "pinned": the
  * director leaves it be until it has left the party and the player (a bot brought in for the call logs out then).
  * <p>
- * «ищу фп на рб» is a second full party of 9 bots (bishop + Elven Elder SE + 7 mage DD). They do not join the player's
+ * «ищу фп на рб» is a second full party of 9 bots (bishop + Shillien Elder SE + 7 mage DD). They do not join the player's
  * party: RbRecruit forms a bot-only party around the bishop. SE is never recruited into party 1.
  */
 public final class RbRecruit {
