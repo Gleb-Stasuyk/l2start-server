@@ -174,10 +174,23 @@ public final class Director {
      * @param nearbyGrounds catalogue grounds within reach (their spots and levels count too)
      */
     static WorldCatalog.Ground adHocGround(String id, String town, Pos player, int radius, List<MobSpot> mobs, List<WorldCatalog.Ground> nearbyGrounds) {
+        return adHocGround(id, town, player, 0, radius, mobs, nearbyGrounds);
+    }
+
+    /** Ad-hoc ground levels may be this far from the player's level (live 30.10: a lv 78 Wildwind by a lv 40 RB). */
+    static final int ADHOC_LEVEL_SPAN = 10;
+
+    /**
+     * @param playerLevel the player's level, 0 = unknown: monsters (and catalogue grounds) more than
+     *            {@link #ADHOC_LEVEL_SPAN} levels from him do not set the ground's band (a lv 40 raid next to a lv 70+
+     *            field must not bring lv 75+ hunters)
+     */
+    static WorldCatalog.Ground adHocGround(String id, String town, Pos player, int playerLevel, int radius, List<MobSpot> mobs,
+        List<WorldCatalog.Ground> nearbyGrounds) {
         final List<Integer> levels = new ArrayList<>();
         final List<Pos> spots = new ArrayList<>();
         for (MobSpot m : mobs) {
-            if ((m.pos().distance2d(player) <= PLAYER_MOBS) || (m.pos().distance2d(player) > radius)) {
+            if ((m.pos().distance2d(player) <= PLAYER_MOBS) || (m.pos().distance2d(player) > radius) || ((playerLevel > 0) && (Math.abs(m.level() - playerLevel) > ADHOC_LEVEL_SPAN))) {
                 continue;
             }
             levels.add(m.level());
@@ -187,7 +200,7 @@ public final class Director {
         }
         if (levels.isEmpty()) {
             for (WorldCatalog.Ground g : nearbyGrounds) {
-                if (g.center().distance2d(player) > (g.radius() + radius)) {
+                if ((g.center().distance2d(player) > (g.radius() + radius)) || ((playerLevel > 0) && ((g.minLevel() > (playerLevel + ADHOC_LEVEL_SPAN)) || (g.maxLevel() < (playerLevel - ADHOC_LEVEL_SPAN))))) {
                     continue;
                 }
                 for (Pos sp : g.spots()) {
@@ -924,7 +937,7 @@ public final class Director {
                         
                         // the real monsters around him (their levels, where they are), else the catalogue's spots near him;
                         // nothing a bot could hunt there: no hunting bot at all (it would only run about)
-                        spot = adHocGround("adhoc_" + player.id(), adHocTown, player.pos(), c.unseenRadius(), terrain.monstersNear(player.pos(), c.unseenRadius()),
+                        spot = adHocGround("adhoc_" + player.id(), adHocTown, player.pos(), player.level(), c.unseenRadius(), terrain.monstersNear(player.pos(), c.unseenRadius()),
                             catalog.groundsNear(player.pos(), c.unseenRadius()));
                         if (spot == null) {
                             presenceNoMobs++;

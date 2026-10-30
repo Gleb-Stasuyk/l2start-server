@@ -76,6 +76,33 @@ public final class GearTable {
 
     private static final Set<Integer> MAGES = Set.of(10, 11, 12, 13, 14, 15, 16, 17, 25, 26, 27, 28, 29, 30, 38, 39, 40, 41, 42, 43, 49, 50, 51, 52, 94, 95, 96, 97, 98, 103,
         104, 105, 110, 111, 112, 115, 116);
+    /** Homunkulus's Sword - Acumen (C, SA Acumen). */
+    public static final int HOMUNKULUS_ACUMEN = 6313;
+    /** Full Plate Armor (C heavy, chest of the Full Plate set). */
+    public static final int FULL_PLATE = 356;
+    /** Tanks: Paladin, Dark Avenger, Temple Knight, Shillien Knight and their 3rd classes. */
+    private static final Set<Integer> TANKS = Set.of(5, 6, 20, 33, 90, 91, 99, 106);
+
+    /** A tank's heavy set: C = Full Plate when the datapack has it, else the most complete heavy set (with a shield). */
+    private ArmorSet tankSet(Grade grade, double rank) {
+        final Map<Armor, List<ArmorSet>> byArmor = sets.get(grade);
+        final List<ArmorSet> heavy = byArmor == null ? null : byArmor.get(Armor.HEAVY);
+        if ((heavy == null) || heavy.isEmpty()) {
+            return set(grade, Armor.HEAVY, rank);
+        }
+        ArmorSet best = null;
+        for (ArmorSet x : heavy) {
+            if ((grade == Grade.C) && Integer.valueOf(FULL_PLATE).equals(x.parts().get("chest"))) {
+                return x;
+            }
+            final int n = x.parts().size() + (x.parts().containsKey("shield") ? 1 : 0);
+            final int bn = best == null ? -1 : best.parts().size() + (best.parts().containsKey("shield") ? 1 : 0);
+            if (n > bn) {
+                best = x;
+            }
+        }
+        return best;
+    }
     private static final Set<Integer> LIGHT = Set.of(7, 8, 9, 21, 22, 23, 24, 35, 36, 37, 47, 48, 92, 93, 100, 101, 102, 108, 109, 114);
     private static final Set<Integer> SHIELD = Set.of(4, 5, 6, 19, 20, 32, 33, 90, 91, 99, 106);
     private static final Map<Integer, String> WEAPON = new HashMap<>();
@@ -229,10 +256,13 @@ public final class GearTable {
         final double rank = rank(seed, grade, 1);
         final List<Integer> items = new ArrayList<>();
         final Weapon w = weapon(grade, kind, rank);
-        if (w != null) {
-            items.add(w.id());
+        // mages 40-52: Homunkulus's Sword with the Acumen SA (Gleb 30.10, «хомка с СА на акумен»)
+        final int weaponId = (MAGES.contains(profession) && (level >= 40) && (level <= 52)) ? HOMUNKULUS_ACUMEN : (w == null ? 0 : w.id());
+        if (weaponId != 0) {
+            items.add(weaponId);
         }
-        final ArmorSet s = set(grade, armor, rank);
+        // tanks: a full heavy set with its shield (C grade: Full Plate)
+        final ArmorSet s = TANKS.contains(profession) ? tankSet(grade, rank) : set(grade, armor, rank);
         if (s != null) {
             for (String slot : new String[] { "chest", "legs", "head", "gloves", "feet" }) {
                 final Integer id = s.parts().get(slot);
@@ -245,7 +275,7 @@ public final class GearTable {
                 items.add(shield);
             }
         }
-        return new Plan(grade, kind, armor, List.copyOf(items), w == null ? 0 : w.id(), weaponEnchant(seed, grade), armorEnchant(seed, grade));
+        return new Plan(grade, kind, armor, List.copyOf(items), weaponId, weaponEnchant(seed, grade), armorEnchant(seed, grade));
     }
 
     /**
