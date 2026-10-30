@@ -122,6 +122,16 @@
 		<en>{role} {level} for rb, inv|i'm {role} {level}, invite for rb|+ {role} {level}, coming|{role} {level}, can go rb</en>
 	</intent>
 	<!-- RB party 2 («фп»): its own bot party, no invitation from the player -->
+	<!-- RB party 2: 20 min with no fight, its leader asks the caller -->
+	<intent id="RB2_HOW_LONG">
+		<ru>долго ли ещё?|ну что, долго ещё?|долго ещё ждать?|мы тут ещё долго?</ru>
+		<en>how much longer?|still waiting, how long?</en>
+	</intent>
+	<!-- RB party 2: waited enough, leaves -->
+	<intent id="RB2_BYE">
+		<ru>всё, мы пошли, удачи|не дождались, уходим, пока|ладно, мы ушли, удачи на рб</ru>
+		<en>ok, we are off, good luck|waited enough, bye</en>
+	</intent>
 	<intent id="RB2_REPLY">
 		<ru>{role} {level}, фп с тобой|+ {role} {level}, иду фп|{role} {level} в фп, иду к тебе|+ фп, {role} {level}</ru>
 		<en>{role} {level}, fp with you|+ {role} {level}, fp coming|{role} {level} in fp, on my way</en>

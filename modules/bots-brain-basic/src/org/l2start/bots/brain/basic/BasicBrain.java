@@ -2196,7 +2196,7 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         final boolean raidFight = rbEngaged;
-        if (!raidFight && mob.engagedByOther() && (mob.targetId() != me.objectId())) {
+        if (!raidFight && !rbInParty && mob.engagedByOther() && (mob.targetId() != me.objectId())) { // RB party: assisting a member is ours
             ctx.note("left " + fightName + ": someone else's");
             abandon(now, 60_000);
             ctx.act().stop();
@@ -3043,7 +3043,15 @@ public final class BasicBrain implements Brain {
                 case BotEvent.Whisper wh -> onWhisper(ctx, w, me, wh, now);
                 case BotEvent.RbCall rc -> onRbCall(ctx, w, me, rc, now);
                 case BotEvent.Chat c -> {
-                    if ((rbCallerId != 0) && rbBuffChat(ctx, c)) {
+                    if ((rbParty == 2) && (rb2AskedAt > 0) && (rb2ExtendUntil == 0) && (c.fromId() == rbCallerId) && ("WHISPER".equals(c.channel()) || "ALL".equals(c.channel()))) {
+                        rb2ExtendUntil = now + RaidPlay.RB2_EXTEND_MS; // he answered «долго ещё?»: 10 more min
+                        rbNote(ctx, "rb party: " + c.from() + " answered, waits " + (RaidPlay.RB2_EXTEND_MS / 60_000) + " more min (party 2)");
+                    }
+                    if ((rbParty == 2) && (rbCallerId != 0) && (c.fromId() == rbCallerId) && ("ALL".equals(c.channel()) || "SHOUT".equals(c.channel())) && RaidPlay.isGo(c.text())) {
+                        rbGoAsked = true; // party 2 hears the caller's «го» in ordinary chat / shout: now it may engage
+                        rbGoAt = now;
+                        rbNote(ctx, "rb party: " + c.from() + " says go in " + c.channel() + " (party 2)");
+                    } else if ((rbCallerId != 0) && rbBuffChat(ctx, c)) {
                         // «баф» from the caller in ordinary chat (or party 2 hearing him): both RB parties buff
                     } else if ("PARTY".equals(c.channel()) && rbInParty) {
                         onRbPartyChat(ctx, w, me, c, now);
@@ -4457,6 +4465,10 @@ public final class BasicBrain implements Brain {
         rbSummoned = call.summoned();
         rbCallAt = call.at();
         rbWaitUntil = now + RaidPlay.INVITE_WAIT_MS;
+        rb2ActiveAt = now;
+        rb2AskedAt = 0;
+        rb2ExtendUntil = 0;
+        rb2Fought = false;
         rbInParty = false;
         rbEngaged = false;
         rbBossId = 0;
@@ -4583,6 +4595,35 @@ public final class BasicBrain implements Brain {
      * Engage when party 1 is already on the raid (caller in combat / boss pulled), then assist the same BOSS_RAID.
      */
     private long raidSecond(BrainContext ctx, WorldView w, SelfView me, long now) {
+        // party 2 waiting before the raid fight (Gleb 30.10, t399u/t400u): 20 min from the recruit (or from the last
+        // boss kill) with no fight -> its leader whispers the caller «долго ещё?»; any answer of his (whisper / ordinary
+        // chat) gives 10 more min, then goodbye and out; no answer in RB2_REPLY_MS -> out. During a raid fight none of
+        // this applies; the boss dead -> the cycle starts again.
+        if (rbEngaged || rbGoAsked) {
+            rb2Fought = true;
+        }
+        if (!rb2Fought && (rb2ActiveAt > 0)) {
+            if ((rb2AskedAt == 0) && ((now - rb2ActiveAt) >= RaidPlay.RB2_WAIT_MS)) {
+                rb2AskedAt = now;
+                if (rb2Leader(w, me)) {
+                    speak(ctx, "WHISPER", rbCaller, "RB2_HOW_LONG", Map.of("player", rbCaller), now + ctx.reactionDelay());
+                }
+                rbNote(ctx, "rb party: " + (RaidPlay.RB2_WAIT_MS / 60_000) + " min and no fight, asks " + rbCaller + " how long (party 2)");
+            }
+            final boolean out = (rb2ExtendUntil > 0) ? (now >= rb2ExtendUntil) : ((rb2AskedAt > 0) && ((now - rb2AskedAt) >= RaidPlay.RB2_REPLY_MS));
+            if (out) {
+                rbNote(ctx, "rb party: waited for " + rbCaller + " long enough, leaves (party 2)");
+                if (rb2Leader(w, me)) {
+                    speak(ctx, "WHISPER", rbCaller, "RB2_BYE", Map.of("player", rbCaller), now + ctx.reactionDelay());
+                }
+                if (rbInParty && !w.party().isEmpty()) {
+                    ctx.act().leaveParty();
+                }
+                rb2ActiveAt = 0;
+                rbStartLeaving(ctx, now, "waited too long with no fight");
+                return 1000;
+            }
+        }
         final PartyMember lead = rbCallerAsLead(w);
         if (lead == null) {
             if (now >= rbWaitUntil) {
@@ -4648,6 +4689,25 @@ public final class BasicBrain implements Brain {
         return true;
     }
 
+    /** Party 2: last time it fought, heard «го» or was called (the follow cap counts from here), 0 = none. */
+    private long rb2ActiveAt;
+    /** Party 2: when it asked the caller «долго ещё?», 0 = not yet. */
+    private long rb2AskedAt;
+    /** Party 2: the caller answered: it waits until then, 0 = no answer. */
+    private long rb2ExtendUntil;
+    /** Party 2: a raid fight is on (no waiting rules until the boss dies). */
+    private boolean rb2Fought;
+
+    /** The bot of party 2 that speaks for it: the lowest object id among the bots of its party. */
+    private static boolean rb2Leader(WorldView w, SelfView me) {
+        for (PartyMember m : w.party()) {
+            if (m.bot() && (m.objectId() < me.objectId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /** The live caller as a synthetic party leader (party 2 is not in his party window). */
     private PartyMember rbCallerAsLead(WorldView w) {
         final PlayerView p = playerById(w, rbCallerId);
@@ -4661,7 +4721,7 @@ public final class BasicBrain implements Brain {
     /** Called, not invited yet: goes to the player and waits by him; 3 min without an invitation and it leaves. */
     private long rbWait(BrainContext ctx, WorldView w, SelfView me, long now) {
         if ((rbParty == 2) && ((playerById(w, rbCallerId) != null) || (w.playerAnywhere(rbCallerId) != null))) {
-            rbWaitUntil = now + RaidPlay.INVITE_WAIT_MS; // party 2 stays while the caller is in sight
+            rbWaitUntil = now + RaidPlay.RB2_OFFLINE_MS; // party 2 stays while the caller is online; 5 min after he goes offline
         } else if (now >= rbWaitUntil) {
             rbNote(ctx, "rb party: " + rbCaller + " did not invite it in " + (RaidPlay.INVITE_WAIT_MS / 60_000) + " min");
             if (ctx.rnd().nextDouble() < 0.5) {
@@ -4774,6 +4834,23 @@ public final class BasicBrain implements Brain {
         final NpcView attacker = attacker(w, me);
         if (lead.distance() > MATE_FAR) {
             return rbCatchUp(ctx, w, me, lead, now, attacker);
+        }
+        // defend first: an ordinary monster on it, on a member or on the caller, and no raid fight yet. Damage
+        // dealers and the tank fight back at once and assist each other (live 30.10: Denis stood under mobs while
+        // the bishop only healed him). Bosses / minions are not started here (party 2 waits for a command).
+        if (!rbEngaged && !rbGoAsked && !"BISHOP".equals(rbRole) && !"PROPHET".equals(rbRole) && !"ELDER".equals(rbRole)) {
+            final NpcView foe = attacker != null ? attacker : rbMonsterOnParty(w, me, false);
+            if ((foe != null) && (w.bossKind(foe.objectId()) == WorldView.BOSS_NONE)) {
+                standIfSitting(ctx, me);
+                if (fightId != foe.objectId()) {
+                    detail = "defends the party from " + foe.name();
+                    return startFight(ctx, me, foe, now, true);
+                }
+                final long d = fight(ctx, w, me, now);
+                if (d > 0) {
+                    return d;
+                }
+            }
         }
         // a scroll, the return skill or a gatekeeper of its own is over: with its leader again
         final long cared = care(ctx, w, me, now, true);
@@ -4975,16 +5052,24 @@ public final class BasicBrain implements Brain {
      * (on someone, swinging, or HP dropped). Targeting the boss alone is not enough — party 1 may still wait for "го".
      */
     private boolean rbParty1Fighting(WorldView w, PartyMember lead, NpcView t, int kind) {
-        final PlayerView caller = playerById(w, rbCallerId);
-        if ((caller != null) && caller.inCombat()) {
+        // only on a command: the caller's «го» heard by party 2, or the caller himself hitting the boss / the boss on
+        // him. A boss that is merely hurt, has aggro on someone else, or a caller in combat with anything no longer
+        // counts (live 30.10: party 2 started on Gwindorr with no command).
+        if (rbGoAsked) {
             return true;
+        }
+        final PlayerView caller = playerById(w, rbCallerId);
+        if (caller == null) {
+            return false;
         }
         final NpcView raid = nearestRaid(w, lead);
-        if ((raid != null) && (raid.attackingNow() || (raid.targetId() != 0) || (raid.hpPct() < 99.5))) {
-            return true;
+        final int bossId = ((t != null) && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION))) ? t.objectId()
+            : (raid == null ? 0 : raid.objectId());
+        if (bossId == 0) {
+            return false;
         }
-        return (t != null) && ((kind == WorldView.BOSS_RAID) || (kind == WorldView.BOSS_MINION))
-            && (t.attackingNow() || (t.targetId() != 0) || (t.hpPct() < 99.5));
+        final NpcView b = w.npc(bossId);
+        return (caller.inCombat() && (caller.targetId() == bossId)) || ((b != null) && !b.dead() && (b.targetId() == rbCallerId));
     }
 
     /** Hydro Blast / Hurricane / Death Spike only. */
@@ -5582,6 +5667,16 @@ public final class BasicBrain implements Brain {
         if ((boss != null) && boss.dead()) {
             rbNote(ctx, "rb party: " + boss.name() + " is dead");
             rbBossId = 0;
+            if (rbParty == 2) {
+                // t400u: the boss is dead, the party-2 wait cycle (20 min, «долго ещё?», +10) starts again; the next boss
+                // only on a command again
+                rb2Fought = false;
+                rb2ActiveAt = now;
+                rb2AskedAt = 0;
+                rb2ExtendUntil = 0;
+                rbGoAsked = false;
+                rbEngaged = false;
+            }
             boss = null;
         }
         // a nearby living BOSS_RAID wins over a locked minion (live: "го" on Nellis' Follower)
