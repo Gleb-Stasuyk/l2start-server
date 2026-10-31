@@ -3466,6 +3466,11 @@ public final class BasicBrain implements Brain {
         if (call == null) {
             return;
         }
+        // an RB request («ищу се на рб») belongs to the RB recruit (role, level -2..+3, comes to him); the generic LFP
+        // whisper here made an off-level SE answer and then stand in town waiting for an invite (Gleb 31.10)
+        if (org.l2start.bots.chat.RbParse.aboutRb(c.text())) {
+            return;
+        }
         if ((ptMateId != 0) || leavingSocial(ctx) || me.dead()) {
             return;
         }
@@ -3474,6 +3479,10 @@ public final class BasicBrain implements Brain {
         }
         final PlayerView from = playerByName(w, c.from());
         if ((from != null) && (from.socialBusy() || from.bot())) {
+            return;
+        }
+        // no level in the line: the caller's own level decides (not "any level")
+        if ((call.level() <= 0) && (from != null) && !LfpParse.levelOk(me.level(), from.level())) {
             return;
         }
         if ((from != null) && ctx.act().playerBlocksUs(from.name())) {
