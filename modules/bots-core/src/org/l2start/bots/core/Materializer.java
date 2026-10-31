@@ -557,6 +557,55 @@ final class Materializer {
      * personas that kept gear from an earlier, higher paper level (live: a level 8 with a D-grade +4 hammer).
      * @return how many items were removed or reset
      */
+    /** In the world, a level lost (death): gear above the new grade is taken off (kept in the bag), no grade penalty. */
+    static int unequipAboveGrade(Player p) {
+        final int grade = maxGrade(p.getLevel());
+        int n = 0;
+        for (Item it : new ArrayList<>(p.getInventory().getItems())) {
+            if (it.isEquipped() && (it.getTemplate().getCrystalType().ordinal() > grade)) {
+                p.getInventory().unEquipItemInSlot(it.getLocationSlot());
+                n++;
+            }
+        }
+        if (n > 0) {
+            p.broadcastUserInfo();
+        }
+        return n;
+    }
+
+    /** Weight penalty starts at 50% of the max load: the bag is kept under this share. */
+    static final double WEIGHT_SHARE = 0.45;
+
+    /**
+     * Heaviest unequipped bag items (no adena, no quest items) go until the load is under {@link #WEIGHT_SHARE}: a bot
+     * never runs with the weight penalty. @return how many stacks were removed or cut
+     */
+    static int trimWeight(Player p) {
+        final int max = p.getMaxLoad();
+        if ((max <= 0) || (p.getCurrentLoad() <= (max * WEIGHT_SHARE))) {
+            return 0;
+        }
+        final List<Item> bag = new ArrayList<>();
+        for (Item it : p.getInventory().getItems()) {
+            if (!it.isEquipped() && (it.getId() != org.l2jmobius.gameserver.entity.itemcontainer.Inventory.ADENA_ID) && !it.getTemplate().isQuestItem()
+                && (it.getTemplate().getWeight() > 0)) {
+                bag.add(it);
+            }
+        }
+        bag.sort((a, b) -> Long.compare(b.getCount() * b.getTemplate().getWeight(), a.getCount() * a.getTemplate().getWeight()));
+        int n = 0;
+        for (Item it : bag) {
+            final long over = p.getCurrentLoad() - (long) (max * WEIGHT_SHARE);
+            if (over <= 0) {
+                break;
+            }
+            final long cut = Math.min(it.getCount(), (over + it.getTemplate().getWeight() - 1) / it.getTemplate().getWeight());
+            p.getInventory().destroyItem(ItemProcessType.DESTROY, it, (int) cut, p, null);
+            n++;
+        }
+        return n;
+    }
+
     static int fixGear(Player p) {
         final int lvl = p.getLevel();
         final int grade = maxGrade(lvl);
