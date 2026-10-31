@@ -646,6 +646,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = GLEB; // no tank: he fights it himself (t443u)
         boss.targetId = 901;
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
@@ -801,7 +802,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
-        boss.targetId = 901; // the tank holds it (t439u)
+        boss.targetId = GLEB; // no tank: he fights it himself (t443u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(3000);
@@ -833,6 +834,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = GLEB; // no tank: he fights it himself (t443u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(12_000);
@@ -997,6 +999,7 @@ class RbPartyBrainTest {
         w.teleport(new Pos(40_000, 40_000, 0));
         final FakeWorld.Mob mob = w.addMob(9, 38, beside(w, 80));
         mob.hp = 5000;
+        mob.targetId = GLEB; // he fights it himself (t443u)
         moveGleb(w, beside(w, 40), mob.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(8000);

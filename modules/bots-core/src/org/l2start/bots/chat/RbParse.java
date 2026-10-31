@@ -184,8 +184,8 @@ public final class RbParse {
     private static final Pattern LV_ONE = Pattern.compile("\\b([1-8]\\d)\\s*\\+?\\s*(?:лвл|лв|ур[а-я]*|lvl|lv|level)\\b|\\b(?:лвл|ур[а-я]*|lvl|lv|level)\\s*([1-8]\\d)\\b", RX);
 
     /**
-     * Levels asked for in the line (Gleb 31.10 t441u): «44-48» = 44..48 inclusive; «52 лвл» = 51..53 (±1 so a
-     * pool of the exact level is not too thin); none = the caller's -2..+3. @return {lo, hi}
+     * Levels asked for in the line (Gleb 31.10 t441u): «44-48» = 44..48 inclusive; «52 лвл» = exactly 52
+     * (t442u); none = the caller's -2..+3. @return {lo, hi}
      */
     public static int[] levelBand(String text, int playerLevel) {
         if (text != null) {
@@ -199,7 +199,7 @@ public final class RbParse {
             final java.util.regex.Matcher o = LV_ONE.matcher(t);
             if (o.find()) {
                 final int l = Integer.parseInt(o.group(1) != null ? o.group(1) : o.group(2));
-                return new int[] { l - 1, l + 1 };
+                return new int[] { l, l }; // strict (Gleb t442u)
             }
         }
         return new int[] { playerLevel - 2, playerLevel + 3 };
