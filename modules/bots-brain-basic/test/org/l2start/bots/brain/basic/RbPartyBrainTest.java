@@ -465,6 +465,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = 901; // the tank holds it (t439u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(4000);
@@ -494,6 +495,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 5000;
+        boss.targetId = 901; // the tank holds it (t439u: DDs join then)
         final FakeWorld.Mob add = w.addMob(10, 40, beside(w, 520));
         add.bossKind = WorldView.BOSS_MINION;
         moveGleb(w, beside(w, 100), boss.objectId);
@@ -504,8 +506,7 @@ class RbPartyBrainTest {
         final double addHp = add.hp;
         moveGleb(w, beside(w, 100), add.objectId); // he clicked the helper
         h.run(8000);
-        assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
-        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+        assertTrue(add.hp < addHp, "t440u: without assist the minion goes first: " + h.notes());
     }
 
     @Test
@@ -612,6 +613,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = 901; // the tank holds it (t439u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(4000);
@@ -644,6 +646,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = GLEB; // no tank: he fights it himself (t443u)
         boss.targetId = 901;
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
@@ -727,8 +730,7 @@ class RbPartyBrainTest {
         final double addHp = add.hp;
         moveGleb(w, beside(w, 100), add.objectId);
         h.run(8000);
-        assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
-        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+        assertTrue(add.hp < addHp, "t440u: without assist the minion goes first: " + h.notes());
     }
 
     @Test
@@ -800,6 +802,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = GLEB; // no tank: he fights it himself (t443u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(3000);
@@ -831,6 +834,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 80, beside(w, 800));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = GLEB; // no tank: he fights it himself (t443u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(12_000);
@@ -864,8 +868,7 @@ class RbPartyBrainTest {
         moveGleb(w, beside(w, 100), add.objectId);
         boss.targetId = 901;
         h.run(8000);
-        assertTrue(boss.hp < bossHp, "left the boss when the leader clicked a minion: " + h.notes());
-        assertEquals(addHp, add.hp, 0.01, "switched to the minion: " + add.hp + " " + h.notes());
+        assertTrue(add.hp < addHp, "t440u: without assist the minion goes first: " + h.notes());
         assertTrue(h.act().countOk("attack") >= 1, "no attack(boss): " + h.act().countOk("attack") + " " + h.act().calls());
     }
 
@@ -933,6 +936,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
         boss.bossKind = WorldView.BOSS_RAID;
         boss.hp = 8000;
+        boss.targetId = 901; // the tank holds it (t439u)
         moveGleb(w, beside(w, 100), boss.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(4000);
@@ -995,6 +999,7 @@ class RbPartyBrainTest {
         w.teleport(new Pos(40_000, 40_000, 0));
         final FakeWorld.Mob mob = w.addMob(9, 38, beside(w, 80));
         mob.hp = 5000;
+        mob.targetId = GLEB; // he fights it himself (t443u)
         moveGleb(w, beside(w, 40), mob.objectId);
         w.chatFrom("PARTY", GLEB, "Gleb", "го");
         h.run(8000);
@@ -1062,6 +1067,7 @@ class RbPartyBrainTest {
         final FakeWorld.Mob raid = w.addMob(9, 80, beside(w, 400));
         raid.bossKind = WorldView.BOSS_RAID;
         raid.hp = 8000;
+        raid.targetId = 901;
         final FakeWorld.Mob minion = w.addMob(10, 38, beside(w, 220));
         minion.bossKind = WorldView.BOSS_MINION;
         minion.hp = 5000;
@@ -1071,8 +1077,7 @@ class RbPartyBrainTest {
         h.run(8000);
         assertTrue(brain(h).rbEngaged(), "did not engage: " + h.notes());
         assertEquals(raid.objectId, brain(h).rbBossId(), "locked the minion: bossId " + brain(h).rbBossId() + " " + h.notes());
-        assertTrue(raid.hp < 8000, "DD did not hit the raid boss: hp " + raid.hp + " " + h.notes() + " " + h.act().calls());
-        assertEquals(5000, minion.hp, 0.01, "hit the minion instead: " + minion.hp + " " + h.notes());
+        assertTrue(minion.hp < 5000, "t440u: without assist the minion on the party goes first: " + minion.hp + " " + h.notes());
         assertTrue(h.notes().stream().anyMatch(n -> n.contains("rb party [Bot/DD]:")), "no [Name/Role] prefix: " + h.notes());
     }
 

@@ -183,6 +183,31 @@ public final class RbParse {
     }
 
     /** A bot of this level answers a player of {@code playerLevel}: from 2 below to 3 above. */
+    private static final Pattern LV_RANGE = Pattern.compile("\\b([1-8]\\d)\\s*(?:-|–|—|\\.\\.|до)\\s*([1-8]\\d)\\b", RX);
+    private static final Pattern LV_ONE = Pattern.compile("\\b([1-8]\\d)\\s*\\+?\\s*(?:лвл|лв|ур[а-я]*|lvl|lv|level)\\b|\\b(?:лвл|ур[а-я]*|lvl|lv|level)\\s*([1-8]\\d)\\b", RX);
+
+    /**
+     * Levels asked for in the line (Gleb 31.10 t441u): «44-48» = 44..48 inclusive; «52 лвл» = exactly 52
+     * (t442u); none = the caller's -2..+3. @return {lo, hi}
+     */
+    public static int[] levelBand(String text, int playerLevel) {
+        if (text != null) {
+            final String t = norm(text);
+            final java.util.regex.Matcher r = LV_RANGE.matcher(t);
+            if (r.find()) {
+                final int a = Integer.parseInt(r.group(1));
+                final int b = Integer.parseInt(r.group(2));
+                return new int[] { Math.min(a, b), Math.max(a, b) };
+            }
+            final java.util.regex.Matcher o = LV_ONE.matcher(t);
+            if (o.find()) {
+                final int l = Integer.parseInt(o.group(1) != null ? o.group(1) : o.group(2));
+                return new int[] { l, l }; // strict (Gleb t442u)
+            }
+        }
+        return new int[] { playerLevel - 2, playerLevel + 3 };
+    }
+
     public static boolean levelFits(int botLevel, int playerLevel) {
         return (botLevel >= (playerLevel - 2)) && (botLevel <= (playerLevel + 3));
     }

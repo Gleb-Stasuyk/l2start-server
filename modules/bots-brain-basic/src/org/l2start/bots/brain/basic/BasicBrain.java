@@ -3091,6 +3091,7 @@ public final class BasicBrain implements Brain {
                 case BotEvent.RbCall rc -> onRbCall(ctx, w, me, rc, now);
                 case BotEvent.Chat c -> {
                     if ((rbCallerId != 0) && (c.fromId() == rbCallerId) && (PartyCommands.parse(c.text()) == PartyCommands.Command.ASSIST)) {
+                        rbAssistLock = 0; // t442u: «асист» (again) locks his target of now
                         rbAssistOn = true; // t413u/t414u: DDs take his target, no fight before «го»
                         rbNote(ctx, "rb party: " + c.from() + " says assist in " + c.channel());
                     }
@@ -3098,8 +3099,11 @@ public final class BasicBrain implements Brain {
                         rb2ExtendUntil = now + RaidPlay.RB2_EXTEND_MS; // he answered «долго ещё?»: 10 more min
                         rbNote(ctx, "rb party: " + c.from() + " answered, waits " + (RaidPlay.RB2_EXTEND_MS / 60_000) + " more min (party 2)");
                     }
-                    if ((rbParty == 2) && (rbCallerId != 0) && (c.fromId() == rbCallerId) && ("ALL".equals(c.channel()) || "SHOUT".equals(c.channel())) && RaidPlay.isGo(c.text())) {
-                        rbGoAsked = true; // party 2 hears the caller's «го» in ordinary chat / shout: now it may engage
+                    if ((rbParty != 0) && (rbCallerId != 0) && (c.fromId() == rbCallerId) && ("ALL".equals(c.channel()) || "SHOUT".equals(c.channel())) && RaidPlay.isGo(c.text())) {
+                        if (rbParty == 1) {
+                            ptMode = PartyMode.ASSIST; // t439u: party 1 hears «го» in ordinary chat too
+                        }
+                        rbGoAsked = true; // both parties hear the caller's «го» in ordinary chat / shout: now it may engage
                         rbGoAt = now;
                         rbNote(ctx, "rb party: " + c.from() + " says go in " + c.channel() + " (party 2)");
                     } else if ((rbCallerId != 0) && rbBuffChat(ctx, c)) {
@@ -4422,6 +4426,16 @@ public final class BasicBrain implements Brain {
     private boolean rbAssistOn;
     /** When this bot's raid fight started (DDs give the tank {@link #RB_TANK_FIRST_MS} to take aggro). */
     private long rbFightStartAt;
+    /** t439u/t443u: DDs join only once the tank holds the fight (the boss or a minion hits it) or the caller fights himself. */
+    private boolean rbTankEngaged;
+    /** t442u: the assist target DDs keep until it dies (0 = take his current target and lock it). */
+    private int rbAssistLock;
+    /** t442u: while Ultimate Defense holds the tank stands planted (no kite, no walk), taunting. */
+    private long rbUdUntil;
+    static final long UD_MS = 30_000;
+    /** Ultimate Defense (paladin / dark avenger / temple and shillien knight). */
+    static final int ULTIMATE_DEFENSE = 110;
+    private long rbUdNext;
     static final long RB_TANK_FIRST_MS = 3000;
     private long rbIdleSince;
     private Pos rbLeaderLast;
@@ -4543,6 +4557,9 @@ public final class BasicBrain implements Brain {
         rb2Fought = false;
         rbAssistOn = false;
         rbFightStartAt = 0;
+        rbTankEngaged = false;
+        rbAssistLock = 0;
+        rbUdUntil = 0;
         rbInParty = false;
         rbEngaged = false;
         rbBossId = 0;
@@ -5414,6 +5431,64 @@ public final class BasicBrain implements Brain {
         ctx.act().moveTo(dest);
     }
 
+    /** t440u: the next minion of the boss in the shared queue (lowest object id alive near the boss), null when none. */
+    private static NpcView rbNextMinion(WorldView w, NpcView boss) {
+        NpcView best = null;
+        for (NpcView n : w.npcs()) {
+            if (n.dead() || !n.attackable() || (w.bossKind(n.objectId()) != WorldView.BOSS_MINION) || (n.pos().distance2d(boss.pos()) > 1500) || (n.distance() > 2000)) {
+                continue;
+            }
+            if ((best == null) || (n.objectId() < best.objectId())) {
+                best = n;
+            }
+        }
+        return best;
+    }
+
+    /** t443u: the caller started the fight himself: his target is hurt or is hitting him. */
+    private static boolean rbCallerFights(WorldView w, PartyMember lead) {
+        final NpcView t = ((lead == null) || (lead.targetId() == 0)) ? null : w.npc(lead.targetId());
+        return (t != null) && !t.dead() && t.monster() && ((t.targetId() == lead.objectId()) || (t.hpPct() < 100));
+    }
+
+    /** A tank in his party or in sight (party 2 has none of its own): without one nobody waits. */
+    private static boolean rbAnyTank(WorldView w) {
+        for (PartyMember m : w.party()) {
+            if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.TANK)) {
+                return true;
+            }
+        }
+        for (PlayerView p : w.players()) {
+            if ((PartyBuffs.roleOf(p.classId()) == PartyBuffs.Role.TANK) && (p.distance() < 2000)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** t439u: a tank (either RB party) is the boss's target, or a tank in his party is being hit. */
+    private boolean rbTankHeld(WorldView w, NpcView boss) {
+        for (PlayerView p : w.players()) {
+            if ((PartyBuffs.roleOf(p.classId()) == PartyBuffs.Role.TANK) && (p.objectId() == boss.targetId())) {
+                return true;
+            }
+        }
+        for (PartyMember m : w.party()) {
+            if (PartyBuffs.roleOf(m.classId()) != PartyBuffs.Role.TANK) {
+                continue;
+            }
+            if (m.objectId() == boss.targetId()) {
+                return true;
+            }
+            for (NpcView n : w.npcs()) {
+                if (!n.dead() && (n.targetId() == m.objectId()) && n.attackingNow()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     /** The boss has helpers not on the tank: it runs up to them and pulls them all with Aura of Hate. */
     private long rbAura(BrainContext ctx, WorldView w, SelfView me, NpcView boss, long now) {
         final SkillView s = skill(me, HATE_AURA);
@@ -5439,6 +5514,9 @@ public final class BasicBrain implements Brain {
             return 0;
         }
         if (near.distance() > RB_AURA_REACH) {
+            if (now < rbUdUntil) {
+                return 0; // t442u: planted under Ultimate Defense
+            }
             standIfSitting(ctx, me);
             detail = "goes to the helpers of " + boss.name();
             ctx.act().moveTo(near.pos().toward(me.pos(), 60));
@@ -5859,7 +5937,19 @@ public final class BasicBrain implements Brain {
             //    the tank takes them too (aggro)
             final NpcView minion = rbMinionOnParty(w, me);
             // 2) «асист» (t413u/t416u): DDs hit the caller's current target and switch the moment he does; the tank keeps its aggro
-            final NpcView ct = (!rbAssistOn || "TANK".equals(rbRole) || (lead.targetId() == 0)) ? null : w.npc(lead.targetId());
+            NpcView ct = null;
+            if (rbAssistOn && !"TANK".equals(rbRole)) {
+                // t442u: the locked target until it dies; then his target of that moment, locked again
+                final NpcView locked = rbAssistLock == 0 ? null : w.npc(rbAssistLock);
+                if ((locked != null) && !locked.dead()) {
+                    ct = locked;
+                } else if (lead.targetId() != 0) {
+                    ct = w.npc(lead.targetId());
+                    rbAssistLock = ((ct != null) && !ct.dead()) ? ct.objectId() : 0;
+                } else {
+                    rbAssistLock = 0;
+                }
+            }
             if ((ct != null) && !ct.dead() && ct.monster() && ct.attackable() && (ct.distance() < 2000) && (w.bossKind(ct.objectId()) != WorldView.BOSS_EPIC)
                 && ((minion == null) || (minion.targetId() != me.objectId()))) {
                 if (fightId != ct.objectId()) {
@@ -5871,10 +5961,24 @@ public final class BasicBrain implements Brain {
                     rbNote(ctx, "rb party: takes " + minion.name() + " off the party");
                 }
                 target = minion;
+            } else if (!rbAssistOn && !"TANK".equals(rbRole)) {
+                // t440u: no «асист»: the minions one by one (the same queue for every bot: lowest id first), then the boss
+                final NpcView next = rbNextMinion(w, boss);
+                if (next != null) {
+                    if (fightId != next.objectId()) {
+                        rbNote(ctx, "rb party: minions first, " + next.name());
+                    }
+                    target = next;
+                }
             }
             // 3) after «го» the tank goes first (mass hate), DDs wait a moment unless something is already on them
             final PartyMember rbTank = tankOf(w);
-            if (!"TANK".equals(rbRole) && (rbTank != null) && (target.targetId() != rbTank.objectId()) && (rbFightStartAt > 0) && ((now - rbFightStartAt) < RB_TANK_FIRST_MS) && (target.targetId() != me.objectId())) {
+            if (!rbTankEngaged && (rbFightStartAt > 0) && (rbTankHeld(w, boss) || rbCallerFights(w, lead))) {
+                // t443u: the tank strictly first, no timeout; only the caller starting the fight himself lets DDs in
+                rbTankEngaged = true;
+                rbNote(ctx, "rb party: " + (rbTankHeld(w, boss) ? "the tank holds " + boss.name() : lead.name() + " fights") + ", DDs join");
+            }
+            if (!"TANK".equals(rbRole) && !rbTankEngaged && (rbFightStartAt > 0) && (target.targetId() != me.objectId()) && ((target != minion) || (minion == null))) {
                 detail = "lets the tank take aggro first";
                 return 300;
             }
@@ -5965,8 +6069,28 @@ public final class BasicBrain implements Brain {
                 if (!onMe) {
                     taunt(ctx, me, target, now); // first, and again whenever the boss turns to somebody else
                 }
+                // t439u: once it holds the aggro, Ultimate Defense, and it keeps taunting / Aura of Hate meanwhile
+                if (bossy && onMe && (now >= rbUdNext)) {
+                    final SkillView ud = skill(me, ULTIMATE_DEFENSE);
+                    if (usable(me, ud) && ctx.act().cast(ULTIMATE_DEFENSE, me.objectId()).ok()) {
+                        rbUdNext = now + 60_000;
+                        rbUdUntil = now + UD_MS;
+                        rbNote(ctx, "rb party: Ultimate Defense under " + target.name());
+                        return 600;
+                    }
+                    rbUdNext = now + 5_000;
+                }
                 if (fightId != target.objectId()) {
                     return startFight(ctx, me, target, now, true);
+                }
+                if (bossy && onMe && (now < rbUdUntil)) {
+                    // t442u: Ultimate Defense on: planted, no kite / no walk, taunt and hit in place
+                    if ((now >= rbTurnAt) && taunt(ctx, me, target, now)) {
+                        rbTurnAt = now + RB_TURN_MS;
+                    }
+                    detail = "holds " + target.name() + " under Ultimate Defense";
+                    rbKeepHitting(ctx, me, target);
+                    return 800;
                 }
                 if (bossy && onMe) {
                     // finish the kite step: attack() here would cancel moveTo and look like melee trading
