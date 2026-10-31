@@ -691,6 +691,28 @@ final class Traders {
         }
         final double greed = pool.greed(botId);
         final boolean buy = s.buy();
+        // Lines saved before the market rules changed (PR #27) come back from the database: no-grade gear and NPC goods
+        // leave them, and lines still at the old x1 price jump to today's price (Gleb 31.10).
+        if (!s.lines.isEmpty()) {
+            final List<Line> kept = new ArrayList<>();
+            for (Line l : s.lines) {
+                final MarketItem it = book.items().get(l.itemId());
+                if ((it == null) || !Assortment.onMarket(it)) {
+                    continue;
+                }
+                final long fresh = price(l.itemId(), buy, greed, stage, now);
+                final boolean stale = (fresh > 0) && (buy ? (l.price() > (fresh * 2)) : (l.price() < (fresh / 2)));
+                kept.add(stale ? new Line(l.itemId(), l.name(), l.count(), fresh) : l);
+            }
+            if (kept.size() != s.lines.size()) {
+                m.ctx().log().info("trader " + s.spot.id() + ": " + (s.lines.size() - kept.size()) + " lines off the market (no-grade gear / NPC goods)");
+                s.row = new StoreRow(botId, s.row.town(), s.row.spot(), s.row.kind(), s.row.profile(), "", s.row.openedAt(), s.row.touchedAt(), s.row.linesStart());
+                if (kept.isEmpty()) {
+                    s.forceRestock = true;
+                }
+            }
+            s.lines = kept;
+        }
         final double hours = Math.max(0, (now - s.row.touchedAt()) / 3_600_000.0);
         if (!s.lines.isEmpty() && (hours > 0.01)) {
             final long[] fresh = new long[s.lines.size()];
@@ -970,7 +992,7 @@ final class Traders {
             fits.add(it.id());
         }
         for (Map.Entry<Integer, Long> e : pool.entrySet()) {
-            if ((s.lines.size() >= profile.maxLines()) || !fits.contains(e.getKey()) || s.lines.stream().anyMatch(l -> l.itemId() == e.getKey())) {
+            if ((s.lines.size() >= profile.maxLines()) || !fits.contains(e.getKey()) || (m.book().items().get(e.getKey()) == null) || s.lines.stream().anyMatch(l -> l.itemId() == e.getKey())) {
                 continue;
             }
             final MarketItem it = m.book().items().get(e.getKey());
