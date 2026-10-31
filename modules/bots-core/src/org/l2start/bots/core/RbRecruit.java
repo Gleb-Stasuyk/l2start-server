@@ -96,6 +96,7 @@ public final class RbRecruit {
             return true;
         }
         final int level = from.getLevel();
+        final int[] band = RbParse.levelBand(text, level); // «на рб 44-48» / «52 лвл» (t441u)
         final Pos at = new Pos(from.getX(), from.getY(), from.getZ());
         final Set<Integer> taken = new HashSet<>();
         int answered = 0;
@@ -105,7 +106,7 @@ public final class RbRecruit {
             if (free <= 0) {
                 break;
             }
-            final BotRecord near = inWorld(at, level, slot, taken);
+            final BotRecord near = inWorld(at, band, slot, taken);
             if (near != null) {
                 taken.add(near.botId());
                 pin(near, from, slot.role(), false, party);
@@ -113,14 +114,14 @@ public final class RbRecruit {
                 answered++;
                 continue;
             }
-            if (bringIn(from, at, level, slot, taken, party)) {
+            if (bringIn(from, at, band, slot, taken, party)) {
                 free--;
                 summoned++;
             } else {
                 missed.add(slot.role().name());
             }
         }
-        ctx.log().info("rb party: " + from.getName() + " (lv " + level + ") asked for " + slots.size() + " place(s)"
+        ctx.log().info("rb party: " + from.getName() + " (lv " + level + ", wants " + band[0] + "-" + band[1] + ") asked for " + slots.size() + " place(s)"
             + (fp ? " (full party 2)" : "") + ": " + answered + " bot(s) nearby answer, " + summoned
             + " come" + (missed.isEmpty() ? "" : ", nobody for " + missed));
         ctx.metrics().counter("rbCalls").inc();
@@ -167,8 +168,12 @@ public final class RbRecruit {
         return RbParse.futureOf(p == null ? r.classId() : p.getPlayerClass().getId());
     }
 
+    private static boolean inBand(int lv, int[] band) {
+        return (lv >= band[0]) && (lv <= band[1]);
+    }
+
     /** A free bot in the world that hears him: the right role and level, alone, alive, nearest first. */
-    private BotRecord inWorld(Pos at, int level, RbParse.Slot slot, Set<Integer> taken) {
+    private BotRecord inWorld(Pos at, int[] band, RbParse.Slot slot, Set<Integer> taken) {
         BotRecord best = null;
         double bestD = Double.POSITIVE_INFINITY;
         for (BotRecord r : module.registry().all()) {
@@ -177,7 +182,7 @@ public final class RbRecruit {
                 || ((r.persona() != null) && r.persona().pk()) || p.isDead() || (p.getParty() != null) || p.isInStoreMode() || (p.getKarma() > 0) || p.isTeleporting()) {
                 continue;
             }
-            if (!slot.fits(future(r)) || !RbParse.levelFits(p.getLevel(), level)) {
+            if (!slot.fits(future(r)) || !inBand(p.getLevel(), band)) {
                 continue;
             }
             final double d = Math.hypot(p.getX() - at.x(), p.getY() - at.y());
@@ -190,7 +195,7 @@ public final class RbRecruit {
     }
 
     /** An offline persona of that role and level, else a new one, brought in out of his sight. */
-    private boolean bringIn(Player from, Pos at, int level, RbParse.Slot slot, Set<Integer> taken, int party) {
+    private boolean bringIn(Player from, Pos at, int[] band, RbParse.Slot slot, Set<Integer> taken, int party) {
         final DirectorRunner d = module.director();
         if ((d == null) || d.stopping()) {
             return false;
@@ -209,14 +214,14 @@ public final class RbRecruit {
                 || d.isBusy(r.botId()) || module.isAcademyRecruiter(r.botId())) {
                 continue;
             }
-            if (slot.fits(r.persona().futureClassId()) && RbParse.levelFits(r.paperLevel(now), level)) {
+            if (slot.fits(r.persona().futureClassId()) && inBand(r.paperLevel(now), band)) {
                 offline.add(r);
             }
         }
         offline.sort(Comparator.comparingLong(BotRecord::lastLogout)); // the one who rested longest
         final BotRecord known = offline.isEmpty() ? null : offline.get(0);
         final ThreadLocalRandom rnd = ThreadLocalRandom.current();
-        final int lvl = known != null ? known.paperLevel(now) : Math.max(1, Math.min(80, level - 2 + rnd.nextInt(6)));
+        final int lvl = known != null ? known.paperLevel(now) : Math.max(1, Math.min(80, band[0] + rnd.nextInt(band[1] - band[0] + 1)));
         final List<Integer> futures = new ArrayList<>(slot.classes());
         final int futureClass = futures.get(rnd.nextInt(futures.size()));
         if (known != null) {

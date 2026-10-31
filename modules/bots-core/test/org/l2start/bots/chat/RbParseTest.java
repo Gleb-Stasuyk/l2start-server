@@ -117,6 +117,15 @@ class RbParseTest {
     }
 
     @Test
+    void levelBandFromTheShout() {
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[] { 44, 48 }, RbParse.levelBand("ищу 5 дд на рб 44-48", 45));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[] { 51, 53 }, RbParse.levelBand("ищу 3 дд на рб 52 лвл", 45));
+        org.junit.jupiter.api.Assertions.assertArrayEquals(new int[] { 43, 48 }, RbParse.levelBand("ищу танка на рб", 45));
+        assertEquals(5, roles("ищу 5 дд на рб 44-48").size());
+        assertEquals(3, roles("ищу 3 дд на рб 52 лвл").size());
+    }
+
+    @Test
     void party1NeverAsksForSe() {
         assertTrue(roles("ищу танка и биша на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
         assertTrue(roles("танк биш пп 5 дд сх на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
