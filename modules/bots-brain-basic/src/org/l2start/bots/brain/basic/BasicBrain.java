@@ -2339,6 +2339,14 @@ public final class BasicBrain implements Brain {
                 }
             }
         }
+        if (raidMage && knowsNukes(me)) {
+            // t448u: a raid mage never walks in to hit with its weapon; nukes on reuse = it waits at range
+            if (mob.distance() > (rbCastWant(me, mob, now) + 60)) {
+                rbCloseIn(ctx, me, mob, rbCastWant(me, mob, now));
+            }
+            detail = "waits for its nukes at range from " + fightName;
+            return;
+        }
         // re-issue auto-attack only when not already swinging at this target: a fresh attack() in live
         // L2 restarts the swing (couple hits, then a gap) while the bot stands still
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != mob.objectId())) {
@@ -5391,8 +5399,10 @@ public final class BasicBrain implements Brain {
                     rbCloseIn(ctx, me, target, rbCastWant(me, target, ctx.now()));
                     return;
                 }
-                // in range but the nuke was refused: auto-attack instead of a pointless step
             }
+        }
+        if (me.mage() && !me.bow() && knowsNukes(me)) {
+            return; // t448u: a mage never swings its weapon at the raid
         }
         if (!"ATTACK".equals(me.intention()) || (me.targetId() != target.objectId())) {
             ctx.act().attack(target.objectId());
@@ -5404,7 +5414,7 @@ public final class BasicBrain implements Brain {
      * Hydro Blast / Prominence / Hurricane are ~900; Wind Strike is 600.
      */
     private int rbCastWant(SelfView me, NpcView mob, long now) {
-        if ((me == null) || (me.mpPct() < 20)) {
+        if (me == null) {
             return 80;
         }
         SkillView n = rbReadyNuke(me, mob, now, null);
@@ -6077,18 +6087,23 @@ public final class BasicBrain implements Brain {
                 if (me.casting()) {
                     return 400;
                 }
-                if (bossy) {
-                    final long aura = rbAura(ctx, w, me, target, now);
-                    if (aura > 0) {
-                        return aura;
-                    }
+                // t448u opener: run in and hit the boss first, the minions pile onto the tank, then Ultimate Defense
+                // and mass aggro (Aura of Hate); DDs wait for the boss to be on the tank (rbTankHeld)
+                if (fightId != target.objectId()) {
+                    return startFight(ctx, me, target, now, true);
                 }
                 final boolean onMe = target.targetId() == me.objectId();
                 if (!onMe) {
-                    taunt(ctx, me, target, now); // first, and again whenever the boss turns to somebody else
+                    taunt(ctx, me, target, now); // and again whenever the boss turns to somebody else
                 }
-                // t439u: once it holds the aggro, Ultimate Defense, and it keeps taunting / Aura of Hate meanwhile
-                if (bossy && onMe && (now >= rbUdNext)) {
+                boolean pile = onMe;
+                for (NpcView n : w.npcs()) {
+                    if (!n.dead() && (n.targetId() == me.objectId()) && (n.objectId() != target.objectId())) {
+                        pile = true;
+                        break;
+                    }
+                }
+                if (bossy && pile && (now >= rbUdNext)) {
                     final SkillView ud = skill(me, ULTIMATE_DEFENSE);
                     if (usable(me, ud) && ctx.act().cast(ULTIMATE_DEFENSE, me.objectId()).ok()) {
                         rbUdNext = now + 60_000;
@@ -6098,8 +6113,11 @@ public final class BasicBrain implements Brain {
                     }
                     rbUdNext = now + 5_000;
                 }
-                if (fightId != target.objectId()) {
-                    return startFight(ctx, me, target, now, true);
+                if (bossy) {
+                    final long aura = rbAura(ctx, w, me, target, now); // mass aggro on the helpers (planted under UD)
+                    if (aura > 0) {
+                        return aura;
+                    }
                 }
                 if (bossy && onMe && (now < rbUdUntil)) {
                     // t442u: Ultimate Defense on: planted, no kite / no walk, taunt and hit in place
@@ -6144,6 +6162,12 @@ public final class BasicBrain implements Brain {
                 if (me.casting()) {
                     return 400;
                 }
+                if (me.mage() && !me.bow() && knowsNukes(me)) {
+                    final long mg = rbMageGuard(ctx, w, me, target); // t448u: out of melee, never the sword
+                    if (mg > 0) {
+                        return mg;
+                    }
+                }
                 final boolean onMe = bossy && (target.targetId() == me.objectId()) && (tank != null);
                 if (onMe) {
                     // one burst per fight or per RB_DD_KITE_COOLDOWN_MS: do not restart every time the boss looks at us
@@ -6185,6 +6209,33 @@ public final class BasicBrain implements Brain {
         }
     }
 
+    /** Mage DD distance to its target: inside nuke range (~900), out of melee. */
+    static final int RB_MAGE_RANGE = 800;
+    static final int RB_MAGE_TOO_CLOSE = 400;
+
+    /** A caster with a raid nuke (Hydro Blast / Hurricane / Death Spike: every mage DD 40+ has one). */
+    static boolean knowsNukes(SelfView me) {
+        for (SkillView s : me.skills()) {
+            if ((s != null) && rbRaidNuke(s.id())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** t448u: a mage DD the boss walked onto (or that came too close) steps back toward the party, out of melee. */
+    private long rbMageGuard(BrainContext ctx, WorldView w, SelfView me, NpcView target) {
+        final double d = target.distance();
+        if ((d >= RB_MAGE_TOO_CLOSE) || (target.targetId() == me.objectId())) {
+            return 0; // on it: the kite burst below runs it round the party
+        }
+        final Pos center = RaidPlay.center(w.party(), 1500);
+        final Pos away = me.pos().toward(target.pos(), -(RB_MAGE_RANGE - d));
+        detail = "steps back from " + target.name();
+        ctx.act().setWalking(false);
+        ctx.act().moveTo((center != null) && (center.distance2d(target.pos()) > RB_MAGE_TOO_CLOSE) ? center : away);
+        return 500;
+    }
     /** A living tank of the party (another member), null = none. */
     private static PartyMember tankOf(WorldView w) {
         for (PartyMember m : w.party()) {

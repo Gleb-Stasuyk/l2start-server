@@ -480,7 +480,7 @@ class RbPartyBrainTest {
             h.act().clear();
             h.run(1500);
             assertFalse(w.dead(), "died in slice " + i + ": " + h.notes());
-            final long hits = h.act().count("attack") + h.act().count("cast");
+            final long hits = h.act().count("attack") + h.act().count("cast") + h.act().count("moveTo"); // t448u: a mage may walk back into nuke range
             assertTrue((hits >= 1) || (boss.hp < hp), "idle slice " + i + " hits " + hits + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
         }
         assertTrue(h.notes().stream().anyMatch(n -> n.contains("fight ") || n.contains("assists")), "never fought: " + h.notes());
@@ -705,9 +705,7 @@ class RbPartyBrainTest {
         assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(DEATH_SPIKE + "->")), "Death Spike without bones: " + w.casts);
         assertTrue(w.casts.stream().noneMatch(c -> c.startsWith(VAMPIRIC_CLAW + "->") || c.startsWith(FakeWorld.NUKE_ID + "->")),
             "RB necro used a nuke other than Death Spike: " + w.casts + " " + h.notes());
-        assertTrue((h.act().countOk("attack") >= 1) || (boss.hp < 8000),
-            "did not staff-hit when Death Spike had no bones: " + h.notes() + " " + h.act().calls());
-        assertTrue(boss.hp < 8000, "nobody hit it: " + h.notes());
+        assertEquals(0, h.act().countOk("attack"), "t448u: no staff hits at the raid: " + h.act().calls());
     }
 
     @Test
@@ -751,8 +749,7 @@ class RbPartyBrainTest {
         final double hp = boss.hp;
         h.act().clear();
         h.run(6000);
-        assertTrue((h.act().countOk("attack") + h.act().countOk("cast") >= 1) || (boss.hp < hp),
-            "empty MP, stood idle: " + h.notes() + " " + h.act().calls());
+        assertEquals(0, h.act().countOk("attack"), "t448u: a mage never swings its weapon at the raid: " + h.act().calls());
         assertFalse(w.sitting(), "sat down in the raid: " + h.notes());
     }
 
@@ -915,7 +912,7 @@ class RbPartyBrainTest {
             final double hp = boss.hp;
             h.act().clear();
             h.run(1500);
-            final long hits = h.act().count("attack") + h.act().count("cast");
+            final long hits = h.act().count("attack") + h.act().count("cast") + h.act().count("moveTo"); // t448u: a mage may walk back into nuke range
             assertTrue((hits >= 1) || (boss.hp < hp),
                 "idle standing slice " + i + " hits " + hits + " hp " + hp + "→" + boss.hp + " " + h.notes() + " " + h.act().calls());
             assertTrue(h.act().count("moveTo") <= 1, "walked while in melee slice " + i + ": " + h.act().calls());
