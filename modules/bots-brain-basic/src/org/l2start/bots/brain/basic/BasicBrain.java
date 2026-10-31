@@ -2744,10 +2744,12 @@ public final class BasicBrain implements Brain {
         if (me.hpPct() <= 60) {
             low60++;
         }
-        if (low60 >= 4) {
-            for (int id : GROUP_HEALS) {
+        if ((low60 >= 4) && groupHealTurn(me.objectId(), now)) {
+            for (int id : groupHealsFor(me.classId(), me.level())) {
                 final SkillView s = skill(me, id);
                 if (usable(me, s, w) && ctx.act().cast(id, me.objectId()).ok()) {
+                    GROUP_HEAL_LAST[0] = me.objectId();
+                    GROUP_HEAL_LAST[1] = now;
                     heals++;
                     partyTried = now + 1500;
                     detail = "group heal";
@@ -2766,7 +2768,7 @@ public final class BasicBrain implements Brain {
                 break;
             }
         }
-        final int[] order = ((hurt.hpPct() < 50) && underAttack) ? HEALS_URGENT : HEALS;
+        final int[] order = healsFor(me.classId(), me.level(), (hurt.hpPct() < 50) && underAttack);
         boolean needCloser = false;
         for (int id : order) {
             final SkillView s = skill(me, id);
@@ -6305,6 +6307,57 @@ public final class BasicBrain implements Brain {
     static final int[] HEALS_URGENT = { 1218, 1015, 1401, 1217, 1011 };
     /** Major Group Heal, Greater Group Heal, Group Heal (strongest first; the level decides what it knows). */
     static final int[] GROUP_HEALS = { 1402, 1219, 1027 };
+    /** Who cast the last group heal and when: bishop and SE take turns, never both at once (Gleb 31.10). */
+    static final long[] GROUP_HEAL_LAST = { 0, 0 };
+    static final long GROUP_HEAL_GAP_MS = 3000;
+
+    static boolean groupHealTurn(int me, long now) {
+        synchronized (GROUP_HEAL_LAST) {
+            final long since = now - GROUP_HEAL_LAST[1];
+            // the other healer may go after the gap; the same one waits twice as long so the other gets its turn
+            return GROUP_HEAL_LAST[0] == me ? since > (GROUP_HEAL_GAP_MS * 2) : since > GROUP_HEAL_GAP_MS;
+        }
+    }
+
+    static boolean isProphet(int c) {
+        return (c == 17) || (c == 98);
+    }
+
+    static boolean isShillienElder(int c) {
+        return (c == 43) || (c == 112);
+    }
+
+    static boolean isBishop(int c) {
+        return (c == 16) || (c == 97);
+    }
+
+    /**
+     * Single heals by class (Gleb 31.10): prophet always Battle Heal; SE Battle Heal up to 48, then Greater Heal; bishop
+     * Major / Greater Heal, never Battle Heal. Others keep the old lists.
+     */
+    static int[] healsFor(int classId, int level, boolean urgent) {
+        if (isProphet(classId)) {
+            return new int[] { 1218, 1015 };
+        }
+        if (isShillienElder(classId)) {
+            return level < 48 ? new int[] { 1015, 1011 } : new int[] { 1217, 1011 };
+        }
+        if (isBishop(classId)) {
+            return new int[] { 1401, 1217, 1011 };
+        }
+        return urgent ? HEALS_URGENT : HEALS;
+    }
+
+    /** Group heals: bishop strongest of Major / Greater / Group Heal; SE Greater Group Heal from 48; the prophet none. */
+    static int[] groupHealsFor(int classId, int level) {
+        if (isProphet(classId)) {
+            return new int[0];
+        }
+        if (isShillienElder(classId)) {
+            return level < 48 ? new int[] { 1027 } : new int[] { 1219, 1027 };
+        }
+        return GROUP_HEALS;
+    }
     /** Out of a fight a healer heals itself below this HP % instead of sitting down. */
     static final double SELF_HEAL_HP = 70;
     private int sweepId;
