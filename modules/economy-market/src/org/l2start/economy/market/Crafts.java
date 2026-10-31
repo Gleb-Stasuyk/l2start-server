@@ -91,7 +91,7 @@ final class Crafts {
             final MarketItem product = book.items().get(r.getItemId());
             final org.l2jmobius.gameserver.entity.item.ItemTemplate tpl = org.l2jmobius.gameserver.data.xml.ItemData.getInstance().getTemplate(r.getItemId());
             final String name = (product != null) ? product.name() : (tpl != null) ? tpl.getName() : String.valueOf(r.getItemId());
-            final long unit = (product != null) ? book.quote(r.getItemId(), stage, now).market() : (tpl != null) ? tpl.getReferencePrice() : 0;
+            final long unit = (product != null) ? book.quote(r.getItemId(), stage, now).market() : (tpl != null) ? Math.round(tpl.getReferencePrice() * m.ctx().config().getDouble("PriceMultiplier")) : 0; // x3 like every bot lot
             final long market = unit * Math.max(1, r.getCount());
             final int fee = StorePricing.naturalizePrice((int) Math.min(Integer.MAX_VALUE, Math.max(MIN_FEE, Math.round(market * feeShare))));
             p.registerDwarvenRecipeList(r, false);
@@ -140,6 +140,11 @@ final class Crafts {
         return (out.size() > 20) ? new ArrayList<>(out.subList(0, 20)) : out;
     }
 
+    /** Gleb 31.10: no no-grade weapons / armour / jewellery in craft stores either. */
+    static boolean noGradeGear(MarketItem i) {
+        return (i.grade() == MarketItem.Grade.NONE) && ("Weapon".equalsIgnoreCase(i.kind()) || "Armor".equalsIgnoreCase(i.kind()));
+    }
+
     /** 6-10 recipes of the skill level (the higher levels first), fixed per crafter and stage. */
     List<RecipeList> choose(int skill, int botId, int stage) {
         final List<RecipeList> fit = new ArrayList<>();
@@ -150,7 +155,7 @@ final class Crafts {
                 continue;
             }
             final MarketItem product = m.book().items().get(r.getItemId());
-            if ((product == null) || (product.stage() > stage) || !gearGradeOk(product)) {
+            if ((product == null) || (product.stage() > stage) || !gearGradeOk(product) || noGradeGear(product)) {
                 continue;
             }
             fit.add(r);

@@ -65,6 +65,20 @@ public final class RaidPlay {
         return t.contains("баф") || t.contains("buff") || Pattern.compile("(?:^|\\s)(?:бф|bf)(?:$|\\s)", RX).matcher(t).find();
     }
 
+    /**
+     * «добафай» / «добафай Name» (top up): null = not a top-up, "" = everyone of the RB party / parties, else the name.
+     */
+    public static String topUpName(String text) {
+        if (text == null) {
+            return null;
+        }
+        final java.util.regex.Matcher m = Pattern.compile("(?:добаф\\S*|top\\s*up)\\s*(\\S+)?", RX).matcher(text.trim());
+        if (!m.find()) {
+            return null;
+        }
+        return m.group(1) == null ? "" : m.group(1);
+    }
+
     /** Gatekeeper follow delay: like people clicking one after another, 2-10 s. */
     public static long gkDelay(java.util.Random rnd) {
         return 2000 + rnd.nextInt(8001);

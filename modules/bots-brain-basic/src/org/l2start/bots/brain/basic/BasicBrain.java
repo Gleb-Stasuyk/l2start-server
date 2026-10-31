@@ -2734,8 +2734,43 @@ public final class BasicBrain implements Brain {
             ctx.act().stop();
             return 300;
         }
+        // 4+ members at 60% HP or less: the strongest group heal it has (bishop and SE both, Gleb 31.10)
+        int low60 = 0;
+        for (PartyMember m : w.party()) {
+            if (!m.dead() && (m.hpPct() <= 60) && (m.distance() < 1000)) {
+                low60++;
+            }
+        }
+        if (me.hpPct() <= 60) {
+            low60++;
+        }
+        if ((low60 >= 4) && groupHealTurn(me.objectId(), now)) {
+            for (int id : groupHealsFor(me.classId(), me.level())) {
+                final SkillView s = skill(me, id);
+                if (usable(me, s, w) && ctx.act().cast(id, me.objectId()).ok()) {
+                    GROUP_HEAL_LAST[0] = me.objectId();
+                    GROUP_HEAL_LAST[1] = now;
+                    heals++;
+                    partyTried = now + 1500;
+                    detail = "group heal";
+                    if (rbInParty) {
+                        rbNote(ctx, "rb party: group heal (" + low60 + " low)");
+                    }
+                    return 1500;
+                }
+            }
+        }
+        // below 50% and under attack: Battle Heal first (fast), then Greater Heal
+        boolean underAttack = false;
+        for (NpcView n : w.npcs()) {
+            if (!n.dead() && (n.targetId() == hurt.objectId()) && n.attackingNow()) {
+                underAttack = true;
+                break;
+            }
+        }
+        final int[] order = healsFor(me.classId(), me.level(), (hurt.hpPct() < 50) && underAttack);
         boolean needCloser = false;
-        for (int id : HEALS) {
+        for (int id : order) {
             final SkillView s = skill(me, id);
             if (!usable(me, s, w)) {
                 continue;
@@ -4367,6 +4402,13 @@ public final class BasicBrain implements Brain {
     private long rbAuraNext;
     private boolean rbGoAsked;
     private long rbGoAt;
+    /** «добафай»: null = a full «баф», "" = top up everyone (only missing buffs), else only that one. */
+    private String rbTopUp;
+    /** Buffs another buffer has queued (target<<32|skill -> until): two buffers never cast the same buff on one target. */
+    static final java.util.concurrent.ConcurrentHashMap<Long, long[]> BUFF_CLAIMS = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Rebuff when less than this is left: on its own 1 min, after «баф» 5 min (Gleb 31.10). */
+    static final int REBUFF_AUTO_SEC = 60;
+    static final int REBUFF_ASKED_SEC = 5 * 60;
     /** «асист» from the caller: DDs hit his current target (switching with him) once the fight is on. */
     private boolean rbAssistOn;
     /** When this bot's raid fight started (DDs give the tank {@link #RB_TANK_FIRST_MS} to take aggro). */
@@ -4532,7 +4574,7 @@ public final class BasicBrain implements Brain {
         }
         if (RaidPlay.wantsBuff(c.text())) {
             if ("PROPHET".equals(rbRole)) {
-                rbBuffAsked = true;
+                rbBuffAsked = true; rbTopUp = RaidPlay.topUpName(c.text());
                 rbBuffQueue = null; // planned at the next decision: everyone, their summons, itself
                 rbBuffCasting = null;
                 rbManaSaid = false;
@@ -4698,7 +4740,7 @@ public final class BasicBrain implements Brain {
             return false;
         }
         if (rbInParty && rbBuffer()) {
-            rbBuffAsked = true;
+            rbBuffAsked = true; rbTopUp = RaidPlay.topUpName(c.text());
             rbBuffQueue = null;
             rbBuffCasting = null;
             rbManaSaid = false;
@@ -5446,6 +5488,32 @@ public final class BasicBrain implements Brain {
      * Shillien Elder / Saint (party 2 SE): Empower on everyone missing it, Recharge when a member's MP is below
      * {@link #RB_SE_RECHARGE_MP}. No "баф" command — it keeps this up on its own.
      */
+    /** Empower missing or with less than {@link #REBUFF_AUTO_SEC} left. */
+    private static boolean empowerDue(WorldView w, int objectId) {
+        final int left = w.buffSecondsLeft(objectId, PartyBuffs.EMPOWER);
+        return (left == 0) || ((left > 0) && (left < REBUFF_AUTO_SEC));
+    }
+
+    /**
+     * Recharge priority (Gleb 31.10): anyone below 3% MP first, then the prophet low before the raid buffs, the tank
+     * below 20%, a mage below 20%, then anyone below {@link #RB_SE_RECHARGE_MP}. Lower = sooner, -1 = no need.
+     */
+    static int rechargeRank(int classId, double mpPct, boolean buffsPending) {
+        if (mpPct < 3) {
+            return 0;
+        }
+        if (((classId == 17) || (classId == 98)) && (mpPct < (buffsPending ? 70 : 30))) {
+            return 1;
+        }
+        if ((PartyBuffs.roleOf(classId) == PartyBuffs.Role.TANK) && (mpPct < 20)) {
+            return 2;
+        }
+        if ((PartyBuffs.roleOf(classId) == PartyBuffs.Role.MAGE) && (mpPct < 20)) {
+            return 3;
+        }
+        return mpPct < RB_SE_RECHARGE_MP ? 4 : -1;
+    }
+
     private long rbSeCare(BrainContext ctx, WorldView w, SelfView me, long now) {
         if (!"ELDER".equals(rbRole) || me.casting() || me.sitting()) {
             return 0;
@@ -5458,10 +5526,15 @@ public final class BasicBrain implements Brain {
             if ((caller != null) && pool.stream().noneMatch(x -> x.objectId() == rbCallerId)) {
                 pool.add(caller); // party 2's SE fills the caller's mana too (t419u: закачка, not a drain)
             }
+            int lowRank = Integer.MAX_VALUE;
             for (PartyMember m : pool) {
-                if (!m.dead() && (m.mpPct() < RB_SE_RECHARGE_MP) && (m.distance() < 900)
-                    && ((low == null) || (m.mpPct() < low.mpPct()))) {
+                if (m.dead() || (m.distance() >= 900) || (m.objectId() == me.objectId())) {
+                    continue;
+                }
+                final int rank = rechargeRank(m.classId(), m.mpPct(), rbBuffAsked);
+                if ((rank >= 0) && ((rank < lowRank) || ((rank == lowRank) && (low != null) && (m.mpPct() < low.mpPct())))) {
                     low = m;
+                    lowRank = rank;
                 }
             }
             if (low != null) {
@@ -5482,16 +5555,16 @@ public final class BasicBrain implements Brain {
         }
         final List<int[]> need = new ArrayList<>();
         for (PartyMember m : w.party()) {
-            if (!m.dead() && (w.buffState(m.objectId(), PartyBuffs.EMPOWER) == WorldView.BUFF_OFF) && (m.distance() < 1500)) {
+            if (!m.dead() && (empowerDue(w, m.objectId())) && (m.distance() < 1500)) {
                 need.add(new int[] { m.objectId(), (int) m.distance() });
             }
         }
-        if (w.buffState(me.objectId(), PartyBuffs.EMPOWER) == WorldView.BUFF_OFF) {
+        if (empowerDue(w, me.objectId())) {
             need.add(new int[] { me.objectId(), 0 });
         }
         for (PlayerView p : w.players()) {
             if (p.bot() && (p.objectId() != me.objectId()) && !inParty(w, p.objectId()) && (p.distance() < 1500)
-                && (w.buffState(p.objectId(), PartyBuffs.EMPOWER) == WorldView.BUFF_OFF)) {
+                && (empowerDue(w, p.objectId()))) {
                 need.add(new int[] { p.objectId(), (int) p.distance() });
             }
         }
@@ -5527,10 +5600,19 @@ public final class BasicBrain implements Brain {
         final List<int[]> out = new ArrayList<>();
         final List<PartyMember> pm = new ArrayList<>(w.party());
         pm.sort(java.util.Comparator.comparing((PartyMember m) -> !m.leader())); // the leader first
+        final String only = (rbTopUp == null) || rbTopUp.isEmpty() ? null : rbTopUp;
         for (PartyMember m : pm) {
-            if (!m.dead()) {
+            if (!m.dead() && ((only == null) || only.equalsIgnoreCase(m.name()))) {
                 rbBuffFor(out, w, me, m.objectId(), m.classId(), known, true);
             }
+        }
+        if (only != null) {
+            for (PlayerView p : w.players()) {
+                if (only.equalsIgnoreCase(p.name()) && !inParty(w, p.objectId()) && (p.distance() < 1500)) {
+                    rbBuffFor(out, w, me, p.objectId(), p.classId(), known, false);
+                }
+            }
+            return out; // «добафай Name»: only that one
         }
         for (WorldView.PartyPet pet : w.partyPets()) {
             if (!pet.dead()) {
@@ -5568,9 +5650,22 @@ public final class BasicBrain implements Brain {
                 if (left < 0) {
                     continue; // on, duration unknown: keep it, save mana
                 }
-            } else if (w.buffState(objectId, id) == WorldView.BUFF_ON) {
+            } else {
+                // «добафай»: only what is missing; «баф»: renew below 5 min; on its own: below 1 min (Gleb 31.10)
+                final int left = w.buffSecondsLeft(objectId, id);
+                final int renew = rbTopUp != null ? 0 : (rbBuffAsked ? REBUFF_ASKED_SEC : REBUFF_AUTO_SEC);
+                if ((left < 0) || ((left > 0) && (left >= renew)) || ((renew == 0) && (w.buffState(objectId, id) == WorldView.BUFF_ON))) {
+                    continue;
+                }
+            }
+            // two buffers (party 1 prophet, party 2 SE) never queue the same buff on one target
+            final long key = ((long) objectId << 32) | (id & 0xffffffffL);
+            final long nowMs = System.currentTimeMillis();
+            final long[] claim = BUFF_CLAIMS.get(key);
+            if ((claim != null) && (claim[0] != me.objectId()) && (claim[1] > nowMs)) {
                 continue;
             }
+            BUFF_CLAIMS.put(key, new long[] { me.objectId(), nowMs + 60_000 });
             out.add(new int[] { id, objectId, 0 });
         }
     }
@@ -6208,6 +6303,61 @@ public final class BasicBrain implements Brain {
     }
     /** Self heals, best first: Major Heal, Greater Battle Heal, Greater Heal, Battle Heal, Heal. */
     static final int[] HEALS = { 1401, 1218, 1217, 1015, 1011 };
+    /** Below 50% HP and under attack: Greater Battle Heal / Battle Heal before Major / Greater Heal. */
+    static final int[] HEALS_URGENT = { 1218, 1015, 1401, 1217, 1011 };
+    /** Major Group Heal, Greater Group Heal, Group Heal (strongest first; the level decides what it knows). */
+    static final int[] GROUP_HEALS = { 1402, 1219, 1027 };
+    /** Who cast the last group heal and when: bishop and SE take turns, never both at once (Gleb 31.10). */
+    static final long[] GROUP_HEAL_LAST = { 0, 0 };
+    static final long GROUP_HEAL_GAP_MS = 3000;
+
+    static boolean groupHealTurn(int me, long now) {
+        synchronized (GROUP_HEAL_LAST) {
+            final long since = now - GROUP_HEAL_LAST[1];
+            // the other healer may go after the gap; the same one waits twice as long so the other gets its turn
+            return GROUP_HEAL_LAST[0] == me ? since > (GROUP_HEAL_GAP_MS * 2) : since > GROUP_HEAL_GAP_MS;
+        }
+    }
+
+    static boolean isProphet(int c) {
+        return (c == 17) || (c == 98);
+    }
+
+    static boolean isShillienElder(int c) {
+        return (c == 43) || (c == 112);
+    }
+
+    static boolean isBishop(int c) {
+        return (c == 16) || (c == 97);
+    }
+
+    /**
+     * Single heals by class (Gleb 31.10): prophet always Battle Heal; SE Battle Heal up to 48, then Greater Heal; bishop
+     * Major / Greater Heal, never Battle Heal. Others keep the old lists.
+     */
+    static int[] healsFor(int classId, int level, boolean urgent) {
+        if (isProphet(classId)) {
+            return new int[] { 1218, 1015 };
+        }
+        if (isShillienElder(classId)) {
+            return level < 48 ? new int[] { 1015, 1011 } : new int[] { 1217, 1011 };
+        }
+        if (isBishop(classId)) {
+            return new int[] { 1401, 1217, 1011 };
+        }
+        return urgent ? HEALS_URGENT : HEALS;
+    }
+
+    /** Group heals: bishop strongest of Major / Greater / Group Heal; SE Greater Group Heal from 48; the prophet none. */
+    static int[] groupHealsFor(int classId, int level) {
+        if (isProphet(classId)) {
+            return new int[0];
+        }
+        if (isShillienElder(classId)) {
+            return level < 48 ? new int[] { 1027 } : new int[] { 1219, 1027 };
+        }
+        return GROUP_HEALS;
+    }
     /** Out of a fight a healer heals itself below this HP % instead of sitting down. */
     static final double SELF_HEAL_HP = 70;
     private int sweepId;
