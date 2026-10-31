@@ -1261,6 +1261,13 @@ public final class BotsCoreModule implements GameModule {
             ctx.metrics().counter("levelUps").inc();
             brains.post(r, new BotEvent.LevelUp(e.getOldLevel(), e.getNewLevel()));
         }
+        if ((r != null) && r.inWorld() && (e.getNewLevel() < e.getOldLevel())) {
+            // a level lost (death): no grade penalty from gear of the old level (Gleb 31.10, RusichDimon)
+            final int off = Materializer.unequipAboveGrade(e.getPlayer());
+            if (off > 0) {
+                ctx.log().info("gear: " + r.name() + " lost a level (" + e.getOldLevel() + " -> " + e.getNewLevel() + "): " + off + " items above the grade taken off");
+            }
+        }
     }
 
     private void onKill(OnAttackableKill e) {

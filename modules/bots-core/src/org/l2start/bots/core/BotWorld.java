@@ -143,16 +143,7 @@ public final class BotWorld {
         if (requireGeodata && !GeoEngine.getInstance().hasGeo(x, y)) {
             return r.name() + ": no geodata at " + x + "," + y + " (RequireGeodata)";
         }
-        if (r.status() != BotRecord.Status.TRADER) {
-            try {
-                final int fixed = Materializer.fixGear(p);
-                if (fixed > 0) {
-                    log.info("enter: " + r.name() + " lv " + p.getLevel() + ": " + fixed + " items above its grade/enchant corrected");
-                }
-            } catch (Exception e) {
-                log.warn("gear check " + r.name() + ": " + e.getMessage());
-            }
-        }
+
         if (prepare != null) {
             try {
                 prepare.accept(p); // not in the world yet: nobody sees level, class or gear change
@@ -164,6 +155,19 @@ public final class BotWorld {
                     // best effort
                 }
                 return r.name() + ": prepare failed: " + e;
+            }
+        }
+        // after prepare (Gleb 31.10, RusichDimon): the check ran at the stored level 39 before prepare raised him to 42,
+        // destroyed a C piece he could wear at 42, and a bot that lost a level kept C gear with the grade penalty
+        if (r.status() != BotRecord.Status.TRADER) {
+            try {
+                final int fixed = Materializer.fixGear(p);
+                final int trimmed = Materializer.trimWeight(p);
+                if ((fixed > 0) || (trimmed > 0)) {
+                    log.info("enter: " + r.name() + " lv " + p.getLevel() + ": " + fixed + " items above its grade/enchant corrected, " + trimmed + " bag items dropped for weight");
+                }
+            } catch (Exception e) {
+                log.warn("gear check " + r.name() + ": " + e.getMessage());
             }
         }
         final long now = System.currentTimeMillis();
