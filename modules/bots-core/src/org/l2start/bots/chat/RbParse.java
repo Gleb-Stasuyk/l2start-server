@@ -67,6 +67,8 @@ public final class RbParse {
     private static final Pattern PROPHET = Pattern.compile("\\b" + N + "(?:пп|pp|проф[а-я]*|prophet[a-z]*|пророк[а-я]*|иерофант[а-я]*|hiero[a-z]*)\\b" + TAIL, RX);
     private static final Pattern SH = Pattern.compile("\\b" + N + "(?:сх|sh|spellhowler[a-z]*|хаулер[а-я]*|storm\\s*screamer)\\b" + TAIL, RX);
     private static final Pattern SPS = Pattern.compile("\\b" + N + "(?:сс|спс|sps|spellsinger[a-z]*|спеллсингер[а-я]*|mystic\\s*muse)\\b" + TAIL, RX);
+    /** SE = Shillien Elder / Saint (Gleb 31.10: «ищу се на рб» had no RB role, so only the generic LFP reply answered). */
+    private static final Pattern SE = Pattern.compile("\\b" + N + "(?:се|се[шх]к[а-я]*|se|шилен[а-я]*|шиллиен[а-я]*|shillien[a-z]*|элдер[а-я]*|elder[a-z]*)\\b" + TAIL, RX);
     private static final Pattern NECRO = Pattern.compile("\\b" + N + "(?:некр[а-я]*|necr[a-z]*|соултейкер[а-я]*|soultaker)\\b" + TAIL, RX);
     private static final Pattern DD = Pattern.compile("\\b" + N + "(?:дд|dd|дпс|dps|нюкер[а-я]*|nuker[a-z]*)\\b" + TAIL, RX);
 
@@ -98,6 +100,7 @@ public final class RbParse {
         add(out, TANK, t, Role.TANK, TANKS);
         add(out, BISHOP, t, Role.BISHOP, BISHOPS);
         add(out, PROPHET, t, Role.PROPHET, PROPHETS);
+        add(out, SE, t, Role.ELDER, ELDERS);
         add(out, SH, t, Role.DD, Set.of(SPELLHOWLER));
         add(out, SPS, t, Role.DD, Set.of(SPELLSINGER));
         add(out, NECRO, t, Role.DD, Set.of(NECROMANCER));
