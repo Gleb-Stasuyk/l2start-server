@@ -126,6 +126,14 @@ class RbParseTest {
     }
 
     @Test
+    void askedSeIsAnRbPlace() {
+        assertEquals(java.util.List.of(RbParse.Role.ELDER), roles("ищу се на рб"));
+        assertEquals(java.util.List.of(RbParse.Role.ELDER), roles("lf SE for rb"));
+        assertTrue(roles("нужен шилен на рб").contains(RbParse.Role.ELDER));
+        assertTrue(roles("все на рб танк").stream().noneMatch(r -> r == RbParse.Role.ELDER));
+    }
+
+    @Test
     void party1NeverAsksForSe() {
         assertTrue(roles("ищу танка и биша на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));
         assertTrue(roles("танк биш пп 5 дд сх на рб").stream().noneMatch(r -> r == RbParse.Role.ELDER));

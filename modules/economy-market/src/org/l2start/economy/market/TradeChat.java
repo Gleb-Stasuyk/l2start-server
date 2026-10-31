@@ -239,6 +239,9 @@ final class TradeChat {
 
     /** Count and price of the offer, inside the corridors and the budget. @return false = nothing to offer */
     private boolean offer(Pending pd, MarketItem it, int saidCount, int saidPrice) {
+        if (!org.l2start.economy.market.model.Assortment.onMarket(it)) {
+            return false; // no-grade gear and NPC goods are not traded by bots (Gleb 31.10)
+        }
         final long now = System.currentTimeMillis();
         final MarketBook.Quote q = m.book().quote(it.id(), m.stage(), now);
         final Line have = pd.s.lines.stream().filter(l -> l.itemId() == it.id()).findFirst().orElse(null);

@@ -3470,6 +3470,11 @@ public final class BasicBrain implements Brain {
         if (call == null) {
             return;
         }
+        // an RB request («ищу се на рб») belongs to the RB recruit (role, level -2..+3, comes to him); the generic LFP
+        // whisper here made an off-level SE answer and then stand in town waiting for an invite (Gleb 31.10)
+        if (org.l2start.bots.chat.RbParse.aboutRb(c.text())) {
+            return;
+        }
         if ((ptMateId != 0) || leavingSocial(ctx) || me.dead()) {
             return;
         }
@@ -3478,6 +3483,10 @@ public final class BasicBrain implements Brain {
         }
         final PlayerView from = playerByName(w, c.from());
         if ((from != null) && (from.socialBusy() || from.bot())) {
+            return;
+        }
+        // no level in the line: the caller's own level decides (not "any level")
+        if ((call.level() <= 0) && (from != null) && !LfpParse.levelOk(me.level(), from.level())) {
             return;
         }
         if ((from != null) && ctx.act().playerBlocksUs(from.name())) {
@@ -4738,7 +4747,7 @@ public final class BasicBrain implements Brain {
         return rbParty(ctx, w, me, lead, now);
     }
 
-    /** Who runs the RB buff session: the prophet of party 1, the Elven Elder of party 2. */
+    /** Who runs the RB buff session: the prophet of party 1, the Shillien Elder of party 2 (Empower only, see rbBuffFor). */
     private boolean rbBuffer() {
         return "PROPHET".equals(rbRole) || ((rbParty == 2) && "ELDER".equals(rbRole));
     }
@@ -5710,7 +5719,10 @@ public final class BasicBrain implements Brain {
     }
 
     private void rbBuffFor(List<int[]> out, WorldView w, SelfView me, int objectId, int classId, java.util.Set<Integer> known, boolean berserker) {
-        final List<Integer> wanted = PartyBuffs.wantedRaid(me.classId(), classId, berserker);
+        // Gleb 31.10: on the RB the SE casts only Empower (mages); every other buff is the prophet's (WW, Blessed Soul, ...)
+        final List<Integer> wanted = isShillienElder(me.classId())
+            ? (PartyBuffs.wantedRaid(me.classId(), classId, berserker).contains(PartyBuffs.EMPOWER) ? List.of(PartyBuffs.EMPOWER) : List.of())
+            : PartyBuffs.wantedRaid(me.classId(), classId, berserker);
         final List<Integer> ids = known.isEmpty() ? wanted : PartyBuffs.filterLearnable(wanted, known);
         for (int id : ids) {
             final SkillView s = skill(me, id);
