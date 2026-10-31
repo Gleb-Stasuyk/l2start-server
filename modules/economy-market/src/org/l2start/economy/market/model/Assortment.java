@@ -84,11 +84,21 @@ public final class Assortment {
     }
 
     /** Items a profile may carry at a stage (Grocery NPC goods excluded). */
+    /**
+     * Gleb 31.10: nothing an NPC merchant sells, and no no-grade weapons / armour / jewellery, in bot stores (sell or buy).
+     */
+    public static boolean onMarket(MarketItem i) {
+        if (i.npc()) {
+            return false;
+        }
+        return !((i.grade() == MarketItem.Grade.NONE) && ("Weapon".equalsIgnoreCase(i.kind()) || "Armor".equalsIgnoreCase(i.kind())));
+    }
+
     public List<MarketItem> candidates(Profile p, MarketItems items, int stage) {
         final List<MarketItem> out = new ArrayList<>();
         final GroceryItems g = grocery;
         for (MarketItem i : items.all()) {
-            if ((i.price() > 0) && Stage.available(i, stage) && p.takes(i) && !g.contains(i.id())) {
+            if ((i.price() > 0) && Stage.available(i, stage) && p.takes(i) && !g.contains(i.id()) && onMarket(i)) {
                 out.add(i);
             }
         }

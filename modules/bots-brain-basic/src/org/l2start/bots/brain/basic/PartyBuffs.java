@@ -106,7 +106,7 @@ public final class PartyBuffs {
      */
     public static List<Integer> wanted(int casterClassId, int targetClassId, boolean inPeace) {
         if (inPeace) {
-            return List.of(WIND_WALK);
+            return List.of(WIND_WALK, BLESSED_SOUL); // Gleb 31.10: the prophet's Blessed Soul on everyone in town too
         }
         final Role role = roleOf(targetClassId);
         final List<Integer> out = new ArrayList<>();

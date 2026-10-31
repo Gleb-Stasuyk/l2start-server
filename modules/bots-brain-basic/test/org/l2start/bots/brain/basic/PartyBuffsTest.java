@@ -66,9 +66,9 @@ class PartyBuffsTest {
     }
 
     @Test
-    void inPeaceOnlyWindWalk() {
+    void inPeaceWindWalkAndBlessedSoul() {
         final List<Integer> w = PartyBuffs.wanted(PROPHET, GLADIATOR, true);
-        assertTrue(w.equals(List.of(PartyBuffs.WIND_WALK)));
+        assertTrue(w.equals(List.of(PartyBuffs.WIND_WALK, PartyBuffs.BLESSED_SOUL)));
     }
 
     @Test

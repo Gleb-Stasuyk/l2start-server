@@ -38,7 +38,7 @@
     },
     "PriceMultiplier": {
       "type": "double",
-      "default": 1.0,
+      "default": 3.0,
       "reloadable": true,
       "description": "All bot prices x this (like LW FakePlayerStorePriceMultiplier)."
     },

@@ -188,7 +188,7 @@ Reinforcing Agent/Plate, молды и холдеры), Create Item не ниж�
 |---|---|---|
 | `Market` | auto | рынок ботов: auto = вкл. в solo, выкл. в online (там только журнал и индекс) |
 | `MarketStage` | auto | стадия 1–5 или auto |
-| `PriceMultiplier` | 1.0 | все цены ботов × это |
+| `PriceMultiplier` | 3.0 | все цены ботов × это |
 | `SellMarkup` | 1.00,1.25 | наценка продавцов |
 | `BuyBid` | 0.55,0.85 | предложение скупщиков от рынка |
 | `NpcArbitrageGuard` | 0.9 | скупка не дороже этой доли цены NPC |
