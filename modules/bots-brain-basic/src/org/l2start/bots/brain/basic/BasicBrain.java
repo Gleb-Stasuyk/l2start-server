@@ -4428,6 +4428,8 @@ public final class BasicBrain implements Brain {
     private long rbFightStartAt;
     /** t439u/t443u: DDs join only once the tank holds the fight (the boss or a minion hits it) or the caller fights himself. */
     private boolean rbTankEngaged;
+    /** t445u: the SE empowers only after «баф» of this RB call (never in town, never strangers / traders). */
+    private boolean rbEmpowerOn;
     /** t442u: the assist target DDs keep until it dies (0 = take his current target and lock it). */
     private int rbAssistLock;
     /** t442u: while Ultimate Defense holds the tank stands planted (no kite, no walk), taunting. */
@@ -4558,6 +4560,7 @@ public final class BasicBrain implements Brain {
         rbAssistOn = false;
         rbFightStartAt = 0;
         rbTankEngaged = false;
+        rbEmpowerOn = false;
         rbAssistLock = 0;
         rbUdUntil = 0;
         rbInParty = false;
@@ -4600,7 +4603,7 @@ public final class BasicBrain implements Brain {
         }
         if (RaidPlay.wantsBuff(c.text())) {
             if ("PROPHET".equals(rbRole)) {
-                rbBuffAsked = true; rbTopUp = RaidPlay.topUpName(c.text());
+                rbEmpowerOn = true; rbBuffAsked = true; rbTopUp = RaidPlay.topUpName(c.text());
                 rbBuffQueue = null; // planned at the next decision: everyone, their summons, itself
                 rbBuffCasting = null;
                 rbManaSaid = false;
@@ -4766,7 +4769,7 @@ public final class BasicBrain implements Brain {
             return false;
         }
         if (rbInParty && rbBuffer()) {
-            rbBuffAsked = true; rbTopUp = RaidPlay.topUpName(c.text());
+            rbEmpowerOn = true; rbBuffAsked = true; rbTopUp = RaidPlay.topUpName(c.text());
             rbBuffQueue = null;
             rbBuffCasting = null;
             rbManaSaid = false;
@@ -4932,8 +4935,12 @@ public final class BasicBrain implements Brain {
         // dealers and the tank fight back at once and assist each other (live 30.10: Denis stood under mobs while
         // the bishop only healed him). Bosses / minions are not started here (party 2 waits for a command).
         if (!rbEngaged && !rbGoAsked && !"BISHOP".equals(rbRole) && !"PROPHET".equals(rbRole) && !"ELDER".equals(rbRole)) {
-            final NpcView foe = attacker != null ? attacker : rbMonsterOnParty(w, me, false);
-            if ((foe != null) && (w.bossKind(foe.objectId()) == WorldView.BOSS_NONE)) {
+            NpcView foe = attacker != null ? attacker : rbMonsterOnParty(w, me, false);
+            if (foe == null) {
+                foe = rbMinionOnParty(w, me); // t446u: a mob / minion on a support of either RB party
+            }
+            final int foeKind = foe == null ? WorldView.BOSS_NONE : w.bossKind(foe.objectId());
+            if ((foe != null) && (foeKind != WorldView.BOSS_RAID) && (foeKind != WorldView.BOSS_EPIC)) {
                 standIfSitting(ctx, me);
                 if (fightId != foe.objectId()) {
                     detail = "defends the party from " + foe.name();
@@ -5144,6 +5151,22 @@ public final class BasicBrain implements Brain {
                     }
                 }
                 if (on == null) {
+                    // t446u: a support of the other RB party (Nyroth): DDs of both parties take the mob off it
+                    boolean otherSupport = false;
+                    for (PlayerView p : w.players()) {
+                        if ((p.objectId() == n.targetId()) && p.bot() && RB_SUPPORT_CLASSES.contains(p.classId()) && (p.distance() < 1500)) {
+                            otherSupport = true;
+                            break;
+                        }
+                    }
+                    if (!otherSupport) {
+                        continue;
+                    }
+                    rank = 1;
+                    if ((rank < bestRank) || ((rank == bestRank) && (best != null) && (n.distance() < best.distance()))) {
+                        best = n;
+                        bestRank = rank;
+                    }
                     continue;
                 }
                 if (!RB_SUPPORT_CLASSES.contains(on.classId())) {
@@ -5637,23 +5660,18 @@ public final class BasicBrain implements Brain {
             }
         }
         final SkillView empower = skill(me, PartyBuffs.EMPOWER);
-        if (!usable(me, empower)) {
+        // t445u: Empower only at the RB after «баф»: not in town / peace zones, only RB party mages
+        if (!rbEmpowerOn || me.inPeaceZone() || !usable(me, empower)) {
             return 0;
         }
         final List<int[]> need = new ArrayList<>();
         for (PartyMember m : w.party()) {
-            if (!m.dead() && (empowerDue(w, m.objectId())) && (m.distance() < 1500)) {
+            if (!m.dead() && (PartyBuffs.roleOf(m.classId()) == PartyBuffs.Role.MAGE) && empowerDue(w, m.objectId()) && (m.distance() < 1500)) {
                 need.add(new int[] { m.objectId(), (int) m.distance() });
             }
         }
-        if (empowerDue(w, me.objectId())) {
+        if ((PartyBuffs.roleOf(me.classId()) == PartyBuffs.Role.MAGE) && empowerDue(w, me.objectId())) {
             need.add(new int[] { me.objectId(), 0 });
-        }
-        for (PlayerView p : w.players()) {
-            if (p.bot() && (p.objectId() != me.objectId()) && !inParty(w, p.objectId()) && (p.distance() < 1500)
-                && (empowerDue(w, p.objectId()))) {
-                need.add(new int[] { p.objectId(), (int) p.distance() });
-            }
         }
         if (need.isEmpty()) {
             return 0;

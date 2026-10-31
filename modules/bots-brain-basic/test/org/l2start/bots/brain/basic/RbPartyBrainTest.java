@@ -1240,7 +1240,7 @@ class RbPartyBrainTest {
     }
 
     @Test
-    void seEmpowersAndRestoresManaWithoutBuffCommand() {
+    void seRestoresManaAlwaysEmpowersOnlyAfterBuff() {
         final FakeWorld w = BasicBrainTest.world(583, true);
         w.addSkill(PartyBuffs.EMPOWER, SkillView.Kind.OTHER, 20, 0);
         w.addSkill(BasicBrain.RB_RECHARGE, SkillView.Kind.OTHER, 20, 0);
@@ -1249,14 +1249,15 @@ class RbPartyBrainTest {
         seeGleb(w, beside(w, 120), false, 0);
         w.party.add(new PartyMember(911, "Sps", 27, 40, beside(w, 160), 0, 100, 20, false, 0, true));
         h.run(15_000);
-        assertTrue(w.partyCasts.contains(PartyBuffs.EMPOWER + ">911") || w.effects.getOrDefault(911, java.util.Set.of()).contains(PartyBuffs.EMPOWER)
-            || w.effects.getOrDefault(FakeWorld.SELF_ID, java.util.Set.of()).contains(PartyBuffs.EMPOWER),
-            "SE did not Empower: " + w.partyCasts + " " + w.effects + " " + h.notes());
+        assertFalse(w.partyCasts.contains(PartyBuffs.EMPOWER + ">911"), "t445u: Empower before «баф»: " + w.partyCasts + " " + h.notes());
         assertTrue(w.partyCasts.contains(BasicBrain.RB_RECHARGE + ">911"),
             "SE did not Recharge low MP: " + w.partyCasts + " " + h.notes());
-        assertFalse(w.chat.stream().anyMatch(c -> c.contains("баф")), "SE waited for a buff command: " + w.chat);
+        w.party.set(w.party.size() - 1, new PartyMember(911, "Sps", 27, 40, beside(w, 160), 0, 100, 100, false, 0, true)); // mana filled
+        w.chatFrom("ALL", GLEB, "Gleb", "баф");
+        h.run(15_000);
+        assertTrue(w.partyCasts.contains(PartyBuffs.EMPOWER + ">911") || w.effects.getOrDefault(911, java.util.Set.of()).contains(PartyBuffs.EMPOWER),
+            "SE did not Empower after «баф»: " + w.partyCasts + " " + w.effects + " " + h.notes());
     }
-
     @Test
     void party2IgnoresGoAndFightsWhenParty1EngagesByAssist() throws Exception {
         BasicBrain.playstyles = Playstyles.EMPTY;
