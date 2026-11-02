@@ -193,4 +193,9 @@ public final class BotRepository {
         return db.update("DELETE FROM items WHERE loc='INVENTORY' AND item_id NOT IN (17,1341,1342,1343,1344,1345)"
             + " AND owner_id IN (SELECT char_id FROM " + identity + " WHERE status='ACTIVE')");
     }
+
+    /** Bag of every trader persona (goods exist only while a store stands; starter shots / tutorial guide too). */
+    public int wipeTraderBags() throws SQLException {
+        return db.update("DELETE FROM items WHERE loc='INVENTORY' AND owner_id IN (SELECT char_id FROM " + identity + " WHERE status='TRADER')");
+    }
 }
