@@ -58,12 +58,6 @@ public class AnnouncementsTable
 		{
 			while (rset.next())
 			{
-				// L2start: no stock L2jMobius announcements on enter
-				if ("L2jMobius".equalsIgnoreCase(rset.getString("author")))
-				{
-					continue;
-				}
-
 				final AnnouncementType type = AnnouncementType.findById(rset.getInt("type"));
 				final Announcement announce;
 				switch (type)

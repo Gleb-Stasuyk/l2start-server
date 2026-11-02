@@ -743,6 +743,14 @@ public final class BotsCoreModule implements GameModule {
         } else {
             logoutAll(why, true);
         }
+        try {
+            final int traders = repo.wipeTraderBags(); // after every logout: a stock store of a trader may save its bag late
+            if (traders > 0) {
+                ctx.log().info("traders: wiped " + traders + " leftover trader bag row(s) after logout");
+            }
+        } catch (Exception e) {
+            ctx.log().warn("cannot wipe leftover trader bags", e);
+        }
     }
 
     private void applyConfig() {
