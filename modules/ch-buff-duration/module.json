@@ -1,0 +1,16 @@
+{
+  "id": "ch-buff-duration",
+  "name": "Clan hall buff duration",
+  "description": "Buffs cast by a clan hall manager (support function, skills 4342-4360) last DurationSec (1 hour) for players up to MaxLevel (39) at cast time.",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.12",
+  "entrypoint": "org.l2start.modules.chbuff.ChBuffDurationModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "config": {
+    "MaxLevel": { "type": "int", "default": 39, "min": 0, "max": 85, "reloadable": true, "description": "Players of this level or lower (at cast time) get long clan hall buffs; 0 = off." },
+    "DurationSec": { "type": "int", "default": 3600, "min": 1, "max": 86400, "reloadable": true, "description": "Buff duration in seconds." },
+    "Skills": { "type": "list", "default": "4342-4360", "reloadable": true, "description": "Clan hall support skill ids: single ids or ranges (a-b)." },
+    "IncludeBots": { "type": "bool", "default": true, "reloadable": true, "description": "Also apply to bots." }
+  }
+}
