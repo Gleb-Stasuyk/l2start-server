@@ -686,6 +686,31 @@ class RbPartyBrainTest {
     }
 
     @Test
+    void firstProfessionMageDdNukesTheRaidWithWindStrike() throws Exception {
+        // t551u: a lv 27 mystic knows no Hydro Blast / Hurricane / Death Spike; it still nukes, never swings
+        BasicBrain.playstyles = Playstyles.EMPTY;
+        final FakeWorld w = BasicBrainTest.world(542, true);
+        final BrainHarness h = joined(w, 542, 27, true, "DD", "Sniper");
+        w.teleport(new Pos(40_000, 40_000, 0));
+        w.party.add(new PartyMember(901, "Tank", 5, 40, beside(w, 200), 0, 100, 100, false, 0, false));
+        final FakeWorld.Mob boss = w.addMob(9, 42, beside(w, 350));
+        boss.bossKind = WorldView.BOSS_RAID;
+        boss.hp = 8000;
+        boss.targetId = 901;
+        moveGleb(w, beside(w, 100), boss.objectId);
+        w.chatFrom("PARTY", GLEB, "Gleb", "го");
+        h.run(3000);
+        assertTrue(brain(h).rbEngaged(), h.notes().toString());
+        h.act().clear();
+        w.casts.clear();
+        h.run(8000);
+        assertTrue(h.act().calls().stream().anyMatch(c -> c.toString().startsWith("cast(" + FakeWorld.NUKE_ID + "->")),
+            "1st-prof mage never nuked: " + h.notes() + " " + h.act().calls());
+        assertTrue(h.act().calls().stream().noneMatch(c -> c.toString().startsWith("attack(")),
+            "1st-prof mage swung its weapon at the raid: " + h.act().calls());
+    }
+
+    @Test
     void sniperNecroDdNukesWhenDeathSpikeHasNoBones() throws Exception {
         BasicBrain.playstyles = Playstyles.load(PlaystyleTest.DATA);
         final FakeWorld w = BasicBrainTest.world(543, true);

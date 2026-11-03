@@ -2299,8 +2299,8 @@ public final class BasicBrain implements Brain {
                 return;
             }
             if (raidMage) {
-                for (SkillView nuke : me.skills()) {
-                    if ((nuke.kind() != SkillView.Kind.NUKE) || !rbRaidNuke(nuke.id())
+                for (SkillView nuke : rbRaidNukes(me)) {
+                    if ((nuke.kind() != SkillView.Kind.NUKE)
                         || (badSkills.getOrDefault(badKey(nuke.id(), mob.npcId()), 0L) > now) || !nuke.ready()
                         || (nuke.mpCost() > me.mp()) || !hasReagent(w, nuke)) {
                         continue;
@@ -2465,7 +2465,7 @@ public final class BasicBrain implements Brain {
             return false;
         }
         // RB mage DD: only Hydro Blast / Hurricane / Death Spike. ROTATION must not fire Wind Strike, Ice Dagger, etc.
-        if (rbEngaged && me.mage() && !pick.self() && rbRaidNukeBlocked(pick)) {
+        if (rbEngaged && me.mage() && !pick.self() && rbRaidNukeBlocked(me, pick)) {
             return false;
         }
         if (rbEngaged && !pick.self()) {
@@ -5226,8 +5226,60 @@ public final class BasicBrain implements Brain {
         return (skillId == RB_HYDRO_BLAST) || (skillId == RB_HURRICANE) || (skillId == RB_DEATH_SPIKE);
     }
 
+    /**
+     * t551u: 0/1st-profession mage DDs (lv ~1-39) know none of the three raid nukes, so they used to stand idle at
+     * the boss. Their single-target nukes from the datapack skill trees, best first (no AoE Flame Strike / clouds,
+     * no 150-range Aura Burn, no drains). Used only when the caster knows none of Hydro Blast / Hurricane / Death Spike.
+     * Human Wizard: Blaze, Energy Bolt; Elven Wizard: Aqua Swirl, Solar Spark, Energy Bolt; Dark Wizard: Twister,
+     * Shadow Spark; Orc Mystic/Shaman: Frost Flame, Blaze Quake, Chill Flame; every mystic: Ice Bolt, Wind Strike.
+     */
+    static final int[] RB_LOW_NUKES = {
+        1220, // Blaze
+        1175, // Aqua Swirl
+        1178, // Twister
+        1264, // Solar Spark
+        1266, // Shadow Spark
+        1274, // Energy Bolt
+        1107, // Frost Flame
+        1101, // Blaze Quake
+        1100, // Chill Flame
+        1184, // Ice Bolt
+        1177, // Wind Strike
+    };
+
+    /** Raid nuke for this caster: the three 40+ nukes, or (when it knows none) the low-level list. */
+    static boolean rbRaidNuke(SelfView me, int skillId) {
+        for (SkillView s : rbRaidNukes(me)) {
+            if (s.id() == skillId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The caster's raid nukes in priority order (empty for a caster with no damage spell). */
+    static java.util.List<SkillView> rbRaidNukes(SelfView me) {
+        final java.util.List<SkillView> top = new java.util.ArrayList<>();
+        for (SkillView s : me.skills()) {
+            if ((s != null) && (s.kind() == SkillView.Kind.NUKE) && rbRaidNuke(s.id())) {
+                top.add(s);
+            }
+        }
+        if (!top.isEmpty()) {
+            return top;
+        }
+        for (int id : RB_LOW_NUKES) {
+            for (SkillView s : me.skills()) {
+                if ((s != null) && (s.id() == id) && (s.kind() == SkillView.Kind.NUKE)) {
+                    top.add(s);
+                }
+            }
+        }
+        return top;
+    }
+
     /** Playstyle lines a raid mage must not fire (PULL/AOE and any NUKE that is not the three allowed). */
-    private static boolean rbRaidNukeBlocked(PlaystyleEngine.Pick pick) {
+    private static boolean rbRaidNukeBlocked(SelfView me, PlaystyleEngine.Pick pick) {
         if (pick == null) {
             return false;
         }
@@ -5235,7 +5287,7 @@ public final class BasicBrain implements Brain {
         if ((use == Playstyles.Use.PULL) || (use == Playstyles.Use.AOE)) {
             return true;
         }
-        return (pick.skill().kind() == SkillView.Kind.NUKE) && !rbRaidNuke(pick.skill().id());
+        return (pick.skill().kind() == SkillView.Kind.NUKE) && !rbRaidNuke(me, pick.skill().id());
     }
 
     private void rbEngage(BrainContext ctx, NpcView boss, long now) {
@@ -5420,7 +5472,7 @@ public final class BasicBrain implements Brain {
         SkillView n = rbReadyNuke(me, mob, now, null);
         if (n == null) {
             n = nuke(me, mob == null ? 0 : mob.npcId(), badSkills, now);
-            if ((n != null) && !rbRaidNuke(n.id())) {
+            if ((n != null) && !rbRaidNuke(me, n.id())) {
                 n = null;
             }
         }
@@ -5437,8 +5489,8 @@ public final class BasicBrain implements Brain {
     /** A magic damage skill that can be fired now (ready, affordable, not 10-minute-banned, reagent in the bag). */
     private SkillView rbReadyNuke(SelfView me, NpcView mob, long now, WorldView w) {
         final int npcId = mob == null ? 0 : mob.npcId();
-        for (SkillView s : me.skills()) {
-            if ((s.kind() == SkillView.Kind.NUKE) && rbRaidNuke(s.id()) && (badSkills.getOrDefault(badKey(s.id(), npcId), 0L) <= now) && s.ready()
+        for (SkillView s : rbRaidNukes(me)) {
+            if ((s.kind() == SkillView.Kind.NUKE) && (badSkills.getOrDefault(badKey(s.id(), npcId), 0L) <= now) && s.ready()
                 && (s.mpCost() <= me.mp()) && ((w == null) || hasReagent(w, s))) {
                 return s;
             }
@@ -6215,12 +6267,7 @@ public final class BasicBrain implements Brain {
 
     /** A caster with a raid nuke (Hydro Blast / Hurricane / Death Spike: every mage DD 40+ has one). */
     static boolean knowsNukes(SelfView me) {
-        for (SkillView s : me.skills()) {
-            if ((s != null) && rbRaidNuke(s.id())) {
-                return true;
-            }
-        }
-        return false;
+        return !rbRaidNukes(me).isEmpty();
     }
 
     /** t448u: a mage DD the boss walked onto (or that came too close) steps back toward the party, out of melee. */
