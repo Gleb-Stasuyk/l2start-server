@@ -50,4 +50,18 @@ class ClanHallAssignTest {
         final long withDaily = ClanHallAssign.needForTwoPeriods(1_000_000, List.of(new ClanHallAssign.FeePeriod(50_000, DAY)));
         assertEquals(2_000_000L + (50_000L * 14), withDaily);
     }
+
+    @Test
+    void countOwnedFindsExtraHalls() {
+        assertEquals(0, ClanHallAssign.countOwned(List.of(), 7));
+        assertEquals(1, ClanHallAssign.countOwned(List.of(0, 7, 9), 7));
+        assertEquals(5, ClanHallAssign.countOwned(List.of(7, 7, 0, 7, 7, 7, 3), 7));
+    }
+
+    @Test
+    void reserveNeverBelowMaxFunctionSet() {
+        // the CWH reserve uses the max function fees even before any function exists
+        final long max = ClanHallAssign.needForTwoPeriods(500_000, List.of(new ClanHallAssign.FeePeriod(364_000, DAY), new ClanHallAssign.FeePeriod(14_000, WEEK)));
+        assertEquals((2L * 500_000) + (14L * 364_000) + (2L * 14_000), max, "2 weeks of lease + 14 days of support lvl 8 + 2 weeks of teleport");
+    }
 }

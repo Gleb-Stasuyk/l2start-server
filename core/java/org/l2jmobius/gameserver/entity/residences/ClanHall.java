@@ -522,6 +522,25 @@ public abstract class ClanHall
 		return true;
 	}
 	
+	// >>> [HOOK:P10-CH-FUNC-CWH]
+	/** Set a function paid from the clan warehouse (bot modules; no player pays, no system message): first fee taken from CWH now, next by the stock task. */
+	public boolean updateFunctionFromCwh(int type, int level, int lease, long rate)
+	{
+		final Clan clan = ClanTable.getInstance().getClan(getOwnerId());
+		if ((clan == null) || (level <= 0) || (rate <= 0) || ((lease > 0) && (clan.getWarehouse().getAdena() < lease)))
+		{
+			return false;
+		}
+		if ((lease > 0) && (clan.getWarehouse().destroyItemByItemId(ItemProcessType.FEE, Inventory.ADENA_ID, lease, null, null) == null))
+		{
+			return false;
+		}
+		final ClanHallFunction function = new ClanHallFunction(type, level, lease, 0, rate, System.currentTimeMillis() + rate, true);
+		_functions.put(type, function);
+		function.dbSave();
+		return true;
+	}
+	// <<< [HOOK:P10-CH-FUNC-CWH]
 	public int getGrade()
 	{
 		return 0;

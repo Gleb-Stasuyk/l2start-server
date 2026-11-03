@@ -14,7 +14,6 @@ import org.l2jmobius.gameserver.entity.itemcontainer.Inventory;
 import org.l2jmobius.gameserver.entity.residences.AuctionableHall;
 import org.l2jmobius.gameserver.entity.residences.ClanHall;
 import org.l2jmobius.gameserver.entity.zone.type.ClanHallZone;
-import org.l2jmobius.gameserver.network.serverpackets.AgitDecoInfo;
 import org.l2start.bots.core.BotRecord;
 import org.l2start.bots.core.BotRegistry;
 import org.l2start.platform.api.ModuleContext;
@@ -114,7 +113,7 @@ public final class ClanHallAssign {
                 return 0;
             }
             // CWH before setOwner so FeeTask(0) / ensurePaidFromCwh can take the lease
-            topUpWarehouse(clan, hall, actor != null ? actor : onlineMember(clan));
+            topUpWarehouse(clan, hall);
             try {
                 ClanHallTable.getInstance().setOwner(hall.getId(), clan);
                 ctx.log().info("bot clan " + clan.getName() + " assigned CH#" + hall.getId() + " (" + hall.getLocation() + ")");
@@ -147,7 +146,7 @@ public final class ClanHallAssign {
                 ctx.log().warn("town clan " + clan.getName() + ": no free clan hall in " + town);
                 return 0;
             }
-            topUpWarehouse(clan, pick, actor != null ? actor : onlineMember(clan));
+            topUpWarehouse(clan, pick);
             ClanHallTable.getInstance().setOwner(pick.getId(), clan);
             ctx.log().info("town clan " + clan.getName() + " assigned CH#" + pick.getId() + " " + pick.getName() + " (" + town + ")");
         }
@@ -170,10 +169,14 @@ public final class ClanHallAssign {
         }
         for (ClanStore.Row row : clans.clans()) {
             final Clan clan = ClanTable.getInstance().getClan(row.clanId());
-            if ((clan == null) || (clan.getHideoutId() <= 0)) {
+            if ((clan == null) || (ownedHall(clan) == null)) {
                 continue;
             }
-            maintainHall(clan, ownedHall(clan), onlineMember(clan));
+            final int halls = ownedHallCount(clan);
+            if (halls > 1) {
+                ctx.log().warn("bot clan " + clan.getName() + " owns " + halls + " clan halls (one expected; extra halls are kept, not freed)");
+            }
+            maintainHall(clan, ownedHall(clan), null);
         }
         for (String town : ClanService.TOWNS) {
             final int cid = clans.townClan(town);
@@ -187,8 +190,7 @@ public final class ClanHallAssign {
         if ((clan == null) || (hall == null)) {
             return 0;
         }
-        final Player payer = actor != null ? actor : onlineMember(clan);
-        topUpWarehouse(clan, hall, payer);
+        topUpWarehouse(clan, hall);
         if (!hall.getPaid() || (hall.getPaidUntil() <= System.currentTimeMillis())) {
             if (!hall.ensurePaidFromCwh()) {
                 ctx.log().warn("CH#" + hall.getId() + " lease unpaid after top-up (CWH " + clan.getWarehouse().getAdena() + ", lease " + hall.getLease() + ")");
@@ -197,56 +199,81 @@ public final class ClanHallAssign {
             }
         }
         if (hall.getPaid()) {
-            enableMaxFunctions(hall, payer);
+            enableMaxFunctions(clan, hall);
         }
         return hall.getId();
     }
 
+    /** The clan's hall: by hideout id, else by owner in ClanHallTable (hideout id can be 0 while the clan still owns a hall). */
     private static AuctionableHall ownedHall(Clan clan) {
-        if ((clan == null) || (clan.getHideoutId() <= 0)) {
+        if (clan == null) {
             return null;
         }
-        return ClanHallTable.getInstance().getAuctionableHallById(clan.getHideoutId());
-    }
-
-    private void enableMaxFunctions(AuctionableHall hall, Player payer) {
-        if (payer == null) {
-            ctx.log().warn("CH#" + hall.getId() + " max functions deferred: no online clan member");
-            return;
+        if (clan.getHideoutId() > 0) {
+            final AuctionableHall h = ClanHallTable.getInstance().getAuctionableHallById(clan.getHideoutId());
+            if ((h != null) && (h.getOwnerId() == clan.getId())) {
+                return h;
+            }
         }
-        apply(hall, payer, ClanHall.FUNC_SUPPORT, MAX_SUPPORT, FeatureConfig.CH_SUPPORT8_FEE, FeatureConfig.CH_SUPPORT_FEE_RATIO);
-        apply(hall, payer, ClanHall.FUNC_TELEPORT, MAX_TELEPORT, FeatureConfig.CH_TELE2_FEE, FeatureConfig.CH_TELE_FEE_RATIO);
-        apply(hall, payer, ClanHall.FUNC_RESTORE_HP, MAX_HP_PCT, FeatureConfig.CH_HPREG13_FEE, FeatureConfig.CH_HPREG_FEE_RATIO);
-        apply(hall, payer, ClanHall.FUNC_RESTORE_MP, MAX_MP_PCT, FeatureConfig.CH_MPREG5_FEE, FeatureConfig.CH_MPREG_FEE_RATIO);
-        apply(hall, payer, ClanHall.FUNC_RESTORE_EXP, MAX_EXP_PCT, FeatureConfig.CH_EXPREG7_FEE, FeatureConfig.CH_EXPREG_FEE_RATIO);
+        return ClanHallTable.getInstance().getClanHallByOwner(clan);
     }
 
-    private void apply(ClanHall hall, Player payer, int type, int level, int fee, long ratio) {
+    /** How many auctionable halls this clan owns (should be 0 or 1). */
+    static int ownedHallCount(Clan clan) {
+        if (clan == null) {
+            return 0;
+        }
+        final List<Integer> owners = new ArrayList<>();
+        for (AuctionableHall h : ClanHallTable.getInstance().getClanHalls().values()) {
+            owners.add(h.getOwnerId());
+        }
+        return countOwned(owners, clan.getId());
+    }
+
+    /** Pure: owner ids equal to clanId. */
+    static int countOwned(List<Integer> ownerIds, int clanId) {
+        int n = 0;
+        for (Integer o : ownerIds) {
+            if ((o != null) && (o == clanId)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /** Functions are paid from the clan warehouse only, never from a player. */
+    private void enableMaxFunctions(Clan clan, AuctionableHall hall) {
+        apply(clan, hall, ClanHall.FUNC_SUPPORT, MAX_SUPPORT, FeatureConfig.CH_SUPPORT8_FEE, FeatureConfig.CH_SUPPORT_FEE_RATIO);
+        apply(clan, hall, ClanHall.FUNC_TELEPORT, MAX_TELEPORT, FeatureConfig.CH_TELE2_FEE, FeatureConfig.CH_TELE_FEE_RATIO);
+        apply(clan, hall, ClanHall.FUNC_RESTORE_HP, MAX_HP_PCT, FeatureConfig.CH_HPREG13_FEE, FeatureConfig.CH_HPREG_FEE_RATIO);
+        apply(clan, hall, ClanHall.FUNC_RESTORE_MP, MAX_MP_PCT, FeatureConfig.CH_MPREG5_FEE, FeatureConfig.CH_MPREG_FEE_RATIO);
+        apply(clan, hall, ClanHall.FUNC_RESTORE_EXP, MAX_EXP_PCT, FeatureConfig.CH_EXPREG7_FEE, FeatureConfig.CH_EXPREG_FEE_RATIO);
+    }
+
+    private void apply(Clan clan, AuctionableHall hall, int type, int level, int fee, long ratio) {
         final ClanHall.ClanHallFunction cur = hall.getFunction(type);
         if ((cur != null) && (cur.getLevel() >= level)) {
             return;
         }
-        fundPlayer(payer, fee + 10_000);
-        final boolean addNew = cur == null;
-        if (!hall.updateFunctions(payer, type, level, fee, ratio, addNew)) {
-            ctx.log().warn("CH#" + hall.getId() + " function " + type + " lvl " + level + " failed");
-            return;
+        if (clan.getWarehouse().getAdena() < fee) {
+            topUpWarehouse(clan, hall);
         }
-        // stock ClanHallManager does this after updateFunctions so the client sees Recovery/Other
-        if (hall instanceof AuctionableHall ah) {
-            payer.sendPacket(new AgitDecoInfo(ah));
+        // hook P10-CH-FUNC-CWH: the fee comes from the clan warehouse (stock updateFunctions takes it from a player)
+        if (!hall.updateFunctionFromCwh(type, level, fee, ratio)) {
+            ctx.log().warn("CH#" + hall.getId() + " function " + type + " lvl " + level + " failed (CWH " + clan.getWarehouse().getAdena() + ")");
         }
     }
 
-    private void topUpWarehouse(Clan clan, AuctionableHall hall, Player actor) {
-        final long need = needForTwoPeriods(hall.getLease(), functionFeePeriods(hall));
+    /** Keeps CWH >= 2 lease periods + 2 periods of function fees (never below the max function set, even before functions exist). */
+    private void topUpWarehouse(Clan clan, AuctionableHall hall) {
+        final long need = Math.max(needForTwoPeriods(hall.getLease(), functionFeePeriods(hall)), needForTwoPeriods(hall.getLease(), defaultFeePeriods()));
         final long have = clan.getWarehouse().getAdena();
         if (have >= need) {
             return;
         }
         final long add = need - have;
         final int amount = (int) Math.min(Integer.MAX_VALUE, add);
-        clan.getWarehouse().addItem(ItemProcessType.REWARD, Inventory.ADENA_ID, amount, actor, null);
+        clan.getWarehouse().addItem(ItemProcessType.REWARD, Inventory.ADENA_ID, amount, null, null);
         final long now = System.currentTimeMillis();
         // CH upkeep always funded; ledger notes up to the daily cap when possible
         if (clans.canSpendAdena(clan.getId(), add, now)) {
@@ -287,14 +314,6 @@ public final class ClanHallAssign {
             case ClanHall.FUNC_RESTORE_EXP -> FeatureConfig.CH_EXPREG_FEE_RATIO;
             default -> FeatureConfig.CH_SUPPORT_FEE_RATIO;
         };
-    }
-
-    private static void fundPlayer(Player p, long need) {
-        final long have = p.getAdena();
-        if (have >= need) {
-            return;
-        }
-        p.addAdena(ItemProcessType.REWARD, (int) Math.min(Integer.MAX_VALUE, need - have), null, false);
     }
 
     private Player onlineMember(Clan clan) {
