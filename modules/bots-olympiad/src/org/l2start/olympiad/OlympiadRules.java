@@ -12,6 +12,24 @@ import java.util.Set;
  * ({@code classedMin}/{@code nonClassedMin}) are passed in from stock config by the caller.
  */
 public final class OlympiadRules {
+    /**
+     * Daily points reset: due once per competition start, inside {@code leadMs} before it (not during the window).
+     * @param compStart epoch ms of the next/current competition start ({@code <= 0} = unknown)
+     * @param doneFor the compStart a reset was already done for ({@code 0} = none)
+     */
+    public static boolean pointsResetDue(boolean enabled, long now, long compStart, long leadMs, long doneFor) {
+        if (!enabled || (compStart <= 0) || (compStart == doneFor)) {
+            return false;
+        }
+        final long left = compStart - now;
+        return (left > 0) && (left <= leadMs);
+    }
+
+    /** Points a bot noble gets at the daily reset: exactly {@code target} (lower or higher), never negative. */
+    public static int resetPoints(int current, int target) {
+        return Math.max(0, target);
+    }
+
     private OlympiadRules() {
     }
 

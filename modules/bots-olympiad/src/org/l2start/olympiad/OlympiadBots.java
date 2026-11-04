@@ -39,7 +39,7 @@ final class OlympiadBots {
     private final Map<Integer, Long> restUntil = new ConcurrentHashMap<>();
     private volatile Cfg cfg;
 
-    record Cfg(boolean enabled, int rosterSize, int minLevel, int maxLevel, int rivalsPerClass, int chancePercent, int restSeconds, int gatherNpcId) {
+    record Cfg(boolean enabled, int rosterSize, int minLevel, int maxLevel, int rivalsPerClass, int chancePercent, int restSeconds, int gatherNpcId, boolean dailyReset, int dailyPoints, int resetLeadMinutes) {
     }
 
     OlympiadBots(ModuleContext ctx, OlympiadPool pool, Cfg cfg) {
@@ -67,7 +67,8 @@ final class OlympiadBots {
             max = min;
         }
         return new Cfg(ctx.config().getBoolean("Enabled"), ctx.config().getInt("RosterSize"), min, max, ctx.config().getInt("RivalsPerClass"),
-            ctx.config().getInt("SignUpChancePercent"), ctx.config().getInt("RestSeconds"), ctx.config().getInt("GatherNpcId"));
+            ctx.config().getInt("SignUpChancePercent"), ctx.config().getInt("RestSeconds"), ctx.config().getInt("GatherNpcId"),
+            ctx.config().getBoolean("DailyPointsReset"), ctx.config().getInt("DailyPoints"), ctx.config().getInt("DailyPointsLeadMinutes"));
     }
 
     void setCfg(Cfg cfg) {
@@ -365,13 +366,53 @@ final class OlympiadBots {
         return (p != null) && !CoreHooks.isBot(p);
     }
 
+    /** compStart the daily reset was done for (in memory; a repeat after a restart is harmless: same value). */
+    private volatile long pointsResetFor;
+
+    /** Every minute: shortly before the competition start set every roster noble to exactly DailyPoints. */
+    void tickPointsReset() {
+        final Cfg c = cfg;
+        final Olympiad oly = Olympiad.getInstance();
+        if (oly == null) {
+            return;
+        }
+        final long start = oly.hookCompStartMillis();
+        if (!OlympiadRules.pointsResetDue(c.dailyReset, System.currentTimeMillis(), start, c.resetLeadMinutes * 60_000L, pointsResetFor)) {
+            return;
+        }
+        pointsResetFor = start;
+        resetPoints(c.dailyPoints, "daily before " + new java.util.Date(start));
+    }
+
+    /** @return how many nobles were set; the cache is saved to the DB right away. */
+    int resetPoints(int target, String why) {
+        final Olympiad oly = Olympiad.getInstance();
+        int set = 0;
+        int notNoble = 0;
+        for (int id : pool.all()) {
+            final int charId = pool.charId(id);
+            if (charId <= 0) {
+                continue;
+            }
+            final int now = oly.hookNoblePoints(charId);
+            if (oly.hookSetNoblePoints(charId, OlympiadRules.resetPoints(now, target))) {
+                set++;
+            } else {
+                notNoble++;
+            }
+        }
+        oly.hookSaveNobles();
+        ctx.log().info("olympiad points reset (" + why + "): " + set + " bot nobles set to " + target + (notNoble > 0 ? ", " + notNoble + " not registered nobles yet" : ""));
+        return set;
+    }
+
     List<String> diag() {
         final Cfg c = cfg;
         final Olympiad oly = Olympiad.getInstance();
         final Waiting w = waiting();
         final List<String> lines = new ArrayList<>();
         lines.add("Olympiad bots: Enabled=" + c.enabled + ", window=" + ((oly != null) && oly.inCompPeriod()) + ", roster " + pool.all().size() + "/" + c.rosterSize
-            + ", rivals/class " + c.rivalsPerClass + ", chance " + c.chancePercent + "%, rest " + c.restSeconds + "s");
+            + ", daily points " + (c.dailyReset ? c.dailyPoints + " (" + c.resetLeadMinutes + " min before start)" : "off") + ", rivals/class " + c.rivalsPerClass + ", chance " + c.chancePercent + "%, rest " + c.restSeconds + "s");
         lines.add("Waiting: live non-classed " + w.liveNon + "/" + w.nonSize + ", live classed classes " + w.liveClassed);
         int inWorld = 0;
         int noble = 0;

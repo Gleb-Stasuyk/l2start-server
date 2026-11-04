@@ -157,6 +157,12 @@ final class OlympiadService implements OlympiadPool {
     }
 
     @Override
+    public int charId(int botId) {
+        final BotRecord r = rec(botId);
+        return (r == null) || (r.status() != BotRecord.Status.OLYMPIAD) ? 0 : r.charId();
+    }
+
+    @Override
     public Player player(int botId) {
         final BotRecord r = rec(botId);
         return r == null ? null : r.player();

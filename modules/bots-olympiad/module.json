@@ -2,7 +2,7 @@
   "id": "bots-olympiad",
   "name": "Bots: olympiad",
   "description": "Phase 9 E: Grand Olympiad nobles (roster 40, combat 3rd professions), gather at NPC 31688, fill live classed/non-classed even for rare classes, mixed A/S gear, regular SS+SPS, and stadium AI by role. Depends on bots-core (OlympiadPool) and bots-brain-basic. Stock olympiad is unchanged when Enabled=false or bots-core is off.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "kind": "jar",
   "platform": "^1.11",
   "entrypoint": "org.l2start.olympiad.BotsOlympiadModule",
@@ -19,6 +19,9 @@
     "SignUpChancePercent": { "type": "int", "default": 10, "min": 0, "max": 100, "reloadable": true, "description": "When no live player is waiting: chance a free noble signs up to non-classed (bot vs bot) each signup pass." },
     "RestSeconds": { "type": "int", "default": 180, "min": 0, "max": 3600, "reloadable": true, "description": "Seconds a noble waits after a match before it may sign up again." },
     "RejoinParty": { "type": "bool", "default": true, "reloadable": true, "description": "Reserved for party hold after a match. Unused in A-E." },
+    "DailyPointsReset": { "type": "bool", "default": true, "reloadable": true, "description": "Every day shortly before the olympiad competition start (core OlympiadStartTime/OlympiadMin) set every roster bot noble to exactly DailyPoints (lower or higher), in the live noble cache, saved to the DB." },
+    "DailyPoints": { "type": "int", "default": 18, "min": 0, "max": 1000, "reloadable": true, "description": "Olympiad points a bot noble gets at the daily reset." },
+    "DailyPointsLeadMinutes": { "type": "int", "default": 10, "min": 1, "max": 120, "reloadable": true, "description": "How many minutes before the competition start the daily reset runs." },
     "GatherNpcId": { "type": "int", "default": 31688, "min": 1, "reloadable": true, "description": "Grand Olympiad Manager NPC the roster gathers around (stock 31688)." }
   }
 }

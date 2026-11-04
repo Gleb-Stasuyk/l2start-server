@@ -47,6 +47,7 @@ public final class BotsOlympiadModule implements GameModule {
         final OlympiadBots o = (OlympiadBots) bots;
         ctx.scheduler().fixedRate("olympiad roster", Duration.ofSeconds(2), Duration.ofSeconds(2), o::tickRoster);
         ctx.scheduler().fixedRate("olympiad signup", Duration.ofSeconds(30), Duration.ofSeconds(30), o::tickSignup);
+        ctx.scheduler().fixedRate("olympiad points reset", Duration.ofSeconds(60), Duration.ofSeconds(60), o::tickPointsReset);
     }
 
     @Override
@@ -61,6 +62,15 @@ public final class BotsOlympiadModule implements GameModule {
         if (bots != null) {
             ((OlympiadBots) bots).idleLogout();
         }
+    }
+
+    /** //oly points [n]: set every roster noble to n (default DailyPoints) now. */
+    String resetPointsNow(Integer n) {
+        if (bots == null) {
+            return "bots-olympiad: idle (bots-core is off)";
+        }
+        final int target = n != null ? n : ctx.config().getInt("DailyPoints");
+        return "olympiad bots set to " + target + " points: " + ((OlympiadBots) bots).resetPoints(target, "GM") + " nobles";
     }
 
     List<String> diag() {
