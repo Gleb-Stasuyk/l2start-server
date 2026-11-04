@@ -22,6 +22,19 @@ final class AdminOly implements IAdminCommandHandler {
     public boolean onCommand(String command, Player gm) {
         final StringTokenizer st = new StringTokenizer(command);
         st.nextToken();
+        if (st.hasMoreTokens() && "points".equalsIgnoreCase(st.nextToken())) {
+            Integer n = null;
+            if (st.hasMoreTokens()) {
+                try {
+                    n = Math.max(0, Integer.parseInt(st.nextToken()));
+                } catch (NumberFormatException e) {
+                    gm.sendMessage("Usage: //oly points [n]");
+                    return true;
+                }
+            }
+            gm.sendMessage(module.resetPointsNow(n));
+            return true;
+        }
         for (String line : module.diag()) {
             gm.sendMessage(line);
         }

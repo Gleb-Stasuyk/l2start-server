@@ -33,6 +33,19 @@ import org.l2start.bots.api.WorldView;
 /** The {@link WorldView} of one tick, read from the stock objects. Lists are built on first use. */
 final class MobiusWorldView implements WorldView {
     static final int MAX_OBJECTS = 64;
+    /**
+     * Stock {@code OlympiadGame.portPlayersToArena} puts the two contestants at stadium x +900 and x -900: 1800 apart,
+     * farther than the default {@code ViewRadius} (1500). With the plain radius the rival is never in
+     * {@link #players()}, the brain reports "olympiad: no rival" and both bots stand until the 6-minute draw.
+     */
+    static final int OLYMPIAD_SPREAD = 1800;
+    /** Player radius inside an olympiad match: the whole stadium (spread + drift), still within neighbour regions. */
+    static final int OLYMPIAD_VIEW = 2200;
+
+    /** Radius for {@link #players()}: at least the whole stadium while in an olympiad match. */
+    static int playersRadius(int radius, boolean inOlympiadMatch) {
+        return inOlympiadMatch ? Math.max(radius, OLYMPIAD_VIEW) : radius;
+    }
 
     private final Player p;
     private final BotRegistry registry;
@@ -155,7 +168,7 @@ final class MobiusWorldView implements WorldView {
     public List<PlayerView> players() {
         if (players == null) {
             final List<PlayerView> l = new ArrayList<>();
-            for (Player o : World.getVisibleObjectsInRange(p, Player.class, radius)) {
+            for (Player o : World.getVisibleObjectsInRange(p, Player.class, playersRadius(radius, self.inOlympiadMatch()))) {
                 final Pos at = pos(o);
                 final WorldObject t = o.getTarget();
                 final boolean theirPeace = o.isInsideZone(ZoneId.PEACE) || o.isInsideZone(ZoneId.TOWN);

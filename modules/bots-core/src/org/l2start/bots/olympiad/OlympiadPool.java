@@ -43,4 +43,9 @@ public interface OlympiadPool {
 
     /** The Player in the world, or null. */
     Player player(int botId);
+
+    /** Character object id of the noble (online or not); 0 when unknown. */
+    default int charId(int botId) {
+        return 0;
+    }
 }

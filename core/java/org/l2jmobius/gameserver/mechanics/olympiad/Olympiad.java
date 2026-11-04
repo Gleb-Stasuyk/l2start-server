@@ -1664,6 +1664,42 @@ public class Olympiad extends ListenersContainer
 	}
 	
 	// <<< [HOOK:P9-OLY-WAIT]
+	// >>> [HOOK:P9-OLY-POINTS]
+	/**
+	 * Set a noble's in-memory olympiad points (the stock cache the matcher and saves use). Does not touch the DB; call
+	 * {@link #hookSaveNobles()} after a batch. @return false when the character is not a loaded noble.
+	 */
+	public boolean hookSetNoblePoints(int charId, int points)
+	{
+		final StatSet noble = NOBLES.get(charId);
+		if (noble == null)
+		{
+			return false;
+		}
+		noble.set(POINTS, Math.max(0, points));
+		return true;
+	}
+	
+	/** Current olympiad points of a loaded noble, -1 when not a noble. */
+	public int hookNoblePoints(int charId)
+	{
+		final StatSet noble = NOBLES.get(charId);
+		return noble == null ? -1 : noble.getInt(POINTS, 0);
+	}
+	
+	/** Persist the noble cache now (stock UPDATE/INSERT per noble). */
+	public void hookSaveNobles()
+	{
+		saveNobleData();
+	}
+	
+	/** Epoch ms of the scheduled (next or current) competition start; -1 when not scheduled yet. */
+	public long hookCompStartMillis()
+	{
+		return _compStart == null ? -1 : _compStart.getTimeInMillis();
+	}
+	
+	// <<< [HOOK:P9-OLY-POINTS]
 	public int getLastNobleOlympiadPoints(int objId)
 	{
 		int result = 0;

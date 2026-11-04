@@ -139,3 +139,12 @@ Allowlist 3-х: **88,89,90,91,92,93,94,95,99,100,101,102,103,106,107,108,109,110
 ## Smoke
 
 `tools/smoke.sh` держит `L2_MOD_BOTS_OLYMPIAD__ENABLED=false` (как `StoresPerTown Giran:0` у рынка): модуль **RUNNING** в solo и online, но ростер не создаёт 40 дворян и не ломает счётчики охотников 20/10. Online без bots-core — idle (`bots-core is off: idle`), сток олимпиады, FailurePolicy=abort не срабатывает. CT-D — в игре.
+
+## Ежедневный сброс очков (0.4.0)
+
+- `DailyPointsReset=true`, `DailyPoints=18`, `DailyPointsLeadMinutes=10`: каждый день за 10 минут до старта
+  соревнований (время берётся из стока — `Olympiad.hookCompStartMillis`, т.е. `OlympiadStartTime`/`OlympiadMin`)
+  всем дворянам-ботам ростера ставится **ровно** 18 очков (и вниз, и вверх) в живом кэше `NOBLES` через хук
+  **`P9-OLY-POINTS`**, затем кэш сразу сохраняется в БД. Остановка игры и SQL не нужны. Живых игроков не трогает.
+- `//oly points [n]` — то же самое сразу (по умолчанию `DailyPoints`).
+- Ручной запасной вариант при остановленной игре: `docs/ops/oly-bots-points.sql`.
