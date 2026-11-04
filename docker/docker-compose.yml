@@ -88,6 +88,7 @@ services:
   game:
     <<: *server
     container_name: l2s-game
+    mem_limit: ${L2S_GAME_MEM:-5g}  # container RAM cap; set per profile (solo.env / online.env), override in docker/.env
     command: ["game"]
     depends_on:
       login:
