@@ -13,6 +13,30 @@ import java.util.Set;
  */
 public final class OlympiadRules {
     /**
+     * Shots a noble may auto-use in the stadium: regular Soulshots / Spiritshots of every grade (D..S) and the plain
+     * Beast shots. Blessed Spiritshots (3947-3952) and Blessed Beast Spiritshot (6647) are left out: Olympiad.ini
+     * {@code OlympiadDisableBlessedSpiritShots=True}.
+     */
+    public static final Set<Integer> STADIUM_SHOTS = Set.of(1463, 1464, 1465, 1466, 1467, 2510, 2511, 2512, 2513, 2514, 6645, 6646);
+
+    /**
+     * Stock {@code OlympiadGame} calls {@code disableAutoShotsAll()} on every contestant before the stadium; a live
+     * player clicks the shots again, a bot never did, so it fought without shots. These are the ids to turn back on.
+     * @param inInventory item ids the bot carries
+     * @param active auto-shots already on
+     */
+    public static List<Integer> shotsToArm(java.util.Collection<Integer> inInventory, Set<Integer> active) {
+        final List<Integer> out = new java.util.ArrayList<>();
+        for (int id : inInventory) {
+            if (STADIUM_SHOTS.contains(id) && !active.contains(id) && !out.contains(id)) {
+                out.add(id);
+            }
+        }
+        java.util.Collections.sort(out);
+        return out;
+    }
+
+    /**
      * Daily points reset: due once per competition start, inside {@code leadMs} before it (not during the window).
      * @param compStart epoch ms of the next/current competition start ({@code <= 0} = unknown)
      * @param doneFor the compStart a reset was already done for ({@code 0} = none)
