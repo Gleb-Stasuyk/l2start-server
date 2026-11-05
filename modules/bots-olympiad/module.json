@@ -2,7 +2,7 @@
   "id": "bots-olympiad",
   "name": "Bots: olympiad",
   "description": "Phase 9 E: Grand Olympiad nobles (roster 40, combat 3rd professions), gather at NPC 31688, fill live classed/non-classed even for rare classes, mixed A/S gear, regular SS+SPS, and stadium AI by role. Depends on bots-core (OlympiadPool) and bots-brain-basic. Stock olympiad is unchanged when Enabled=false or bots-core is off.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "kind": "jar",
   "platform": "^1.11",
   "entrypoint": "org.l2start.olympiad.BotsOlympiadModule",

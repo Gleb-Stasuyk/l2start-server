@@ -102,6 +102,7 @@ final class OlympiadBots {
     }
 
     void tickRoster() {
+        rearmShots();
         final Cfg c = cfg;
         if (!c.enabled) {
             idleLogout();
@@ -276,6 +277,32 @@ final class OlympiadBots {
 
     private static int pickDeficit(Map<Integer, Integer> target, Map<Integer, Integer> have) {
         return OlympiadRules.pickCreateClass(target, have);
+    }
+
+    /** Bots in a match: turn the stock-disabled auto-shots back on (regular SS/SPS only) and charge the weapon. */
+    void rearmShots() {
+        for (int id : pool.all()) {
+            final Player p = pool.player(id);
+            if (!inMatch(p) || p.isDead()) {
+                continue;
+            }
+            final List<Integer> have = new ArrayList<>();
+            for (int shot : OlympiadRules.STADIUM_SHOTS) {
+                final org.l2jmobius.gameserver.entity.item.instance.Item it = p.getInventory().getItemByItemId(shot);
+                if ((it != null) && (it.getCount() > 0)) {
+                    have.add(shot);
+                }
+            }
+            final List<Integer> arm = OlympiadRules.shotsToArm(have, p.getAutoSoulShot());
+            if (arm.isEmpty()) {
+                continue;
+            }
+            for (int shot : arm) {
+                p.addAutoSoulShot(shot);
+            }
+            p.rechargeShots(true, true);
+            ctx.log().info("olympiad shots on for " + p.getName() + ": " + arm);
+        }
     }
 
     static boolean inMatch(Player p) {

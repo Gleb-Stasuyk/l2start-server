@@ -17,7 +17,7 @@ class BotsOlympiadManifestTest {
         final Path dir = Path.of("modules/bots-olympiad");
         final ModuleManifest m = ManifestReader.read(dir);
         assertEquals("bots-olympiad", m.id());
-        assertEquals("0.4.0", m.version().toString());
+        assertEquals("0.4.1", m.version().toString());
         final String json = Files.readString(dir.resolve("module.json"));
         assertTrue(json.contains("\"entrypoint\": \"org.l2start.olympiad.BotsOlympiadModule\""));
         assertTrue(json.contains("\"id\": \"bots-core\""));
