@@ -184,6 +184,7 @@ public class SchemeBuffer extends Npc
 					if (skill != null)
 					{
 						skill.applyEffects(this, target);
+						org.l2start.platform.hooks.CoreHooks.schemeBufferBuff(this, target, skill.getId()); // [HOOK:P11-BUFFER-TIME]
 					}
 				}
 			}
@@ -389,6 +390,7 @@ public class SchemeBuffer extends Npc
 					if (skill != null)
 					{
 						skill.applyEffects(this, target);
+						org.l2start.platform.hooks.CoreHooks.schemeBufferBuff(this, target, skill.getId()); // [HOOK:P11-BUFFER-TIME]
 					}
 				}
 				
@@ -648,6 +650,7 @@ public class SchemeBuffer extends Npc
 			if (skill != null)
 			{
 				skill.applyEffects(this, target);
+				org.l2start.platform.hooks.CoreHooks.schemeBufferBuff(this, target, skill.getId()); // [HOOK:P11-BUFFER-TIME]
 			}
 		}
 		

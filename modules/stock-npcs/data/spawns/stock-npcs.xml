@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<list enabled="true" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../core/dist/game/data/xsd/spawns.xsd">
+	<!-- Stock NPCs already defined in the Mobius datapack. One spawn each; loaded with the module on every start. -->
+	<!-- 50008 coordinates are the ones docker/local-features.sh used next to the gatekeepers. -->
+	<spawn name="stock_scheme_buffer">
+		<npc id="50008" x="-12700" y="122811" z="-3114" heading="49152" respawnDelay="60" /> <!-- Gludio, beside Bella -->
+		<npc id="50008" x="15680" y="143020" z="-2704" heading="32768" respawnDelay="60" /> <!-- Dion, beside Trisha -->
+		<npc id="50008" x="83561" y="147904" z="-3404" heading="16384" respawnDelay="60" /> <!-- Giran, beside Clarissa -->
+		<npc id="50008" x="146836" y="25858" z="-2013" heading="0" respawnDelay="60" /> <!-- Aden -->
+		<npc id="50008" x="148124" y="-55235" z="-2728" heading="48000" respawnDelay="60" /> <!-- Goddard, beside Tatiana -->
+	</spawn>
+	<!-- No stock spawn existed for the GM Shop. Beside Giran's square, south of the gatekeeper line, not on another NPC. -->
+	<spawn name="stock_gm_shop">
+		<npc id="50010" x="83680" y="147780" z="-3404" heading="16384" respawnDelay="60" /> <!-- Mirellas, Giran -->
+	</spawn>
+</list>

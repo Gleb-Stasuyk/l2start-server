@@ -109,4 +109,12 @@ public interface ModuleContext {
     default void onTeleportName(TeleportNameListener listener) {
         throw new UnsupportedOperationException("onTeleportName needs platform API 1.7");
     }
+
+    /**
+     * Since API 1.13. The stock Scheme Buffer NPC just applied one buff with {@code Skill.applyEffects}
+     * (hook P11-BUFFER-TIME). A player, bot or item cast does not come here. Guarded; removed when the module is disabled.
+     */
+    default void onSchemeBufferBuff(SchemeBufferBuffListener listener) {
+        throw new UnsupportedOperationException("onSchemeBufferBuff needs platform API 1.13");
+    }
 }

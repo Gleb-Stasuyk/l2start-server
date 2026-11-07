@@ -14,5 +14,5 @@ Launcher-owned settings (`settings.env`, read by `docker/local-features.sh`):
 | Key | Meaning |
 |---|---|
 | `L2S_CLASS_MASTER` | `off` or any of `1,2,3`: stock ClassMaster popup (class-choice dialog at 20/40/76), free |
-| `L2S_STOCK_NPC_BUFFER` | `on/off`: stock Scheme Buffer NPC 50008 at the gatekeepers of Gludio/Dion/Giran/Aden/Goddard |
+| `L2S_STOCK_NPC_BUFFER` | keep `off`. Module `stock-npcs` spawns Scheme Buffer 50008 (and GM Shop 50010). `on` writes a second 50008 spawn into the container |
 | `L2S_BUFF_DURATION` | seconds for every skill of `CommunityAvailableBuffs` + `SchemeBufferSkills.xml` (`EnableModifySkillDuration` + `SkillDurationList`); 0 = stock |

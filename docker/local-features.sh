@@ -1,7 +1,7 @@
 #!/bin/sh
 # l2start "local" features generated from env (written by L2Launcher into .env / docker/.env). Sourced by entrypoint.sh (game role).
 #   L2S_CLASS_MASTER     = off | any of 1,2,3 (e.g. "1,2,3")  -> stock Mobius ClassMaster popup (class-choice dialog at 20/40/76), free
-#   L2S_STOCK_NPC_BUFFER = on|off   -> spawn stock Scheme Buffer NPC 50008 "Thiago" next to the gatekeepers of the main towns
+#   L2S_STOCK_NPC_BUFFER = on|off   -> extra spawn of stock Scheme Buffer NPC 50008. Keep off: module stock-npcs already spawns it (a second file would duplicate the NPC)
 #   L2S_ENCHANT_MAX      = N   -> maxEnchant of every scroll (EnchantItemData.xml) + upper bound of the rate groups
 #   L2S_ENCHANT_CHANCE   = %   -> chance above the safe enchant (EnchantItemGroups.xml, stock 66)
 #   L2S_BUFF_DURATION    = seconds  -> duration of every buff of the stock buffers (community board + scheme buffer); 0/empty = stock

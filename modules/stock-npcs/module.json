@@ -1,0 +1,14 @@
+{
+  "id": "stock-npcs",
+  "name": "Stock buffer and GM shop",
+  "description": "Spawns the stock Scheme Buffer (NPC 50008) and the stock GM Shop (NPC 50010). Buffs this NPC applies last DurationSec; other casters keep the skill duration.",
+  "version": "1.0.0",
+  "kind": "jar",
+  "platform": "^1.13",
+  "entrypoint": "org.l2start.modules.stocknpcs.StockNpcsModule",
+  "defaultEnabled": { "solo": true, "online": true },
+  "data": { "spawns": "data/spawns" },
+  "config": {
+    "DurationSec": { "type": "int", "default": 3600, "min": 0, "max": 86400, "reloadable": true, "description": "Seconds a buff from the stock Scheme Buffer NPC lasts. 0 = leave the duration applyEffects just set. Does not change player, bot or item casts." }
+  }
+}

@@ -9,7 +9,7 @@
 # containers, l2s-db-data) is never touched and may keep running.
 #
 # Scenarios:
-# The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market, bots-olympiad: on in both
+# The image always contains the real modules of modules/ (starter-kit, lw-fixes, economy-market, bots-olympiad, stock-npcs: on in both
 # profiles; bots-core, bots-brain-basic: solo only). bots-olympiad without bots-core (online) stays idle; smoke keeps
 # Enabled=false so the 40-noble roster does not change hunter identity counts.
 # the smoke image adds 9 test modules (platform/test/fixtures), switched by SMOKE_FIXTURES.
@@ -20,8 +20,8 @@
 #                                                      breaker degrades fx-flaky, DB tables/migrations written
 #   3 restart   same as 2, game restarted           -> healthy, no migration applied again, shutdown hook ran, module data kept
 #   4 abort     profile online + fixtures            -> game exits with code 1, "FailurePolicy=abort"
-#   5 online    profile online, fixtures off        -> healthy, 9 fixtures + bots-core/brain DISABLED, bots-olympiad RUNNING idle, starter-kit + lw-fixes RUNNING, counts == stock
-#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes + bots-core + bots-brain-basic + bots-olympiad RUNNING, counts == stock,
+#   5 online    profile online, fixtures off        -> healthy, 9 fixtures + bots-core/brain DISABLED, bots-olympiad RUNNING idle, starter-kit + lw-fixes RUNNING, counts == stock + stock-npcs (187 spawn files, 34128 spawns)
+#   6 solo      profile solo, fixtures off (= what players get) -> healthy, starter-kit + lw-fixes + bots-core + bots-brain-basic + bots-olympiad RUNNING, counts == stock + stock-npcs (187 spawn files, 34128 spawns),
 #                                                      bots-core tables created, no bot enters the world without geodata, olympiad roster off
 #   7 bots      solo, AutoCreate=20 AutoSpawn=10, RequireGeodata=false -> 20 bot characters (banned accounts, online=0,
 #                                                      starting gear, personas, state), 10 in the world, logged out on shutdown;
@@ -123,7 +123,7 @@ if wait_game healthy 900; then ok "game healthy (FailurePolicy=continue)"; else 
 sleep 15 # breaker window for fx-flaky
 gamelog > "$OUT/2-solo.log"
 L="$OUT/2-solo.log"
-check "summary line" grep -qE 'Platform: profile=solo, 20 discovered: 14 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
+check "summary line" grep -qE 'Platform: profile=solo, 21 discovered: 15 running, 3 failed, 2 refused, 1 invalid, 0 disabled' "$L"
 check "fx-core RUNNING" state_is fx-core RUNNING "$L"
 check "fx-core: NPC, NPC listener, spawn, html, voiced/admin/bypass commands, i18n, db" has "FIXTURE fx-core checks OK (npc, npc-listener, spawn, html, voiced, admin, bypass, i18n, db)" "$L"
 check "fx-core: enabled with registrations and 1 new migration" grep -qE 'Platform: enabled fx-core 1\.0\.0 \([1-9][0-9]* registrations, 1 new migrations\)' "$L"
@@ -153,9 +153,11 @@ check "fx-flaky DEGRADED by circuit breaker" grep -qE 'Platform: module fx-flaky
 # Lines that depend on rows the FIRST boot (scenario 1) wrote into the database, not on data files.
 VOLATILE='^(GlobalVariablesManager|ClanHallAuctionManager|MonsterRace):'
 counts "$L" | grep -vE "$VOLATILE" > "$OUT/2-counts.txt"
+# fx-core/fx-ok-dep: buylist +1, multisell +1, spawn file +1, spawn +1.
+# stock-npcs (on with the real modules): spawn file +1, spawns +6 (five buffers and the GM shop).
 grep -vE "$VOLATILE" "$OUT/baseline.txt" | sed -E -e 's/^BuyListData: Loaded 616 /BuyListData: Loaded 617 /' -e 's/^MultisellData: Loaded 208 /MultisellData: Loaded 209 /' \
-  -e 's/^SpawnData: 186 spawn/SpawnData: 187 spawn/' -e 's/^SpawnData: 34122 spawns/SpawnData: 34123 spawns/' > "$OUT/2-expected.txt"
-if diff <(sort "$OUT/2-expected.txt") <(sort "$OUT/2-counts.txt") > "$OUT/2-counts.diff"; then ok "counts = stock + fx-core/fx-ok-dep data (buylist, multisell, spawn)"; else ko "counts differ from stock + module data (see 2-counts.diff)"; cat "$OUT/2-counts.diff"; fi
+  -e 's/^SpawnData: 186 spawn/SpawnData: 188 spawn/' -e 's/^SpawnData: 34122 spawns/SpawnData: 34129 spawns/' > "$OUT/2-expected.txt"
+if diff <(sort "$OUT/2-expected.txt") <(sort "$OUT/2-counts.txt") > "$OUT/2-counts.diff"; then ok "counts = stock + fx-core/fx-ok-dep data + stock-npcs (buylist, multisell, 188 spawn files, 34129 spawns)"; else ko "counts differ from stock + module data (see 2-counts.diff)"; cat "$OUT/2-counts.diff"; fi
 check "module data folders logged" grep -qE 'Platform: npcs from modules: 1 folder' "$L"
 check "migration table: fx-core V001 ok" test "$(sql "SELECT success FROM platform_module_migrations WHERE module_id='fx-core' AND version=1")" = 1
 check "migration table: fx-bad-migration V001 failed" test "$(sql "SELECT success FROM platform_module_migrations WHERE module_id='fx-bad-migration' AND version=1")" = 0
@@ -191,7 +193,7 @@ start_game online false off
 if wait_game healthy 900; then ok "game healthy"; else ko "game healthy"; fi
 gamelog > "$OUT/5-online.log"
 check "fx-core DISABLED by switch" state_is fx-core DISABLED "$OUT/5-online.log"
-check "summary: real modules running, fixtures + bots-core/brain disabled, bots-olympiad idle" grep -qE 'Platform: profile=online, 20 discovered: 9 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
+check "summary: real modules running, fixtures + bots-core/brain disabled, bots-olympiad idle" grep -qE 'Platform: profile=online, 21 discovered: 10 running, 0 failed, 0 refused, 0 invalid, 11 disabled' "$OUT/5-online.log"
 check "bots-core DISABLED in online" state_is bots-core DISABLED "$OUT/5-online.log"
 check "online: stock no-store zones kept" hasnt "stores anywhere:" "$OUT/5-online.log"
 check "online: bot market off, only the log and index (economy-market)" grep -qE 'Module\[economy-market\]: market: .*market off \(log and index only\)' "$OUT/5-online.log"
@@ -215,7 +217,7 @@ real_modules() { # real_modules LOG N
   check "$2: economy-market RUNNING" state_is economy-market RUNNING "$1"
   check "$2: rates-floating RUNNING (hooks P7-DROP-FLOAT, P7-QUEST-REWARD)" state_is rates-floating RUNNING "$1"
   check "$2: rates-floating rules" grep -qE 'Module\[rates-floating\]: enabled: drop chance 3.0xF, spoil 3.0xF, raid x2.0, epic x1, champion x2.0 \(adena x3.0\), adena x5.0' "$1"
-  check "$2: platform API 1.12.0" grep -qE 'Platform: API 1\.12\.0,' "$1"
+  check "$2: platform API 1.13.0" grep -qE 'Platform: API 1\.13\.0,' "$1"
   check "$2: world-info RUNNING (hook P8-TELEPORT-NAME)" state_is world-info RUNNING "$1"
   check "$2: return-skill RUNNING (hook P9-DATA-SKILLS)" state_is return-skill RUNNING "$1"
   check "$2: town-buffer RUNNING (buffers)" state_is town-buffer RUNNING "$1"
@@ -226,7 +228,12 @@ real_modules() { # real_modules LOG N
   check "$2: extras: shift+click view for players" has "override game/NPC.ini: AltGameViewNpc = True" "$1"
   check "$2: market catalogue loaded" grep -qE 'Module\[economy-market\]: market: 2[0-9]{3} items, 0 indexed' "$1"
   counts "$1" | grep -vE "$VOLATILE" > "$OUT/$2-counts.txt"
-  if grep -vE "$VOLATILE" "$OUT/baseline.txt" | sort | diff - <(sort "$OUT/$2-counts.txt") > "$OUT/$2-counts.diff"; then ok "$2: startup counts == stock (real modules add no ids)"; else ko "$2: counts differ from stock (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
+  # stock-npcs only: one spawn file, six points (five buffers + the GM shop). Every other count stays on the stock baseline.
+  if grep -vE "$VOLATILE" "$OUT/baseline.txt" | sed -E \
+    -e 's/^SpawnData: 186 spawn files parsed\.$/SpawnData: 187 spawn files parsed./' \
+    -e 's/^SpawnData: 34122 spawns have been initialized!$/SpawnData: 34128 spawns have been initialized!/' \
+    | sort | diff - <(sort "$OUT/$2-counts.txt") > "$OUT/$2-counts.diff"
+  then ok "$2: startup counts == stock + stock-npcs (187 spawn files, 34128 spawns)"; else ko "$2: counts differ from stock + stock-npcs (see $2-counts.diff)"; cat "$OUT/$2-counts.diff"; fi
 }
 real_modules "$OUT/5-online.log" 5
 
@@ -240,7 +247,7 @@ say "   rates selftest:"; rates_lines "$OUT/6-solo.log" | sed -E 's/.*SELFTEST /
 check "rates SELFTEST finished" grep -qE 'Module\[rates-floating\]: SELFTEST done' "$OUT/6-solo.log"
 check "rates SELFTEST: adena exactly x5 at levels 20/40/60" rates_adena "$OUT/6-solo.log"
 check "rates SELFTEST: spoil x1.5..x9 of stock (3xF x mean 1.67), exact items never above 1" rates_items "$OUT/6-solo.log"
-check "summary: 11 running, fixtures disabled" grep -qE 'Platform: profile=solo, 20 discovered: 11 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
+check "summary: 12 running, fixtures disabled" grep -qE 'Platform: profile=solo, 21 discovered: 12 running, 0 failed, 0 refused, 0 invalid, 9 disabled' "$OUT/6-solo.log"
 check "bots-core RUNNING" state_is bots-core RUNNING "$OUT/6-solo.log"
 check "bots-brain-basic RUNNING" state_is bots-brain-basic RUNNING "$OUT/6-solo.log"
 check "bots-olympiad RUNNING" state_is bots-olympiad RUNNING "$OUT/6-solo.log"
@@ -253,7 +260,7 @@ check "bots-core: tables created" test "$(sql "SHOW TABLES LIKE 'mod_bots_core_%
 # phase 6a-6c: party with a real player (hook P6-BOT-PARTY), phrase banks, bot memory
 check "party: hook P6-BOT-PARTY in the core party invitation (guard + notify + busy)" test "$(grep -c 'HOOK:P6-BOT-PARTY' "$ROOT"/core/java/org/l2jmobius/gameserver/network/clientpackets/RequestJoinParty.java)" -ge 3
 check "chat: phrase banks loaded (phase 6)" grep -qE 'Module\[bots-core\]: chat: [1-9][0-9]+ intents \(phase 6 phrase banks\)' "$OUT/6-solo.log"
-check "platform API 1.12.0 (phase 7e pledge hook / P9-DATA-SKILLS)" grep -qE 'Platform: API 1\.12\.0' "$OUT/6-solo.log"
+check "platform API 1.13.0 (scheme buffer duration hook / P11-BUFFER-TIME)" grep -qE 'Platform: API 1\.13\.0,' "$OUT/6-solo.log"
 check "presence director on by default (whole world catalogue)" grep -qE 'Module\[bots-core\]: presence director: 16 towns, [0-9]{3,} hunting grounds, [0-9]+ armour sets, [0-9]+ weapons' "$OUT/6-solo.log"
 check "presence: director, no anchors" grep -qE 'Module\[bots-core\]: presence: director \(0 old in-world marks cleared, anchors 0\)' "$OUT/6-solo.log"
 check "economy-market: stores anywhere in solo (stock no-store zones off)" grep -qE 'Module\[economy-market\]: stores anywhere: [1-9][0-9]* no-store zones off' "$OUT/6-solo.log"

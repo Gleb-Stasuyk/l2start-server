@@ -277,4 +277,19 @@ public final class CoreHooks {
             return name;
         }
     }
+
+    /**
+     * [HOOK:P11-BUFFER-TIME] SchemeBuffer, immediately after each stock {@code skill.applyEffects}. Without listeners
+     * the buff keeps the duration {@code applyEffects} just set (skill XML, or SkillDurationList when that is on).
+     */
+    public static void schemeBufferBuff(org.l2jmobius.gameserver.entity.actor.Creature buffer, org.l2jmobius.gameserver.entity.actor.Creature target, int skillId) {
+        try {
+            if ((SchemeBufferHooks.size() == 0) || (buffer == null) || (target == null) || (skillId <= 0)) {
+                return;
+            }
+            SchemeBufferHooks.applied(buffer, target, skillId);
+        } catch (Throwable t) {
+            LOGGER.log(Level.WARNING, "Platform: scheme buffer buff listener failed", t);
+        }
+    }
 }
