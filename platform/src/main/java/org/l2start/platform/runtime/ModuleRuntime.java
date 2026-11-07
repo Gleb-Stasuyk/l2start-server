@@ -144,6 +144,14 @@ public final class ModuleRuntime implements ModuleContext {
     }
 
     @Override
+    public void onSchemeBufferBuff(org.l2start.platform.api.SchemeBufferBuffListener listener) {
+        java.util.Objects.requireNonNull(listener, "listener");
+        final org.l2start.platform.api.SchemeBufferBuffListener guarded = (buffer, target, skillId) -> guard.run("scheme buffer buff", () -> listener.onSchemeBufferBuff(buffer, target, skillId));
+        org.l2start.platform.hooks.SchemeBufferHooks.add(entry.id(), guarded);
+        ownership.add("schemeBufferBuff", entry.id(), () -> org.l2start.platform.hooks.SchemeBufferHooks.remove(entry.id(), guarded));
+    }
+
+    @Override
     public void onQuestReward(org.l2start.platform.api.QuestRewardListener listener) {
         java.util.Objects.requireNonNull(listener, "listener");
         final org.l2start.platform.api.QuestRewardListener guarded = (p, id, base, rated) -> {
