@@ -74,6 +74,11 @@ services:
       LOGIN_XMX: "${L2S_LOGIN_XMX:-256m}"
     ports:
       - "${L2S_BIND:-127.0.0.1}:2106:2106"
+    sysctls:
+      # TCP congestion control is per network namespace: the host's bbr is not inherited.
+      # cubic collapses cwnd on lossy player routes (ping spikes); online.env sets bbr.
+      # Default cubic keeps solo / Docker Desktop kernels without tcp_bbr working.
+      net.ipv4.tcp_congestion_control: "${L2S_TCP_CC:-cubic}"
     volumes:
       - "./overrides/${L2S_PROFILE:-solo}:/opt/l2/overrides:ro"
       - l2s-login-logs:/opt/l2/login/log
@@ -101,6 +106,11 @@ services:
       GAME_XMX: "${L2S_GAME_XMX:-2g}"
     ports:
       - "${L2S_BIND:-127.0.0.1}:7777:7777"
+    sysctls:
+      # TCP congestion control is per network namespace: the host's bbr is not inherited.
+      # cubic collapses cwnd on lossy player routes (ping spikes); online.env sets bbr.
+      # Default cubic keeps solo / Docker Desktop kernels without tcp_bbr working.
+      net.ipv4.tcp_congestion_control: "${L2S_TCP_CC:-cubic}"
     volumes:
       - "./overrides/${L2S_PROFILE:-solo}:/opt/l2/overrides:ro"
       - l2s-game-logs:/opt/l2/game/log
