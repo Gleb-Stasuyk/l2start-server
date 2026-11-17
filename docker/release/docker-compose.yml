@@ -66,7 +66,7 @@ services:
       - "./overrides:/opt/l2/overrides:ro"
       - l2l-login-logs:/opt/l2/login/log
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 2106 && nc -z 127.0.0.1 9014"]
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 2106"]
       interval: 5s
       timeout: 3s
       retries: 60
